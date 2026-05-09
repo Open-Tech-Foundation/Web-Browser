@@ -185,6 +185,11 @@ void OtfApp::CloseTab(int tab_id) {
     content_panel_->Layout();
   }
   tab_manager_.RemoveTab(tab_id);
+
+  // Close the window if no tabs are left
+  if (tab_manager_.GetAllTabIds().empty() && window_) {
+    window_->Close();
+  }
 }
 
 void OtfApp::OnContextInitialized() {
