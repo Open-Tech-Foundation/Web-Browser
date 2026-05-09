@@ -141,6 +141,11 @@ void OtfApp::OnContextInitialized() {
   // Dynamic UI Path: Loads from the executable's directory
   std::string ui_url = "file://" + GetExecutableDir() + "/ui/index.html";
 
+  // Development Override: Allow pointing to a local dev server (e.g., Vite/Bun) for HMR
+  if (command_line->HasSwitch("dev-ui-url")) {
+    ui_url = command_line->GetSwitchValue("dev-ui-url");
+  }
+
   CefRefPtr<CefBrowserView> ui_view = CefBrowserView::CreateBrowserView(
       handler, ui_url, browser_settings, nullptr, nullptr,
       new OtfViewDelegate(runtime_style, 60));

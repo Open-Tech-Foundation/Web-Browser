@@ -8,32 +8,42 @@ A custom web browser built with the Chromium Embedded Framework (CEF).
 - Build tools (gcc/g++, make)
 - Dependencies for CEF (GTK, etc.)
 
-## Setup
+## Development Cycle
 
-Before building, you need to download the required CEF binaries.
+For the best experience, use the following workflow:
 
-1.  **Download Dependencies:**
-    Run the setup script to fetch the specific CEF version required for this project.
-    ```bash
-    chmod +x setup_deps.sh
-    ./setup_deps.sh
-    ```
+### 1. Setup Dependencies
+```bash
+bun run setup
+```
 
-2.  **Configure and Build:**
-    ```bash
-    mkdir build
-    cd build
-    cmake ..
-    make -j$(nproc)
-    ```
+### 2. UI Development (HMR)
+To work on the browser's UI with Hot Module Replacement:
+```bash
+bun run dev:ui
+```
+This serves the `ui/` directory at `http://localhost:3000`.
 
-3.  **Run:**
-    ```bash
-    ./otf-browser
-    ```
+### 3. Run Browser in Dev Mode
+In another terminal, run the browser pointed at the dev server:
+```bash
+bun run dev:browser
+```
+Now, any changes you make to `ui/index.html` will be reflected instantly in the browser without restarting the C++ application.
+
+### 4. Fast Builds
+We recommend using **Ninja** for significantly faster builds:
+```bash
+bun run build
+```
+
+## Build Dependencies
+*   CMake 3.21+
+*   Ninja (optional but recommended)
+*   Bun (for UI dev workflow)
+*   GCC 14+ (C++20 support)
 
 ## Project Structure
-
 - `src/`: Main C++ source files.
 - `include/`: Header files.
 - `ui/`: HTML/CSS/JS for the browser interface.

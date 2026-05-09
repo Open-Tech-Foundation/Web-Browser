@@ -1,0 +1,25 @@
+{
+  "name": "otf-browser",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Branded Browser with CEF",
+  "scripts": {
+    "dev": "cd ui && bun x vite --port 3000 --strictPort & bun x wait-on http://localhost:3000 && bun run dev:browser; kill $!",
+    "dev:browser": "./build/Release/otf-browser --no-sandbox --dev-ui-url=http://localhost:3000 --ozone-platform=x11",
+    "build:ui": "bun x vite build ui",
+    "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
+    "setup": "./setup_deps.sh"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0",
+    "vite": "^5.1.4"
+  }
+}

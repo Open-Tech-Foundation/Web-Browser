@@ -5,106 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OTF Browser Shell</title>
     <style>
-        :root {
-            --bg-color: #0f0f12;
-            --bar-color: #1a1a20;
-            --accent-color: #38bdf8; /* Branded OTF Light Blue */
-            --text-color: #e2e8f0;
-            --input-bg: #26262e;
-        }
-
         body, html {
             margin: 0;
             padding: 0;
             height: 60px;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
             overflow: hidden;
         }
-
-        .chrome {
-            height: 60px;
-            background-color: var(--bar-color);
-            display: flex;
-            align-items: center;
-            padding: 0 15px;
-            border-bottom: 1px solid #2d2d39;
-            box-sizing: border-box;
-        }
-
-        .address-bar {
-            flex: 1;
-            display: flex;
-            background-color: var(--input-bg);
-            border-radius: 8px;
-            padding: 8px 12px;
-            align-items: center;
-            margin: 0 15px;
-            border: 1px solid transparent;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .address-bar:focus-within {
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
-        }
-
-        .address-bar input {
-            background: none;
-            border: none;
-            color: var(--text-color);
-            width: 100%;
-            outline: none;
-            font-size: 14px;
-        }
-
-        .btn {
-            background-color: var(--accent-color);
-            color: #0f0f12;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 700;
-            transition: filter 0.2s;
-        }
-
-        .btn:hover {
-            filter: brightness(1.1);
-        }
     </style>
+    <script>
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
 </head>
 <body>
-    <div class="chrome">
-        <div style="font-weight: 900; color: var(--accent-color); margin-right: 10px; font-size: 1.2rem;">OTF</div>
-        <div class="address-bar">
-            <input type="text" id="url-input" placeholder="Navigate with Open Tech Foundation..." value="https://www.google.com">
-        </div>
-        <button class="btn" onclick="loadUrl()">Go</button>
-    </div>
-
-    <script>
-        const input = document.getElementById('url-input');
-
-        function loadUrl() {
-            let url = input.value;
-            if (!url.startsWith('http')) {
-                url = 'https://' + url;
-            }
-            
-            if (window.cefQuery) {
-                window.cefQuery({
-                    request: url,
-                    onSuccess: function(response) { console.log("OTF Engine: Navigation started"); },
-                    onFailure: function(err) { console.error("OTF Engine Error: " + err); }
-                });
-            }
-        }
-
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') loadUrl();
-        });
-    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
