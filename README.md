@@ -10,7 +10,20 @@
 
 </div>
 
+> [!WARNING]  
+> **Experimental Project**: This browser is in early development. Features, APIs, and stability are subject to significant changes.
+
 A modern lightweight desktop web browser built on top of Chromium Embedded Framework (CEF).
+
+## 📥 Download
+
+You can download the latest version of OTF Web Browser for your platform from our [**GitHub Releases**](https://github.com/Open-Tech-Foundation/Web-Browser/releases) page.
+
+| Platform | Release | Status |
+| :--- | :--- | :--- |
+| **Linux (x64)** | [Latest Tarball](https://github.com/Open-Tech-Foundation/Web-Browser/releases) | ✅ Stable |
+| **Windows (x64)** | TBD | 🚧 In Progress |
+| **macOS** | TBD | 🚧 In Progress |
 
 ![OTF Web Browser Screenshot](Screenshot.png)
 
@@ -67,6 +80,16 @@ OTF Web Browser prioritizes security:
 - **Sandbox Support**: Ready for multi-process sandboxing.
 - **Up-to-date Engine**: Regularly updated to the latest CEF/Chromium releases.
 - **Open Source**: Transparent codebase for community auditing.
+
+## 🛣️ Roadmap
+
+- [x] Initial C++/CEF integration
+- [x] Modern React-based UI Shell
+- [x] Smooth tab management
+- [x] Favicon and History support
+- [ ] Windows (x64) Support
+- [ ] macOS (Universal) Support
+- [ ] Automated CI/CD Release Pipeline
 
 ## 📄 License
 
