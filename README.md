@@ -1,50 +1,73 @@
-# OTF Browser
+<div align="center">
 
-A custom web browser built with the Chromium Embedded Framework (CEF).
+# OTF Web Browser
 
-## Prerequisites
+**The Modern Lightweight Desktop Browser.**
 
-- CMake (3.10+)
-- Build tools (gcc/g++, make)
-- Dependencies for CEF (GTK, etc.)
+*Part of the <img src="https://raw.githubusercontent.com/Open-Tech-Foundation/website/3ed7ac70ec44465eec0f94e5185cb28a9b11ed07/static/img/OTF-Logo.svg" width="24" align="center" /> [Open Tech Foundation](https://github.com/Open-Tech-Foundation) ecosystem.*
 
-## Development Cycle
+[**Report Bug**](https://github.com/Open-Tech-Foundation/Web-Browser/issues)
 
-For the best experience, use the following workflow:
+</div>
 
-### 1. Setup Dependencies
+A modern lightweight desktop web browser built on top of Chromium Embedded Framework (CEF).
+
+![OTF Web Browser Screenshot](Screenshot.png)
+
+- 🎨 **Modern UI**: Built with React and Tailwind CSS for a premium look and feel.
+- ⚡ **High Performance**: Powered by CEF (Chromium) for industry-leading speed and compatibility.
+- 🔄 **HMR Support**: Instant UI updates during development without restarting the C++ engine.
+- 🛡️ **Privacy Focused**: Built with security and transparency in mind.
+- 📦 **Zero Bloat**: Lightweight architecture designed for speed.
+
+## 📦 Installation
+
+Prerequisites:
+- CMake (3.21+)
+- Ninja (Build system)
+- GCC 14+ (C++20 support)
+- Bun (for UI development)
+
 ```bash
 bun run setup
 ```
 
-### 2. UI Development (HMR)
-To work on the browser's UI with Hot Module Replacement:
-```bash
-bun run dev:ui
-```
-This serves the `ui/` directory at `http://localhost:3000`.
+## 🛠 Usage
 
-### 3. Run Browser in Dev Mode
-In another terminal, run the browser pointed at the dev server:
-```bash
-bun run dev:browser
-```
-Now, any changes you make to `ui/index.html` will be reflected instantly in the browser without restarting the C++ application.
+To start the UI development server (with HMR) and launch the browser automatically:
 
-### 4. Fast Builds
-We recommend using **Ninja** for significantly faster builds:
 ```bash
-bun run build
+bun run dev
 ```
 
-## Build Dependencies
-*   CMake 3.21+
-*   Ninja (optional but recommended)
-*   Bun (for UI dev workflow)
-*   GCC 14+ (C++20 support)
+## 🏗 Build
 
-## Project Structure
-- `src/`: Main C++ source files.
-- `include/`: Header files.
-- `ui/`: HTML/CSS/JS for the browser interface.
-- `third_party/`: External dependencies (ignored by Git, managed by `setup_deps.sh`).
+We use **Ninja** for high-performance builds. To build the project for production:
+
+### 1. Build UI Assets
+```bash
+bun run build:ui
+```
+
+### 2. Build C++ Engine
+```bash
+bun run build:cpp
+```
+
+## 📂 Project Structure
+
+- `src/`: Core C++ source files.
+- `include/`: C++ header files.
+- `ui/`: React frontend source code.
+- `third_party/`: External dependencies (CEF SDK).
+
+## 🛡️ Security
+
+OTF Web Browser prioritizes security:
+- **Sandbox Support**: Ready for multi-process sandboxing.
+- **Up-to-date Engine**: Regularly updated to the latest CEF/Chromium releases.
+- **Open Source**: Transparent codebase for community auditing.
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
