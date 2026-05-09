@@ -16,6 +16,8 @@ namespace otf {
 
 namespace {
 
+OtfApp* g_app_instance = nullptr;
+
 // Helper to get the executable's directory
 std::string GetExecutableDir() {
   char result[PATH_MAX];
@@ -41,16 +43,21 @@ class OtfWindowDelegate : public CefWindowDelegate {
     CefBoxLayoutSettings layout_settings;
     layout_settings.horizontal = false;
     CefRefPtr<CefBoxLayout> layout = window->SetToBoxLayout(layout_settings);
+    OtfApp* app = OtfApp::GetInstance();
+    app->window_ = window;
 
     if (ui_view_) {
       window->AddChildView(ui_view_);
       layout->SetFlexForView(ui_view_.get(), 0);
     }
 
-    if (content_view_) {
-      window->AddChildView(content_view_);
-      layout->SetFlexForView(content_view_.get(), 1);
-    }
+    app->content_panel_ = CefPanel::CreatePanel(nullptr);
+    CefBoxLayoutSettings content_layout_settings;
+    content_layout_settings.horizontal = false;
+    CefRefPtr<CefBoxLayout> content_layout = app->content_panel_->SetToBoxLayout(content_layout_settings);
+    
+    window->AddChildView(app->content_panel_);
+    layout->SetFlexForView(app->content_panel_.get(), 1);
 
     if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
       window->CenterWindow(CefSize(1280, 800));
@@ -123,7 +130,54 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
 
 }  // namespace
 
-OtfApp::OtfApp() {}
+OtfApp::OtfApp() {
+  DCHECK(!g_app_instance);
+  g_app_instance = this;
+}
+
+OtfApp* OtfApp::GetInstance() {
+  return g_app_instance;
+}
+
+int OtfApp::CreateTab(const std::string& url) {
+  CEF_REQUIRE_UI_THREAD();
+  
+  CefBrowserSettings browser_settings;
+  CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, browser_settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
+  
+  int tab_id = tab_manager_.AddTab(content_view);
+  content_view->SetID(tab_id);
+  return tab_id;
+}
+
+void OtfApp::SwitchTab(int tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+  
+  static int current_tab_id = -1;
+  if (current_tab_id == tab_id) return;
+
+  CefRefPtr<CefBrowserView> old_view = tab_manager_.GetView(current_tab_id);
+  CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
+
+  if (new_view && content_panel_) {
+    if (old_view) content_panel_->RemoveChildView(old_view);
+    content_panel_->AddChildView(new_view);
+    content_panel_->Layout();
+    current_tab_id = tab_id;
+  }
+}
+
+void OtfApp::CloseTab(int tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
+  if (view && content_panel_) {
+    content_panel_->RemoveChildView(view);
+    content_panel_->Layout();
+  }
+  tab_manager_.RemoveTab(tab_id);
+}
 
 void OtfApp::OnContextInitialized() {
   CEF_REQUIRE_UI_THREAD();
@@ -151,16 +205,9 @@ void OtfApp::OnContextInitialized() {
       new OtfViewDelegate(runtime_style, 60));
   ui_view->SetID(100);
 
-  CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
-      handler, "about:blank", browser_settings, nullptr, nullptr,
-      new OtfViewDelegate(runtime_style));
-  
-  int tab_id = tab_manager_.AddTab(content_view);
-  content_view->SetID(tab_id);
-
-  if (ui_view && content_view) {
+  if (ui_view) {
     CefWindow::CreateTopLevelWindow(new OtfWindowDelegate(
-        ui_view, content_view, runtime_style, CEF_SHOW_STATE_NORMAL));
+        ui_view, nullptr, runtime_style, CEF_SHOW_STATE_NORMAL));
   }
 }
 

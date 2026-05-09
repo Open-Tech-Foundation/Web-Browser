@@ -21,41 +21,39 @@ struct BrowserTab {
 // Tab Manager for OTF Browser
 class TabManager {
  public:
-  TabManager() : next_tab_id_(1), active_tab_index_(-1) {}
+  TabManager() : next_tab_id_(1) {}
 
   int AddTab(CefRefPtr<CefBrowserView> view) {
-    BrowserTab tab;
-    tab.id = next_tab_id_++;
-    tab.view = view;
-    tab.is_loading = false;
-    tabs_.push_back(tab);
-    
-    if (active_tab_index_ == -1) {
-      active_tab_index_ = 0;
-    }
-    return tab.id;
+    int id = next_tab_id_++;
+    view_map_[id] = view;
+    return id;
+  }
+
+  void RemoveTab(int tab_id) {
+    view_map_.erase(tab_id);
+    browser_map_.erase(tab_id);
+  }
+
+  CefRefPtr<CefBrowserView> GetView(int tab_id) {
+    auto it = view_map_.find(tab_id);
+    if (it != view_map_.end()) return it->second;
+    return nullptr;
   }
 
   void SetBrowser(int tab_id, CefRefPtr<CefBrowser> browser) {
-    for (auto& tab : tabs_) {
-      if (tab.id == tab_id) {
-        tab.browser = browser;
-        break;
-      }
-    }
+    browser_map_[tab_id] = browser;
   }
 
-  BrowserTab* GetActiveTab() {
-    if (active_tab_index_ >= 0 && (size_t)active_tab_index_ < tabs_.size()) {
-      return &tabs_[active_tab_index_];
-    }
+  CefRefPtr<CefBrowser> GetBrowser(int tab_id) {
+    auto it = browser_map_.find(tab_id);
+    if (it != browser_map_.end()) return it->second;
     return nullptr;
   }
 
  private:
-  std::vector<BrowserTab> tabs_;
+  std::map<int, CefRefPtr<CefBrowserView>> view_map_;
+  std::map<int, CefRefPtr<CefBrowser>> browser_map_;
   int next_tab_id_;
-  int active_tab_index_;
 };
 
 } // namespace otf

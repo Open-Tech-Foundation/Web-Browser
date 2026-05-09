@@ -1,4 +1,5 @@
 #include "otf_handler.h"
+#include "otf_app.h"
 
 #include <sstream>
 #include <string>
@@ -28,18 +29,53 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                const CefString& request,
                bool persistent,
                CefRefPtr<Callback> callback) override {
-    std::string url = request.ToString();
+    std::string msg = request.ToString();
     OtfHandler* handler = OtfHandler::GetInstance();
-    
-    if (handler && handler->tab_manager_) {
-      BrowserTab* active_tab = handler->tab_manager_->GetActiveTab();
-      if (active_tab && active_tab->browser) {
-        active_tab->browser->GetMainFrame()->LoadURL(url);
-        callback->Success("OK");
-        return true;
-      }
+    if (!handler || !handler->tab_manager_) return false;
+
+    if (msg == "subscribe-events") {
+      handler->subscription_callback_ = callback;
+      return true;
     }
-    callback->Failure(1, "No active tab found");
+
+    if (msg.find("navigate:") == 0) {
+      size_t colon = msg.find(':', 9);
+      int tab_id = std::stoi(msg.substr(9, colon - 9));
+      std::string url = msg.substr(colon + 1);
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->GetMainFrame()->LoadURL(url);
+      callback->Success("");
+    } else if (msg.find("new-tab:") == 0) {
+      std::string url = msg.substr(8);
+      int id = OtfApp::GetInstance()->CreateTab(url);
+      callback->Success(std::to_string(id));
+    } else if (msg.find("close-tab:") == 0) {
+      int tab_id = std::stoi(msg.substr(10));
+      OtfApp::GetInstance()->CloseTab(tab_id);
+      callback->Success("");
+    } else if (msg.find("switch-tab:") == 0) {
+      int tab_id = std::stoi(msg.substr(11));
+      OtfApp::GetInstance()->SwitchTab(tab_id);
+      callback->Success("");
+    } else if (msg.find("back:") == 0) {
+      int tab_id = std::stoi(msg.substr(5));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->GoBack();
+      callback->Success("");
+    } else if (msg.find("forward:") == 0) {
+      int tab_id = std::stoi(msg.substr(8));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->GoForward();
+      callback->Success("");
+    } else if (msg.find("reload:") == 0) {
+      int tab_id = std::stoi(msg.substr(7));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->Reload();
+      callback->Success("");
+    } else {
+      return false;
+    }
+
     return true;
   }
 };
@@ -69,10 +105,48 @@ OtfHandler* OtfHandler::GetInstance() {
   return g_instance;
 }
 
+void OtfHandler::SendEvent(const std::string& event_json) {
+  if (subscription_callback_) {
+    subscription_callback_->Success(event_json);
+  }
+}
+
 void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
                                const CefString& title) {
   CEF_REQUIRE_UI_THREAD();
-  // Future: Update Tab UI title
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view) {
+    std::stringstream ss;
+    ss << "{\"id\":" << view->GetID() << ",\"key\":\"title\",\"value\":\"" << title.ToString() << "\"}";
+    SendEvent(ss.str());
+  }
+}
+
+void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
+                                 CefRefPtr<CefFrame> frame,
+                                 const CefString& url) {
+  CEF_REQUIRE_UI_THREAD();
+  if (frame->IsMain()) {
+    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+    if (view) {
+      std::stringstream ss;
+      ss << "{\"id\":" << view->GetID() << ",\"key\":\"url\",\"value\":\"" << url.ToString() << "\"}";
+      SendEvent(ss.str());
+    }
+  }
+}
+
+void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
+                                      bool isLoading,
+                                      bool canGoBack,
+                                      bool canGoForward) {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view) {
+    std::stringstream ss;
+    ss << "{\"id\":" << view->GetID() << ",\"key\":\"loading\",\"value\":\"" << (isLoading ? "true" : "false") << "\"}";
+    SendEvent(ss.str());
+  }
 }
 
 void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
@@ -88,8 +162,12 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
 
   // Link the browser to the tab model
   CefRefPtr<CefBrowserView> browser_view = CefBrowserView::GetForBrowser(browser);
-  if (browser_view && tab_manager_) {
-    tab_manager_->SetBrowser(browser_view->GetID(), browser);
+  if (browser_view) {
+    if (browser_view->GetID() == 100) {
+      ui_browser_ = browser;
+    } else if (tab_manager_) {
+      tab_manager_->SetBrowser(browser_view->GetID(), browser);
+    }
   }
 
   browser_list_.push_back(browser);

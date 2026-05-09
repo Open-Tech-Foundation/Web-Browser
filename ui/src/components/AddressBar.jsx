@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 
-const AddressBar = ({ onNavigate }) => {
-  const [url, setUrl] = useState('https://www.google.com');
+const AddressBar = ({ url: initialUrl, onNavigate }) => {
+  const [url, setUrl] = useState(initialUrl);
+
+  // Update local state when active tab changes
+  React.useEffect(() => {
+    setUrl(initialUrl);
+  }, [initialUrl]);
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
@@ -10,21 +15,15 @@ const AddressBar = ({ onNavigate }) => {
   };
 
   return (
-    <div className="flex flex-1 items-center bg-input-light dark:bg-input-dark rounded-lg px-3 py-2 border border-transparent focus-within:border-brand-orange transition-all duration-200 shadow-sm mx-4">
+    <div className="flex flex-1 items-center h-7 bg-input-light dark:bg-input-dark rounded px-3 border border-transparent focus-within:border-brand-orange transition-all duration-200 mx-2">
       <input
         type="text"
-        className="w-full bg-transparent border-none outline-none text-slate-900 dark:text-slate-100 text-sm placeholder-slate-400"
+        className="w-full bg-transparent border-none outline-none text-slate-900 dark:text-slate-100 text-xs placeholder-slate-400"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         onKeyPress={handleKeyPress}
-        placeholder="Navigate with Open Tech Foundation..."
+        placeholder="Search or enter address..."
       />
-      <button 
-        className="bg-brand-orange text-white px-4 py-1.5 rounded-md font-bold text-sm cursor-pointer transition-all hover:brightness-110 active:scale-95" 
-        onClick={() => onNavigate(url)}
-      >
-        Go
-      </button>
     </div>
   );
 };

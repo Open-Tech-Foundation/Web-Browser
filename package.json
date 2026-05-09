@@ -4,15 +4,18 @@
   "type": "module",
   "description": "Branded Browser with CEF",
   "scripts": {
-    "dev": "cd ui && bun x vite --port 3000 --strictPort & bun x wait-on http://localhost:3000 && bun run dev:browser; kill $!",
+    "dev": "fuser -k 3000/tcp || true; (cd ui && bun x vite --port 3000 --strictPort &) && bun x wait-on http://localhost:3000 && bun run dev:browser; fuser -k 3000/tcp || true",
     "dev:browser": "./build/Release/otf-browser --no-sandbox --dev-ui-url=http://localhost:3000 --ozone-platform=x11",
     "build:ui": "bun x vite build ui",
     "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
     "setup": "./setup_deps.sh"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@preact/signals-react": "^3.10.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",

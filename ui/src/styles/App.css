@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+* {
+  box-sizing: border-box;
+}
+
 @theme {
   --color-brand-orange: #FF7A00;
   --color-bg-dark: #0f0f12;
@@ -12,11 +16,20 @@
 
 /* Base styles for the browser window shell */
 @layer base {
-  body, html {
+  body, html, #root {
     margin: 0;
     padding: 0;
     height: 60px;
     overflow: hidden;
     font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
