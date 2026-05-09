@@ -152,6 +152,19 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
   }
 }
 
+void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
+                                    const std::vector<CefString>& icon_urls) {
+  CEF_REQUIRE_UI_THREAD();
+  if (icon_urls.empty()) return;
+
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view) {
+    std::stringstream ss;
+    ss << "{\"id\":" << view->GetID() << ",\"key\":\"favicon\",\"value\":\"" << icon_urls[0].ToString() << "\"}";
+    SendEvent(ss.str());
+  }
+}
+
 void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                       bool isLoading,
                                       bool canGoBack,
@@ -162,6 +175,15 @@ void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
     std::stringstream ss;
     ss << "{\"id\":" << view->GetID() << ",\"key\":\"loading\",\"value\":\"" << (isLoading ? "true" : "false") << "\"}";
     SendEvent(ss.str());
+    
+    // Also sync navigation state
+    std::stringstream ss_back;
+    ss_back << "{\"id\":" << view->GetID() << ",\"key\":\"canGoBack\",\"value\":\"" << (canGoBack ? "true" : "false") << "\"}";
+    SendEvent(ss_back.str());
+
+    std::stringstream ss_forward;
+    ss_forward << "{\"id\":" << view->GetID() << ",\"key\":\"canGoForward\",\"value\":\"" << (canGoForward ? "true" : "false") << "\"}";
+    SendEvent(ss_forward.str());
   }
 }
 

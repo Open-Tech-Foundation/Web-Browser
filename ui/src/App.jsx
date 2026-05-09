@@ -57,7 +57,9 @@ const App = () => {
               payload: { 
                 id: event.id, 
                 key: event.key, 
-                value: event.key === 'loading' ? event.value === 'true' : event.value 
+                value: ['loading', 'canGoBack', 'canGoForward'].includes(event.key)
+                  ? event.value === 'true' 
+                  : event.value 
               } 
             });
           } catch (e) {
@@ -152,8 +154,16 @@ const App = () => {
       />
       <div className="flex items-center px-3 h-[36px] min-h-[36px] bg-bar-light dark:bg-bar-dark box-border border-t border-slate-200 dark:border-white/5 m-0 p-0">
         <div className="flex gap-0.5 mr-2">
-          <NavButton onClick={() => handleNavAction('back')} icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>} />
-          <NavButton onClick={() => handleNavAction('forward')} icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>} />
+          <NavButton 
+            disabled={!currentActiveTab?.canGoBack}
+            onClick={() => handleNavAction('back')} 
+            icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>} 
+          />
+          <NavButton 
+            disabled={!currentActiveTab?.canGoForward}
+            onClick={() => handleNavAction('forward')} 
+            icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>} 
+          />
           <NavButton onClick={() => handleNavAction('reload')} icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>} />
         </div>
         <AddressBar url={currentActiveTab?.url || ''} onNavigate={handleNavigate} />
@@ -162,10 +172,16 @@ const App = () => {
   );
 };
 
-const NavButton = ({ icon, onClick }) => (
+const NavButton = ({ icon, onClick, disabled }) => (
   <button 
     onClick={onClick}
-    className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 transition-colors active:scale-90"
+    disabled={disabled}
+    className={`
+      w-7 h-7 flex items-center justify-center rounded transition-colors active:scale-90
+      ${disabled 
+        ? 'opacity-30 cursor-default' 
+        : 'hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200'}
+    `}
   >
     {icon}
   </button>
