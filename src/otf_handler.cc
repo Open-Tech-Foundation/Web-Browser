@@ -38,6 +38,22 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "get-tabs") {
+      std::stringstream ss;
+      ss << "[";
+      std::vector<int> ids = handler->tab_manager_->GetAllTabIds();
+      for (size_t i = 0; i < ids.size(); ++i) {
+        CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(ids[i]);
+        ss << "{\"id\":" << ids[i] 
+           << ",\"url\":\"" << (b ? b->GetMainFrame()->GetURL().ToString() : "") << "\""
+           << ",\"title\":\"" << (b ? handler->tab_manager_->GetView(ids[i])->GetBrowser()->GetMainFrame()->GetURL().ToString() : "New Tab") << "\"}";
+        if (i < ids.size() - 1) ss << ",";
+      }
+      ss << "]";
+      callback->Success(ss.str());
+      return true;
+    }
+
     if (msg.find("navigate:") == 0) {
       size_t colon = msg.find(':', 9);
       int tab_id = std::stoi(msg.substr(9, colon - 9));

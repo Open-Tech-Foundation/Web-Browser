@@ -45,6 +45,7 @@ const App = () => {
     initialized.current = true;
 
     if (window.cefQuery) {
+      // Subscribe to real-time events from the browser engine
       window.cefQuery({
         request: "subscribe-events",
         persistent: true,
@@ -59,19 +60,34 @@ const App = () => {
                 value: event.key === 'loading' ? event.value === 'true' : event.value 
               } 
             });
-          } catch (e) {}
-        }
+          } catch (e) {
+            console.error("Failed to parse browser event:", e);
+          }
+        },
+        onFailure: (code, msg) => console.error("Event subscription failed:", msg)
       });
 
-      // Initial tab
+      // Sync initial state with the C++ backend
       window.cefQuery({ 
-        request: "new-tab:https://www.google.com",
-        onSuccess: (id) => {
-          const newId = parseInt(id);
-          const newTab = { id: newId, title: 'New Tab', url: 'https://www.google.com', loading: false };
-          dispatch({ type: 'ADD_TAB', payload: newTab });
-          window.cefQuery({ request: `switch-tab:${newId}` });
-        }
+        request: "get-tabs",
+        onSuccess: (tabsJson) => {
+          try {
+            const existingTabs = JSON.parse(tabsJson);
+            if (existingTabs.length > 0) {
+              const formattedTabs = existingTabs.map(t => ({
+                ...t,
+                loading: false
+              }));
+              dispatch({ type: 'SET_TABS', payload: formattedTabs });
+              dispatch({ type: 'SET_ACTIVE', payload: formattedTabs[0].id });
+            } else {
+              handleNewTab();
+            }
+          } catch (e) {
+            console.error("Failed to parse initial tabs:", e);
+          }
+        },
+        onFailure: (code, msg) => console.error("Failed to get tabs:", msg)
       });
     }
   }, []);

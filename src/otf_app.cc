@@ -9,6 +9,7 @@
 #include "include/views/cef_box_layout.h"
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
+#include "include/views/cef_fill_layout.h"
 #include "include/wrapper/cef_helpers.h"
 #include "otf_handler.h"
 
@@ -42,6 +43,9 @@ class OtfWindowDelegate : public CefWindowDelegate {
   void OnWindowCreated(CefRefPtr<CefWindow> window) override {
     CefBoxLayoutSettings layout_settings;
     layout_settings.horizontal = false;
+    layout_settings.between_child_spacing = 0;
+    layout_settings.main_axis_alignment = CEF_AXIS_ALIGNMENT_START;
+    layout_settings.cross_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH;
     CefRefPtr<CefBoxLayout> layout = window->SetToBoxLayout(layout_settings);
     OtfApp* app = OtfApp::GetInstance();
     app->window_ = window;
@@ -51,13 +55,18 @@ class OtfWindowDelegate : public CefWindowDelegate {
       layout->SetFlexForView(ui_view_.get(), 0);
     }
 
+    // Create a container for content tabs with FillLayout
     app->content_panel_ = CefPanel::CreatePanel(nullptr);
-    CefBoxLayoutSettings content_layout_settings;
-    content_layout_settings.horizontal = false;
-    CefRefPtr<CefBoxLayout> content_layout = app->content_panel_->SetToBoxLayout(content_layout_settings);
-    
+    app->content_panel_->SetToFillLayout();
     window->AddChildView(app->content_panel_);
     layout->SetFlexForView(app->content_panel_.get(), 1);
+
+    if (content_view_) {
+      app->content_panel_->AddChildView(content_view_);
+      content_view_->SetVisible(true);
+    }
+
+    window->Layout();
 
     if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
       window->CenterWindow(CefSize(1280, 800));
@@ -97,23 +106,17 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
       : runtime_style_(runtime_style), height_(height) {}
 
   CefSize GetPreferredSize(CefRefPtr<CefView> view) override {
-    if (height_ > 0) {
-      return CefSize(800, height_);
-    }
+    if (height_ > 0) return CefSize(800, height_);
     return CefSize(800, 600);
   }
 
   CefSize GetMinimumSize(CefRefPtr<CefView> view) override {
-    if (height_ > 0) {
-      return CefSize(0, height_);
-    }
+    if (height_ > 0) return CefSize(800, height_);
     return CefSize(0, 0);
   }
 
   CefSize GetMaximumSize(CefRefPtr<CefView> view) override {
-    if (height_ > 0) {
-      return CefSize(0, height_);
-    }
+    if (height_ > 0) return CefSize(0, height_); // Max width 0 means unconstrained
     return CefSize(0, 0);
   }
 
@@ -149,23 +152,28 @@ int OtfApp::CreateTab(const std::string& url) {
   
   int tab_id = tab_manager_.AddTab(content_view);
   content_view->SetID(tab_id);
+  
+  if (content_panel_) {
+    content_panel_->AddChildView(content_view);
+    content_view->SetVisible(false); // Hidden by default
+  }
+  
   return tab_id;
 }
 
 void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
   
-  static int current_tab_id = -1;
-  if (current_tab_id == tab_id) return;
+  if (current_tab_id_ == tab_id) return;
 
-  CefRefPtr<CefBrowserView> old_view = tab_manager_.GetView(current_tab_id);
+  CefRefPtr<CefBrowserView> old_view = tab_manager_.GetView(current_tab_id_);
   CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
 
-  if (new_view && content_panel_) {
-    if (old_view) content_panel_->RemoveChildView(old_view);
-    content_panel_->AddChildView(new_view);
+  if (new_view && window_ && content_panel_) {
+    if (old_view) old_view->SetVisible(false);
+    new_view->SetVisible(true);
     content_panel_->Layout();
-    current_tab_id = tab_id;
+    current_tab_id_ = tab_id;
   }
 }
 
@@ -205,9 +213,17 @@ void OtfApp::OnContextInitialized() {
       new OtfViewDelegate(runtime_style, 60));
   ui_view->SetID(100);
 
-  if (ui_view) {
+  CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
+      handler, "https://www.google.com", browser_settings, nullptr, nullptr,
+      new OtfViewDelegate(runtime_style));
+  
+  int tab_id = tab_manager_.AddTab(content_view);
+  content_view->SetID(tab_id);
+  current_tab_id_ = tab_id;
+
+  if (ui_view && content_view) {
     CefWindow::CreateTopLevelWindow(new OtfWindowDelegate(
-        ui_view, nullptr, runtime_style, CEF_SHOW_STATE_NORMAL));
+        ui_view, content_view, runtime_style, CEF_SHOW_STATE_NORMAL));
   }
 }
 

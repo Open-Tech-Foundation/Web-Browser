@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 #include "include/cef_browser.h"
 #include "include/views/cef_browser_view.h"
 
@@ -27,6 +28,14 @@ class TabManager {
     int id = next_tab_id_++;
     view_map_[id] = view;
     return id;
+  }
+
+  std::vector<int> GetAllTabIds() const {
+    std::vector<int> ids;
+    for (auto const& [id, view] : view_map_) {
+      ids.push_back(id);
+    }
+    return ids;
   }
 
   void RemoveTab(int tab_id) {

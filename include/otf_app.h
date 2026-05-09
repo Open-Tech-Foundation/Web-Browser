@@ -48,6 +48,7 @@ class OtfApp : public CefApp,
 
  private:
   TabManager tab_manager_;
+  int current_tab_id_ = -1;
   CefRefPtr<CefMessageRouterRendererSide> renderer_side_router_;
 
   IMPLEMENT_REFCOUNTING(OtfApp);
