@@ -1,0 +1,71 @@
+# Build directories
+build/
+bin/
+out/
+Release/
+Debug/
+obj/
+x64/
+x86/
+
+# Dependencies
+third_party/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+_CPack_Packages/
+CPackConfig.cmake
+CPackSourceConfig.cmake
+*.cmake
+
+# IDEs and Editors
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.user
+*.userosscache
+*.sln
+*.vcxproj
+*.filters
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Bun / Node.js
+node_modules/
+bun.lockb
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-debug.log*
+
+# CEF / Chromium specific (if generated in root)
+*.log
+*.pyd
+*.so
+*.dll
+*.exe
+*.dylib
+*.lib
+*.a
+*.pdb
+*.exp
+*.ilk
+
+# Logs
+logs/
+*.log
