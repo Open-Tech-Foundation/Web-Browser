@@ -1,8 +1,13 @@
 #include "otf_handler.h"
 #include "otf_app.h"
 
+#include <cstdio>
 #include <sstream>
 #include <string>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "include/base/cef_callback.h"
 #include "include/cef_app.h"
@@ -19,21 +24,31 @@ static void WriteToClipboard(const std::string& text) {
 #if defined(_WIN32)
   if (OpenClipboard(nullptr)) {
     EmptyClipboard();
-    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
+    // Convert UTF-8 to UTF-16 for Windows Unicode clipboard
+    int len = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, len * sizeof(WCHAR));
     if (hg) {
-      memcpy(GlobalLock(hg), text.c_str(), text.size() + 1);
+      WCHAR* buffer = static_cast<WCHAR*>(GlobalLock(hg));
+      MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, buffer, len);
       GlobalUnlock(hg);
-      SetClipboardData(CF_TEXT, hg);
+      SetClipboardData(CF_UNICODETEXT, hg);
     }
     CloseClipboard();
   }
 #elif defined(__APPLE__)
   FILE* pipe = popen("pbcopy", "w");
-  if (pipe) { fputs(text.c_str(), pipe); pclose(pipe); }
-#else  // Linux / X11
-  FILE* pipe = popen("xclip -selection clipboard", "w");
+  if (pipe) {
+    fputs(text.c_str(), pipe);
+    pclose(pipe);
+  }
+#else  // Linux (X11 / Wayland)
+  FILE* pipe = popen("wl-copy", "w"); // Try Wayland first
+  if (!pipe) pipe = popen("xclip -selection clipboard", "w");
   if (!pipe) pipe = popen("xsel --clipboard --input", "w");
-  if (pipe) { fputs(text.c_str(), pipe); pclose(pipe); }
+  if (pipe) {
+    fputs(text.c_str(), pipe);
+    pclose(pipe);
+  }
 #endif
 }
 
@@ -353,6 +368,8 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     return true;
   }
 
+  // Return false for all unhandled commands — CEF will execute built-in commands
+  // like IDC_CONTENT_CONTEXT_COPYLINKLOCATION natively (clipboard copy).
   return false;
 }
 
