@@ -156,6 +156,7 @@ int OtfApp::CreateTab(const std::string& url) {
   if (content_panel_) {
     content_panel_->AddChildView(content_view);
     content_view->SetVisible(false); // Hidden by default
+    content_panel_->Layout();
   }
   
   return tab_id;

@@ -21,8 +21,7 @@ const tabReducer = (state, action) => {
     case 'ADD_TAB':
       return { 
         ...state, 
-        tabs: [...state.tabs, action.payload],
-        activeTabId: action.payload.id 
+        tabs: [...state.tabs, action.payload]
       };
     case 'REMOVE_TAB':
       const nextTabs = state.tabs.filter(t => t.id !== action.payload);
@@ -52,16 +51,24 @@ const App = () => {
         onSuccess: (eventStr) => {
           try {
             const event = JSON.parse(eventStr);
-            dispatch({ 
-              type: 'UPDATE_TAB', 
-              payload: { 
-                id: event.id, 
-                key: event.key, 
-                value: ['loading', 'canGoBack', 'canGoForward'].includes(event.key)
-                  ? event.value === 'true' 
-                  : event.value 
-              } 
-            });
+            if (event.key === 'new-tab') {
+              const tabData = JSON.parse(event.value);
+              dispatch({ 
+                type: 'ADD_TAB', 
+                payload: { ...tabData, loading: false } 
+              });
+            } else {
+              dispatch({ 
+                type: 'UPDATE_TAB', 
+                payload: { 
+                  id: event.id, 
+                  key: event.key, 
+                  value: ['loading', 'canGoBack', 'canGoForward'].includes(event.key)
+                    ? event.value === 'true' 
+                    : event.value 
+                } 
+              });
+            }
           } catch (e) {
             console.error("Failed to parse browser event:", e);
           }
@@ -107,6 +114,7 @@ const App = () => {
         const newId = parseInt(id);
         const newTab = { id: newId, title: 'New Tab', url: 'https://www.google.com', loading: false };
         dispatch({ type: 'ADD_TAB', payload: newTab });
+        dispatch({ type: 'SET_ACTIVE', payload: newId });
         window.cefQuery({ request: `switch-tab:${newId}` });
       }
     });

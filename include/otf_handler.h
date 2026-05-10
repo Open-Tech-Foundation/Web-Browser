@@ -11,7 +11,8 @@ namespace otf {
 class OtfHandler : public CefClient,
                    public CefDisplayHandler,
                    public CefLifeSpanHandler,
-                   public CefLoadHandler {
+                   public CefLoadHandler,
+                   public CefContextMenuHandler {
  public:
   explicit OtfHandler(bool use_alloy_style);
   ~OtfHandler() override;
@@ -19,6 +20,9 @@ class OtfHandler : public CefClient,
   static OtfHandler* GetInstance();
 
   // CefClient methods:
+  CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {
+    return this;
+  }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
@@ -51,6 +55,17 @@ class OtfHandler : public CefClient,
                    ErrorCode errorCode,
                    const CefString& errorText,
                    const CefString& failedUrl) override;
+
+  // CefContextMenuHandler methods:
+  void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
+                           CefRefPtr<CefFrame> frame,
+                           CefRefPtr<CefContextMenuParams> params,
+                           CefRefPtr<CefMenuModel> model) override;
+  bool OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
+                            CefRefPtr<CefFrame> frame,
+                            CefRefPtr<CefContextMenuParams> params,
+                            int command_id,
+                            EventFlags event_flags) override;
 
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }

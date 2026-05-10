@@ -17,6 +17,7 @@ namespace otf {
 namespace {
 
 OtfHandler* g_instance = nullptr;
+const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
 
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
@@ -275,6 +276,38 @@ bool OtfHandler::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
   CEF_REQUIRE_UI_THREAD();
   return message_router_->OnProcessMessageReceived(browser, frame,
                                                   source_process, message);
+}
+
+void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
+                                     CefRefPtr<CefFrame> frame,
+                                     CefRefPtr<CefContextMenuParams> params,
+                                     CefRefPtr<CefMenuModel> model) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!params->GetLinkUrl().empty()) {
+    model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
+    model->InsertSeparatorAt(1);
+  }
+}
+
+bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
+                                      CefRefPtr<CefFrame> frame,
+                                      CefRefPtr<CefContextMenuParams> params,
+                                      int command_id,
+                                      EventFlags event_flags) {
+  CEF_REQUIRE_UI_THREAD();
+  if (command_id == MENU_ID_OPEN_IN_NEW_TAB) {
+    std::string url = params->GetLinkUrl().ToString();
+    int new_id = OtfApp::GetInstance()->CreateTab(url);
+    
+    // Notify UI Shell about the new tab
+    std::stringstream ss;
+    ss << "{\"id\":0,\"key\":\"new-tab\",\"value\":\"{\\\"id\\\":" << new_id 
+       << ",\\\"url\\\":\\\"" << url << "\\\",\\\"title\\\":\\\"New Tab\\\"}\"}";
+    SendEvent(ss.str());
+    
+    return true;
+  }
+  return false;
 }
 
 } // namespace otf
