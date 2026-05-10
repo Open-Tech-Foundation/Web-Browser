@@ -11,6 +11,31 @@
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
+#include "include/cef_command_ids.h"
+
+// Cross-platform clipboard write — CEF Alloy provides no clipboard API,
+// so we use platform-native calls.
+static void WriteToClipboard(const std::string& text) {
+#if defined(_WIN32)
+  if (OpenClipboard(nullptr)) {
+    EmptyClipboard();
+    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
+    if (hg) {
+      memcpy(GlobalLock(hg), text.c_str(), text.size() + 1);
+      GlobalUnlock(hg);
+      SetClipboardData(CF_TEXT, hg);
+    }
+    CloseClipboard();
+  }
+#elif defined(__APPLE__)
+  FILE* pipe = popen("pbcopy", "w");
+  if (pipe) { fputs(text.c_str(), pipe); pclose(pipe); }
+#else  // Linux / X11
+  FILE* pipe = popen("xclip -selection clipboard", "w");
+  if (!pipe) pipe = popen("xsel --clipboard --input", "w");
+  if (pipe) { fputs(text.c_str(), pipe); pclose(pipe); }
+#endif
+}
 
 namespace otf {
 
@@ -283,9 +308,21 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
                                      CefRefPtr<CefContextMenuParams> params,
                                      CefRefPtr<CefMenuModel> model) {
   CEF_REQUIRE_UI_THREAD();
+  
   if (!params->GetLinkUrl().empty()) {
+    // Remove Chromium's default items that don't fit our tabbed architecture
+    model->Remove(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB);
+    model->Remove(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW);
+    
+    // Insert our custom background-tab opener at the top
     model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
-    model->InsertSeparatorAt(1);
+    
+    // CEF Alloy does not add IDC_CONTENT_CONTEXT_COPYLINKLOCATION to the
+    // default link context menu. Add it only if it isn't already present
+    // (safe: we never remove then re-insert it, so routing stays intact).
+    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_COPYLINKLOCATION) < 0) {
+      model->InsertItemAt(1, IDC_CONTENT_CONTEXT_COPYLINKLOCATION, "Copy link address");
+    }
   }
 }
 
@@ -295,6 +332,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
                                       int command_id,
                                       EventFlags event_flags) {
   CEF_REQUIRE_UI_THREAD();
+  
   if (command_id == MENU_ID_OPEN_IN_NEW_TAB) {
     std::string url = params->GetLinkUrl().ToString();
     int new_id = OtfApp::GetInstance()->CreateTab(url);
@@ -307,6 +345,14 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     
     return true;
   }
+
+  if (command_id == IDC_CONTENT_CONTEXT_COPYLINKLOCATION) {
+    // CEF Alloy does not route this command to a native handler, so we
+    // handle it ourselves using the platform clipboard API.
+    WriteToClipboard(params->GetLinkUrl().ToString());
+    return true;
+  }
+
   return false;
 }
 
