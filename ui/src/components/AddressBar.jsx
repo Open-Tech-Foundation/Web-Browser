@@ -1,10 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 
-const AddressBar = ({ url: initialUrl, onNavigate }) => {
+const AddressBar = forwardRef(({ url: initialUrl, onNavigate }, ref) => {
   const [url, setUrl] = useState(initialUrl);
+  const inputRef = useRef(null);
 
-  // Update local state when active tab changes
-  React.useEffect(() => {
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      inputRef.current?.focus();
+      window.cefQuery?.({ request: 'focus-ui' });
+    }
+  }));
+
+  useEffect(() => {
     setUrl(initialUrl);
   }, [initialUrl]);
 
@@ -17,6 +24,7 @@ const AddressBar = ({ url: initialUrl, onNavigate }) => {
   return (
     <div className="flex flex-1 items-center h-7 bg-input-light dark:bg-input-dark rounded px-3 border border-transparent focus-within:border-brand-orange transition-all duration-200 mx-2">
       <input
+        ref={inputRef}
         type="text"
         className="w-full bg-transparent border-none outline-none text-slate-900 dark:text-slate-100 text-xs placeholder-slate-400"
         value={url}
@@ -26,6 +34,6 @@ const AddressBar = ({ url: initialUrl, onNavigate }) => {
       />
     </div>
   );
-};
+});
 
 export default AddressBar;

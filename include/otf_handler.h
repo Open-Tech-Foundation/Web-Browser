@@ -12,7 +12,8 @@ class OtfHandler : public CefClient,
                    public CefDisplayHandler,
                    public CefLifeSpanHandler,
                    public CefLoadHandler,
-                   public CefContextMenuHandler {
+                   public CefContextMenuHandler,
+                   public CefRequestHandler {
  public:
   explicit OtfHandler(bool use_alloy_style);
   ~OtfHandler() override;
@@ -26,6 +27,9 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefRequestHandler> GetRequestHandler() override {
+    return this;
+  }
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
                                 CefRefPtr<CefFrame> frame,
                                 CefProcessId source_process,
@@ -50,6 +54,9 @@ class OtfHandler : public CefClient,
                             bool isLoading,
                             bool canGoBack,
                             bool canGoForward) override;
+  void OnLoadEnd(CefRefPtr<CefBrowser> browser,
+                 CefRefPtr<CefFrame> frame,
+                 int httpStatusCode) override;
   void OnLoadError(CefRefPtr<CefBrowser> browser,
                    CefRefPtr<CefFrame> frame,
                    ErrorCode errorCode,
@@ -66,6 +73,13 @@ class OtfHandler : public CefClient,
                             CefRefPtr<CefContextMenuParams> params,
                             int command_id,
                             EventFlags event_flags) override;
+
+  // CefRequestHandler methods:
+  bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
+                       CefRefPtr<CefFrame> frame,
+                       CefRefPtr<CefRequest> request,
+                       bool user_gesture,
+                       bool is_redirect) override;
 
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }

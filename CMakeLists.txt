@@ -29,6 +29,7 @@ set(OTF_BROWSER_SRCS
     src/main.cc
     src/otf_app.cc
     src/otf_handler.cc
+    src/otf_utils.cc
 )
 
 # Application header files
@@ -36,6 +37,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_app.h
     include/otf_handler.h
     include/otf_browser_shell.h
+    include/otf_utils.h
 )
 
 # Include directories

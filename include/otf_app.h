@@ -15,6 +15,7 @@ class OtfApp : public CefApp,
   OtfApp();
 
   // CefApp methods:
+  void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override;
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
     return this;
   }

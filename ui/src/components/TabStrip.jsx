@@ -34,7 +34,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
         </div>
       ))}
       <button 
-        onClick={onNew}
+        onClick={() => onNew()}
         className="h-[24px] w-8 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 rounded-t-lg transition-all mb-0.5"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>

@@ -76,10 +76,25 @@ bun run build:cpp
 
 ## 🛡️ Security
 
-OTF Web Browser prioritizes security:
+OTF Web Browser prioritizes security and minimalism:
 - **Sandbox Support**: Ready for multi-process sandboxing.
 - **Up-to-date Engine**: Regularly updated to the latest CEF/Chromium releases.
 - **Open Source**: Transparent codebase for community auditing.
+- **Scheme Blocking**: To minimize attack surface, the following schemes are blocked:
+
+| Scheme | Description |
+|---|---|
+| `chrome://` | Internal Chromium pages (flags, settings, etc.) |
+| `chrome-devtools://` | DevTools UI |
+| `chrome-extension://` | Extensions (disabled) |
+| `chrome-search://` | Chrome's search UI |
+| `chrome-untrusted://` | Sandboxed chrome UI pages |
+| `devtools://` | Alternative devtools scheme |
+| `javascript:` | Blocked in address bar to prevent XSS |
+| `data:` | Blocked for navigation to prevent phishing |
+| `file://` | Blocked globally (except for internal UI shell) |
+
+*Note: `about:blank` is preserved for compatibility.*
 
 ## 🛣️ Roadmap
 

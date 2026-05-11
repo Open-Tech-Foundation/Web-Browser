@@ -3,6 +3,10 @@ import AddressBar from './components/AddressBar';
 import TabStrip from './components/TabStrip';
 import './styles/App.css';
 
+const BROWSER_SCHEME = {
+  SETTINGS: 'browser://settings',
+};
+
 const tabReducer = (state, action) => {
   switch (action.type) {
     case 'SET_TABS':
@@ -37,13 +41,28 @@ const tabReducer = (state, action) => {
 
 const App = () => {
   const [state, dispatch] = useReducer(tabReducer, { tabs: [], activeTabId: null });
+  const [searchEngine, setSearchEngine] = React.useState('');
   const initialized = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const addressBarRef = useRef(null);
 
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
     if (window.cefQuery) {
+      // Load settings
+      window.cefQuery({
+        request: "get-settings",
+        onSuccess: (response) => {
+          try {
+            const settings = JSON.parse(response);
+            setSearchEngine(settings.searchEngine || '');
+          } catch (e) {}
+        }
+      });
+
       // Subscribe to real-time events from the browser engine
       window.cefQuery({
         request: "subscribe-events",
@@ -53,10 +72,13 @@ const App = () => {
             const event = JSON.parse(eventStr);
             if (event.key === 'new-tab') {
               const tabData = JSON.parse(event.value);
-              dispatch({ 
-                type: 'ADD_TAB', 
-                payload: { ...tabData, loading: false } 
+              dispatch({
+                type: 'ADD_TAB',
+                payload: { ...tabData, loading: false }
               });
+            } else if (event.key === 'load-end') {
+              const tab = stateRef.current.tabs.find(t => t.id === event.id);
+              if (tab && !tab.url) addressBarRef.current?.focus();
             } else {
               dispatch({ 
                 type: 'UPDATE_TAB', 
@@ -85,6 +107,7 @@ const App = () => {
             if (existingTabs.length > 0) {
               const formattedTabs = existingTabs.map(t => ({
                 ...t,
+                url: (t.url && (t.url.startsWith('browser://newtab') || t.url.includes('/newtab.html'))) ? '' : (t.url || ''),
                 loading: false
               }));
               dispatch({ type: 'SET_TABS', payload: formattedTabs });
@@ -92,6 +115,7 @@ const App = () => {
             } else {
               handleNewTab();
             }
+            setTimeout(() => addressBarRef.current?.focus(), 100);
           } catch (e) {
             console.error("Failed to parse initial tabs:", e);
           }
@@ -101,21 +125,62 @@ const App = () => {
     }
   }, []);
 
-  const handleNavigate = (url) => {
+  const buildSearchUrl = (engine, query) => {
+    const engineMap = {
+      google: 'https://www.google.com/search?q=',
+      bing: 'https://www.bing.com/search?q=',
+      yahoo: 'https://search.yahoo.com/search?p=',
+      duckduckgo: 'https://duckduckgo.com/?q=',
+      baidu: 'https://www.baidu.com/s?wd=',
+      yandex: 'https://yandex.com/search/?text=',
+      ecosia: 'https://www.ecosia.org/search?q=',
+      naver: 'https://search.naver.com/search.naver?query=',
+      startpage: 'https://www.startpage.com/search?q='
+    };
+    const baseUrl = engineMap[engine];
+    if (!baseUrl) return BROWSER_SCHEME.SETTINGS;
+    return baseUrl + encodeURIComponent(query);
+  };
+
+  const handleNavigate = (input) => {
     if (state.activeTabId !== null) {
-      window.cefQuery({ request: `navigate:${state.activeTabId}:${url}` });
+      let finalUrl = input;
+      // Simple URL detection: starts with protocol or contains a dot and no spaces
+      const isUrl = /^[a-zA-Z][a-zA-Z\d+./-]*:\/\//.test(input) || 
+                    (input.includes('.') && !input.includes(' '));
+      
+      if (!isUrl && !input.startsWith('browser://')) {
+        finalUrl = buildSearchUrl(searchEngine, input);
+      }
+      
+      window.cefQuery({ request: `navigate:${state.activeTabId}:${finalUrl}` });
+      
+      if (finalUrl === BROWSER_SCHEME.SETTINGS) {
+        setTimeout(() => {
+          window.cefQuery({
+            request: "get-settings",
+            onSuccess: (response) => {
+              try {
+                const settings = JSON.parse(response);
+                setSearchEngine(settings.searchEngine || '');
+              } catch (e) {}
+            }
+          });
+        }, 1000);
+      }
     }
   };
 
-  const handleNewTab = () => {
-    window.cefQuery({ 
-      request: "new-tab:https://www.google.com",
+  const handleNewTab = (url = "") => {
+    window.cefQuery({
+      request: url ? `new-tab:${url}` : "new-tab:",
       onSuccess: (id) => {
         const newId = parseInt(id);
-        const newTab = { id: newId, title: 'New Tab', url: 'https://www.google.com', loading: false };
+        const newTab = { id: newId, title: 'New Tab', url: url || '', loading: false };
         dispatch({ type: 'ADD_TAB', payload: newTab });
         dispatch({ type: 'SET_ACTIVE', payload: newId });
         window.cefQuery({ request: `switch-tab:${newId}` });
+        addressBarRef.current?.focus();
       }
     });
   };
@@ -174,7 +239,13 @@ const App = () => {
           />
           <NavButton onClick={() => handleNavAction('reload')} icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>} />
         </div>
-        <AddressBar url={currentActiveTab?.url || ''} onNavigate={handleNavigate} />
+        <AddressBar ref={addressBarRef} url={currentActiveTab?.url || ''} onNavigate={handleNavigate} />
+        <div className="flex ml-1">
+          <NavButton 
+            onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
+            icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
+          />
+        </div>
       </div>
     </div>
   );
