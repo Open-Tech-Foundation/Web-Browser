@@ -46,6 +46,7 @@ const App = () => {
   const stateRef = useRef(state);
   stateRef.current = state;
   const addressBarRef = useRef(null);
+  const lastClosedUrl = useRef(null);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -76,6 +77,14 @@ const App = () => {
                 type: 'ADD_TAB',
                 payload: { ...tabData, loading: false }
               });
+              if (!tabData.url) {
+                dispatch({ type: 'SET_ACTIVE', payload: tabData.id });
+                window.cefQuery({ request: `switch-tab:${tabData.id}` });
+                setTimeout(() => {
+                  addressBarRef.current?.focus();
+                  window.cefQuery({ request: 'focus-ui' });
+                }, 100);
+              }
             } else if (event.key === 'load-end') {
               const tab = stateRef.current.tabs.find(t => t.id === event.id);
               if (tab && !tab.url) addressBarRef.current?.focus();
@@ -84,6 +93,21 @@ const App = () => {
                 const settings = JSON.parse(event.value);
                 setSearchEngine(settings.searchEngine || '');
               } catch (e) {}
+            } else if (event.key === 'tab-closed') {
+              const closedId = parseInt(event.value);
+              dispatch({ type: 'REMOVE_TAB', payload: closedId });
+              const remaining = stateRef.current.tabs.filter(t => t.id !== closedId);
+              if (stateRef.current.activeTabId === closedId && remaining.length > 0) {
+                const nextId = remaining[remaining.length - 1].id;
+                window.cefQuery({ request: `switch-tab:${nextId}` });
+              }
+            } else if (event.key === 'tab-switched') {
+              dispatch({ type: 'SET_ACTIVE', payload: parseInt(event.value) });
+            } else if (event.key === 'shortcut') {
+              if (event.value === 'focus-bar') {
+                addressBarRef.current?.focus();
+                window.cefQuery({ request: 'focus-ui' });
+              }
             } else {
               dispatch({ 
                 type: 'UPDATE_TAB', 
@@ -120,7 +144,10 @@ const App = () => {
             } else {
               handleNewTab();
             }
-            setTimeout(() => addressBarRef.current?.focus(), 100);
+            setTimeout(() => {
+              addressBarRef.current?.focus();
+              window.cefQuery?.({ request: 'focus-ui' });
+            }, 100);
           } catch (e) {
             console.error("Failed to parse initial tabs:", e);
           }
@@ -186,14 +213,16 @@ const App = () => {
         dispatch({ type: 'SET_ACTIVE', payload: newId });
         window.cefQuery({ request: `switch-tab:${newId}` });
         addressBarRef.current?.focus();
+        window.cefQuery({ request: 'focus-ui' });
       }
     });
   };
 
   const handleCloseTab = (id) => {
+    const tab = state.tabs.find(t => t.id === id);
+    if (tab?.url) lastClosedUrl.current = tab.url;
     window.cefQuery({ request: `close-tab:${id}` });
     dispatch({ type: 'REMOVE_TAB', payload: id });
-    // Side effect: tell C++ to switch if we closed the active one
     const remaining = state.tabs.filter(t => t.id !== id);
     if (state.activeTabId === id && remaining.length > 0) {
       const nextId = remaining[remaining.length - 1].id;

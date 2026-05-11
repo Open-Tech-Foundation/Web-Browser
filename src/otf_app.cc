@@ -195,6 +195,11 @@ int OtfApp::CreateTab(const std::string& url) {
   content_view->SetID(tab_id);
   tab_manager_.SetUrl(tab_id, url);
 
+  if (content_panel_) {
+    content_panel_->AddChildView(content_view);
+    content_view->SetVisible(false);
+  }
+
   return tab_id;
 }
 
@@ -212,6 +217,7 @@ void OtfApp::SwitchTab(int tab_id) {
     }
     if (old_view) old_view->SetVisible(false);
     new_view->SetVisible(true);
+    new_view->RequestFocus();
     content_panel_->InvalidateLayout();
     window_->Layout();
     current_tab_id_ = tab_id;

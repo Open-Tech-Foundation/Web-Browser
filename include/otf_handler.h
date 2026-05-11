@@ -13,7 +13,8 @@ class OtfHandler : public CefClient,
                    public CefLifeSpanHandler,
                    public CefLoadHandler,
                    public CefContextMenuHandler,
-                   public CefRequestHandler {
+                   public CefRequestHandler,
+                   public CefKeyboardHandler {
  public:
   explicit OtfHandler(bool use_alloy_style);
   ~OtfHandler() override;
@@ -28,6 +29,9 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override {
+    return this;
+  }
+  CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override {
     return this;
   }
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
@@ -81,11 +85,18 @@ class OtfHandler : public CefClient,
                        bool user_gesture,
                        bool is_redirect) override;
 
+  // CefKeyboardHandler methods:
+  bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
+                     const CefKeyEvent& event,
+                     CefEventHandle os_event,
+                     bool* is_keyboard_shortcut) override;
+
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
+  std::string last_closed_url_;
 
   void SendEvent(const std::string& event_json);
 

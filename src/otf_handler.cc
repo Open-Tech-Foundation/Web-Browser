@@ -1,6 +1,8 @@
 #include "otf_handler.h"
 #include "otf_app.h"
+#include "otf_keyboard_shortcuts.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <sstream>
 #include <string>
@@ -197,6 +199,27 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int tab_id = std::stoi(msg.substr(5));
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) b->StopLoad();
+      callback->Success("");
+    } else if (msg.find("zoom-in:") == 0) {
+      int tab_id = std::stoi(msg.substr(8));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) {
+        double zoom = b->GetHost()->GetZoomLevel();
+        b->GetHost()->SetZoomLevel(zoom + 0.5);
+      }
+      callback->Success("");
+    } else if (msg.find("zoom-out:") == 0) {
+      int tab_id = std::stoi(msg.substr(9));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) {
+        double zoom = b->GetHost()->GetZoomLevel();
+        b->GetHost()->SetZoomLevel(zoom - 0.5);
+      }
+      callback->Success("");
+    } else if (msg.find("zoom-reset:") == 0) {
+      int tab_id = std::stoi(msg.substr(11));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->GetHost()->SetZoomLevel(0.0);
       callback->Success("");
     } else if (msg == "focus-ui") {
       if (handler->ui_browser_) {
@@ -525,6 +548,96 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
   if (url.rfind("javascript:", 0) == 0 ||
       (url.rfind("data:", 0) == 0 &&
        url.find("/ui/") == std::string::npos)) {
+    return true;
+  }
+
+  return false;
+}
+
+bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
+                               const CefKeyEvent& event,
+                               CefEventHandle os_event,
+                               bool* is_keyboard_shortcut) {
+  if (event.type == KEYEVENT_KEYUP || event.type == KEYEVENT_CHAR) return false;
+
+  const uint32_t m = Mod::Of(event.modifiers);
+  const int    key = event.windows_key_code;
+  auto const   M   = [=](uint32_t mod, int k) { return m == mod && key == k; };
+
+  OtfApp* const app = OtfApp::GetInstance();
+  if (!app || !tab_manager_) return false;
+  const int cur = app->GetCurrentTabId();
+
+  auto nav = [&](const char* action) {
+    auto b = tab_manager_->GetBrowser(cur);
+    if (!b) return;
+    if (action == Shortcut::kBack)      b->GoBack();
+    if (action == Shortcut::kForward)   b->GoForward();
+    if (action == Shortcut::kReload)    b->Reload();
+    if (action == Shortcut::kEscape)    b->StopLoad();
+    if (action == Shortcut::kZoomIn)    b->GetHost()->SetZoomLevel(b->GetHost()->GetZoomLevel() + 0.5);
+    if (action == Shortcut::kZoomOut)   b->GetHost()->SetZoomLevel(b->GetHost()->GetZoomLevel() - 0.5);
+    if (action == Shortcut::kZoomReset) b->GetHost()->SetZoomLevel(0.0);
+  };
+
+  // ── Navigation & Page ─────────────────────────────────────
+  if (M(Mod::kAlt,  Key::kLeft))   { nav(Shortcut::kBack);    return true; }
+  if (M(Mod::kAlt,  Key::kRight))  { nav(Shortcut::kForward); return true; }
+  if (M(Mod::kNone, Key::kF5) || M(Mod::kCtrl, Key::kR)) {
+    *is_keyboard_shortcut = true; nav(Shortcut::kReload); return true;
+  }
+  if (M(Mod::kNone, Key::kEscape)) {
+    *is_keyboard_shortcut = true; nav(Shortcut::kEscape); return true;
+  }
+  if (M(Mod::kCtrl, Key::kPlus) || M(Mod::kCtrl|Mod::kShift, Key::kPlus)) {
+    nav(Shortcut::kZoomIn); return true;
+  }
+  if (M(Mod::kCtrl, Key::kMinus))  { nav(Shortcut::kZoomOut);   return true; }
+  if (M(Mod::kCtrl, Key::k0))      { nav(Shortcut::kZoomReset); return true; }
+
+  // ── Focus bar (frontend-only action) ──────────────────────
+  if (M(Mod::kCtrl, Key::kL) || M(Mod::kNone, Key::kF6)) {
+    SendShortcut(this, Shortcut::kFocusBar); return true;
+  }
+
+  // ── Tabs (C++ action + frontend notification) ─────────────
+  if (M(Mod::kCtrl, Key::kT)) {
+    int id = app->CreateTab("browser://newtab");
+    std::stringstream ss;
+    ss << "{\"id\":0,\"key\":\"new-tab\",\"value\":\"{\\\"id\\\":" << id
+       << ",\\\"url\\\":\\\"\\\",\\\"title\\\":\\\"New Tab\\\"}\"}";
+    SendEvent(ss.str());
+    return true;
+  }
+  if (M(Mod::kCtrl, Key::kW)) {
+    std::string url = tab_manager_->GetUrl(cur);
+    if (!url.empty() && url.find("browser://") != 0) last_closed_url_ = url;
+    app->CloseTab(cur);
+    SendEvent("{\"key\":\"tab-closed\",\"value\":\"" + std::to_string(cur) + "\"}");
+    return true;
+  }
+  if (M(Mod::kCtrl|Mod::kShift, Key::kT)) {
+    if (!last_closed_url_.empty()) {
+      int id = app->CreateTab(last_closed_url_);
+      std::stringstream ss;
+      ss << "{\"id\":0,\"key\":\"new-tab\",\"value\":\"{\\\"id\\\":" << id
+         << ",\\\"url\\\":\\\"" << JsonEscape(last_closed_url_)
+         << "\\\",\\\"title\\\":\\\"New Tab\\\"}\"}";
+      SendEvent(ss.str());
+      last_closed_url_.clear();
+    }
+    return true;
+  }
+  if (M(Mod::kCtrl, Key::kTab) || M(Mod::kCtrl|Mod::kShift, Key::kTab)) {
+    auto ids = tab_manager_->GetAllTabIds();
+    if (ids.size() < 2) return true;
+    auto it = std::find(ids.begin(), ids.end(), cur);
+    if (it == ids.end()) return true;
+    int next = M(Mod::kCtrl, Key::kTab)
+      ? (it + 1 != ids.end() ? *(it + 1) : ids.front())
+      : (it != ids.begin()     ? *(it - 1) : ids.back());
+    app->SwitchTab(next);
+    SendEvent("{\"key\":\"tab-switched\",\"value\":\"" + std::to_string(next) + "\"}");
     return true;
   }
 

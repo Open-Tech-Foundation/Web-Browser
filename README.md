@@ -76,23 +76,27 @@ bun run build:cpp
 
 ## 🛡️ Security
 
-OTF Web Browser prioritizes security and minimalism:
-- **Sandbox Support**: Ready for multi-process sandboxing.
+OTF Web Browser prioritizes security and minimalism through defense-in-depth:
+
+- **Sandbox Support**: Ready for multi-process sandboxing via CEF/Chromium.
 - **Up-to-date Engine**: Regularly updated to the latest CEF/Chromium releases.
 - **Open Source**: Transparent codebase for community auditing.
-- **Scheme Blocking**: To minimize attack surface, the following schemes are blocked:
+- **Scheme Blocking**: Implemented in `OnBeforeBrowse` to intercept and block dangerous navigations before they reach the renderer. The following schemes are blocked at the request level:
 
-| Scheme | Description |
-|---|---|
-| `chrome://` | Internal Chromium pages (flags, settings, etc.) |
-| `chrome-devtools://` | DevTools UI |
-| `chrome-extension://` | Extensions (disabled) |
-| `chrome-search://` | Chrome's search UI |
-| `chrome-untrusted://` | Sandboxed chrome UI pages |
-| `devtools://` | Alternative devtools scheme |
-| `javascript:` | Blocked in address bar to prevent XSS |
-| `data:` | Blocked for navigation to prevent phishing |
-| `file://` | Blocked globally (except for internal UI shell) |
+| Scheme | Risk | Blocked |
+|---|---|---|
+| `chrome://` | Internal Chromium flags and settings | ✓ |
+| `chrome-devtools://` | DevTools inspector and debugger | ✓ |
+| `chrome-extension://` | Chrome extension APIs (disabled) | ✓ |
+| `chrome-search://` | Chrome's built-in search UI | ✓ |
+| `chrome-untrusted://` | Sandboxed Chrome UI pages | ✓ |
+| `devtools://` | Alternative devtools entry point | ✓ |
+| `javascript:` | XSS vector via address bar injection | ✓ |
+| `data:` | Phishing via data-URI obfuscation | ✓ |
+| `file://` | Local filesystem access (except UI shell) | ✓ |
+
+- **Custom `browser://` Scheme**: Internal pages (newtab, settings) use a registered custom scheme with `CefSchemeHandlerFactory`, isolated from web content and blocked from address bar display.
+- **UI Isolation**: The browser toolbar runs in a separate `CefBrowserView` from content pages, preventing page content from interfering with browser controls.
 
 *Note: `about:blank` is preserved for compatibility.*
 

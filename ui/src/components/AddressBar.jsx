@@ -7,7 +7,6 @@ const AddressBar = forwardRef(({ url: initialUrl, onNavigate }, ref) => {
   useImperativeHandle(ref, () => ({
     focus: () => {
       inputRef.current?.focus();
-      window.cefQuery?.({ request: 'focus-ui' });
     }
   }));
 

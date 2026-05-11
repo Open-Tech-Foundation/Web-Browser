@@ -42,6 +42,7 @@ class OtfApp : public CefApp,
   int CreateTab(const std::string& url);
   void SwitchTab(int tab_id);
   void CloseTab(int tab_id);
+  int GetCurrentTabId() const { return current_tab_id_; }
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;
