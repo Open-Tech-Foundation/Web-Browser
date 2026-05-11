@@ -138,6 +138,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (f.is_open()) {
         f << json;
         callback->Success("");
+        handler->SendEvent("{\"key\":\"settings-changed\",\"value\":\"" + JsonEscape(json) + "\"}");
       } else {
         callback->Failure(1, "Failed to save settings");
       }
@@ -191,6 +192,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int tab_id = std::stoi(msg.substr(7));
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) b->Reload();
+      callback->Success("");
+    } else if (msg.find("stop:") == 0) {
+      int tab_id = std::stoi(msg.substr(5));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->StopLoad();
       callback->Success("");
     } else if (msg == "focus-ui") {
       if (handler->ui_browser_) {

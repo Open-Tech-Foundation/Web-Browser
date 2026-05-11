@@ -79,6 +79,11 @@ const App = () => {
             } else if (event.key === 'load-end') {
               const tab = stateRef.current.tabs.find(t => t.id === event.id);
               if (tab && !tab.url) addressBarRef.current?.focus();
+            } else if (event.key === 'settings-changed') {
+              try {
+                const settings = JSON.parse(event.value);
+                setSearchEngine(settings.searchEngine || '');
+              } catch (e) {}
             } else {
               dispatch({ 
                 type: 'UPDATE_TAB', 
@@ -237,7 +242,11 @@ const App = () => {
             onClick={() => handleNavAction('forward')} 
             icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>} 
           />
-          <NavButton onClick={() => handleNavAction('reload')} icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>} />
+          <NavButton onClick={() => handleNavAction(currentActiveTab?.loading ? 'stop' : 'reload')} icon={
+            currentActiveTab?.loading
+              ? <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>
+          } />
         </div>
         <AddressBar ref={addressBarRef} url={currentActiveTab?.url || ''} onNavigate={handleNavigate} />
         <div className="flex ml-1">
