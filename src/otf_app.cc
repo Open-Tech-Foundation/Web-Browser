@@ -73,9 +73,8 @@ class OtfWindowDelegate : public CefWindowDelegate {
 
   void OnLayoutChanged(CefRefPtr<CefView> view, const CefRect& new_bounds) override {
     OtfApp* app = OtfApp::GetInstance();
-    if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {
-      app->findbar_overlay_->SetBounds(
-          CefRect(new_bounds.width - 400, 60, 380, 36));
+    if (app) {
+      app->PositionFindBarOverlay();
     }
   }
 
@@ -212,26 +211,6 @@ int OtfApp::CreateTab(const std::string& url) {
     content_view->SetVisible(false);
   }
 
-  // Hide find bar and clear per-tab find state on the new tab
-  if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
-    findbar_overlay_->SetVisible(false);
-    CefRefPtr<CefBrowser> b = tab_manager_.GetBrowser(tab_id);
-    if (b) b->GetHost()->StopFinding(true);
-    tab_manager_.ClearFindState(tab_id);
-    OtfHandler* h = OtfHandler::GetInstance();
-    if (h && h->findbar_subscription_) {
-      h->findbar_subscription_->Success(
-          JsonObjectBuilder()
-              .AddString("key", "find-result")
-              .AddInt("count", 0)
-              .AddInt("active", 0)
-              .AddInt("tabId", -1)
-              .AddString("text", "")
-              .AddBool("final", true)
-              .Build());
-    }
-  }
-
   return tab_id;
 }
 
@@ -239,6 +218,7 @@ void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
   
   if (current_tab_id_ == tab_id) return;
+  OtfHandler* handler = OtfHandler::GetInstance();
 
   // Clear any active find on the old tab so highlights don't linger
   if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
@@ -259,7 +239,6 @@ void OtfApp::SwitchTab(int tab_id) {
     content_panel_->InvalidateLayout();
     window_->Layout();
     current_tab_id_ = tab_id;
-    OtfHandler* handler = OtfHandler::GetInstance();
     if (handler) {
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "active-tab-changed")
@@ -267,14 +246,26 @@ void OtfApp::SwitchTab(int tab_id) {
                              .Build());
     }
 
-    // Push new tab's find state so the UI updates without losing the bar
-    if (findbar_overlay_ && findbar_overlay_->IsVisible() && handler && handler->findbar_subscription_) {
-      handler->findbar_subscription_->Success(
-          JsonObjectBuilder()
-              .AddString("key", "find-restore")
-              .AddString("text", tab_manager_.GetFindText(tab_id))
-              .AddBool("matchCase", tab_manager_.GetFindCase(tab_id))
-              .Build());
+    if (tab_manager_.IsFindVisible(tab_id)) {
+      RestoreFindSessionForTab(tab_id, false);
+    } else if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
+      findbar_overlay_->SetVisible(false);
+      if (handler && handler->findbar_subscription_) {
+        handler->findbar_subscription_->Success(
+            JsonObjectBuilder()
+                .AddString("key", "findbar-closed")
+                .AddInt("tabId", tab_id)
+                .Build());
+        handler->findbar_subscription_->Success(
+            JsonObjectBuilder()
+                .AddString("key", "find-result")
+                .AddInt("count", 0)
+                .AddInt("active", 0)
+                .AddInt("tabId", -1)
+                .AddString("text", "")
+                .AddBool("final", true)
+                .Build());
+      }
     }
     return;
   }
@@ -323,8 +314,68 @@ void OtfApp::CreateFindBarOverlay() {
   view->SetID(kFindBarBrowserViewId);
   findbar_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionFindBarOverlay();
+}
+
+void OtfApp::FocusCurrentTabContent() {
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefBrowser> browser = tab_manager_.GetBrowser(current_tab_id_);
+  if (browser) {
+    browser->GetHost()->SetFocus(true);
+  }
+}
+
+void OtfApp::RestoreFindSessionForTab(int tab_id, bool focus_findbar) {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !findbar_overlay_) return;
+
+  PositionFindBarOverlay();
+  findbar_overlay_->SetVisible(true);
+  if (handler->findbar_subscription_) {
+    handler->findbar_subscription_->Success(
+        JsonObjectBuilder()
+            .AddString("key", "find-restore")
+            .AddInt("tabId", tab_id)
+            .AddString("text", tab_manager_.GetFindText(tab_id))
+            .AddBool("matchCase", tab_manager_.GetFindCase(tab_id))
+            .Build());
+  }
+
+  if (focus_findbar && handler->findbar_browser_) {
+    handler->findbar_browser_->GetMainFrame()->ExecuteJavaScript(
+        "(function(){try{var e=document.querySelector('input[type=text]');if(e){e.focus();e.select();}}catch(_){}})();",
+        CefString(), 0);
+    handler->findbar_browser_->GetHost()->SetFocus(true);
+  }
+
+  std::string text = tab_manager_.GetFindText(tab_id);
+  if (text.empty()) return;
+
+  CefRefPtr<CefBrowser> browser = tab_manager_.GetBrowser(tab_id);
+  if (!browser) return;
+
+  handler->pending_find_tab_ = tab_id;
+  handler->pending_find_text_ = text;
+  handler->restore_find_target_ordinal_ = tab_manager_.GetFindActive(tab_id);
+  handler->restore_find_in_progress_ =
+      handler->restore_find_target_ordinal_ > 1;
+  browser->GetHost()->Find(text, true, tab_manager_.GetFindCase(tab_id), false);
+}
+
+void OtfApp::PositionFindBarOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !findbar_overlay_) return;
+
+  constexpr int kOverlayWidth = 380;
+  constexpr int kOverlayHeight = 36;
+  constexpr int kOverlayTop = 60;
+  constexpr int kOverlayRightMargin = 20;
+
   CefRect bounds = window_->GetBounds();
-  findbar_overlay_->SetBounds(CefRect(bounds.width - 400, 60, 380, 36));
+  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
+  findbar_overlay_->SetBounds(
+      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
 }
 
 void OtfApp::OnContextInitialized() {

@@ -14,7 +14,8 @@ class OtfHandler : public CefClient,
                    public CefLoadHandler,
                    public CefContextMenuHandler,
                    public CefRequestHandler,
-                   public CefKeyboardHandler {
+                   public CefKeyboardHandler,
+                   public CefFindHandler {
  public:
   explicit OtfHandler(bool use_alloy_style);
   ~OtfHandler() override;
@@ -32,6 +33,9 @@ class OtfHandler : public CefClient,
     return this;
   }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override {
+    return this;
+  }
+  CefRefPtr<CefFindHandler> GetFindHandler() override {
     return this;
   }
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
@@ -91,16 +95,33 @@ class OtfHandler : public CefClient,
                      CefEventHandle os_event,
                      bool* is_keyboard_shortcut) override;
 
+  // CefFindHandler methods:
+  void OnFindResult(CefRefPtr<CefBrowser> browser,
+                    int identifier,
+                    int count,
+                    const CefRect& selectionRect,
+                    int activeMatchOrdinal,
+                    bool finalUpdate) override;
+
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
+  CefRefPtr<CefBrowser> findbar_browser_;
   std::string last_closed_url_;
 
   void SendEvent(const std::string& event_json);
 
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> subscription_callback_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> findbar_subscription_;
+
+  // Per-tab find state owned by tab_manager_ (text + case)
+  // Pending find text for async result correlation
+  std::string pending_find_text_;
+  int         pending_find_tab_ = -1;
+  int         restore_find_target_ordinal_ = 0;
+  bool        restore_find_in_progress_ = false;
 
  private:
   const bool use_alloy_style_;

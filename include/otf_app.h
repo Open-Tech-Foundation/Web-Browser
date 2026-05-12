@@ -44,6 +44,9 @@ class OtfApp : public CefApp,
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
   void CreateFindBarOverlay();
+  void FocusCurrentTabContent();
+  void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
+  void PositionFindBarOverlay();
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;

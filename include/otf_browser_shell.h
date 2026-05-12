@@ -10,6 +10,7 @@
 namespace otf {
 
 constexpr int kUiBrowserViewId = 100;
+constexpr int kFindBarBrowserViewId = 999;
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {
@@ -47,6 +48,8 @@ class TabManager {
     scheme_map_.erase(tab_id);
     url_map_.erase(tab_id);
     title_map_.erase(tab_id);
+    find_text_map_.erase(tab_id);
+    find_case_map_.erase(tab_id);
   }
 
   void SetUrl(int tab_id, const std::string& url) {
@@ -95,12 +98,76 @@ class TabManager {
     return nullptr;
   }
 
+  // ── Find state per tab ──
+  void SetFindText(int tab_id, const std::string& text) {
+    find_text_map_[tab_id] = text;
+  }
+
+  std::string GetFindText(int tab_id) {
+    auto it = find_text_map_.find(tab_id);
+    if (it != find_text_map_.end()) return it->second;
+    return "";
+  }
+
+  void SetFindCase(int tab_id, bool match_case) {
+    find_case_map_[tab_id] = match_case;
+  }
+
+  bool GetFindCase(int tab_id) {
+    auto it = find_case_map_.find(tab_id);
+    if (it != find_case_map_.end()) return it->second;
+    return false;
+  }
+
+  void ClearFindState(int tab_id) {
+    find_text_map_.erase(tab_id);
+    find_case_map_.erase(tab_id);
+    find_count_map_.erase(tab_id);
+    find_active_map_.erase(tab_id);
+    find_visible_map_.erase(tab_id);
+  }
+
+  void SetFindVisible(int tab_id, bool visible) {
+    find_visible_map_[tab_id] = visible;
+  }
+
+  bool IsFindVisible(int tab_id) {
+    auto it = find_visible_map_.find(tab_id);
+    if (it != find_visible_map_.end()) return it->second;
+    return false;
+  }
+
+  void SetFindCount(int tab_id, int count) {
+    find_count_map_[tab_id] = count;
+  }
+
+  int GetFindCount(int tab_id) {
+    auto it = find_count_map_.find(tab_id);
+    if (it != find_count_map_.end()) return it->second;
+    return 0;
+  }
+
+  void SetFindActive(int tab_id, int active) {
+    find_active_map_[tab_id] = active;
+  }
+
+  int GetFindActive(int tab_id) {
+    auto it = find_active_map_.find(tab_id);
+    if (it != find_active_map_.end()) return it->second;
+    return 0;
+  }
+
  private:
   std::map<int, CefRefPtr<CefBrowserView>> view_map_;
   std::map<int, CefRefPtr<CefBrowser>> browser_map_;
   std::map<int, std::string> scheme_map_;
   std::map<int, std::string> url_map_;
   std::map<int, std::string> title_map_;
+  std::map<int, std::string> find_text_map_;
+  std::map<int, bool> find_case_map_;
+  std::map<int, int> find_count_map_;
+  std::map<int, int> find_active_map_;
+  std::map<int, bool> find_visible_map_;
   int next_tab_id_;
 };
 

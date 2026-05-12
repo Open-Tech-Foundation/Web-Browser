@@ -114,11 +114,10 @@ std::string BuildFindResultEvent(int count,
   return builder.Build();
 }
 
-std::string BuildFindRestoreEvent(const std::string& text, bool match_case) {
+std::string BuildFindbarClosedEvent(int tab_id) {
   return JsonObjectBuilder()
-      .AddString("key", "find-restore")
-      .AddString("text", text)
-      .AddBool("matchCase", match_case)
+      .AddString("key", "findbar-closed")
+      .AddInt("tabId", tab_id)
       .Build();
 }
 
@@ -306,16 +305,20 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (b) b->GetHost()->StopFinding(true);
       callback->Success("");
     } else if (msg.find("findbar-find:") == 0) {
-      // findbar-find:<text_len>:<text>:<forward>:<matchCase>:<findNext>
+      // findbar-find:<tab_id>:<text_len>:<text>:<forward>:<matchCase>:<findNext>
       std::string payload = msg.substr(13); // after "findbar-find:"
       std::string text;
       bool forward = true, match_case = false, find_next = false;
 
+      size_t tab_end = payload.find(':');
+      if (tab_end == std::string::npos) { callback->Success(""); return true; }
+      int requested_tab_id = std::stoi(payload.substr(0, tab_end));
+
       // Parse text length
-      size_t len_end = payload.find(':');
+      size_t len_end = payload.find(':', tab_end + 1);
       if (len_end == std::string::npos) { callback->Success(""); return true; }
       size_t text_len = 0;
-      std::string text_len_str = payload.substr(0, len_end);
+      std::string text_len_str = payload.substr(tab_end + 1, len_end - tab_end - 1);
       char* parse_end = nullptr;
       errno = 0;
       unsigned long parsed = std::strtoul(text_len_str.c_str(), &parse_end, 10);
@@ -348,7 +351,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!app || !handler->tab_manager_) { callback->Success(""); return true; }
       int tab_id = app->GetCurrentTabId();
       if (tab_id < 0) { callback->Success(""); return true; }
+      if (requested_tab_id != tab_id) { callback->Success(""); return true; }
 
+      handler->tab_manager_->SetFindVisible(tab_id, true);
       handler->tab_manager_->SetFindText(tab_id, text);
       handler->tab_manager_->SetFindCase(tab_id, match_case);
 
@@ -388,37 +393,33 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("");
     } else if (msg == "findbar-close:") {
       OtfApp* app = OtfApp::GetInstance();
+      int tab_id = app ? app->GetCurrentTabId() : -1;
       if (app && app->findbar_overlay_) {
         app->findbar_overlay_->SetVisible(false);
-        if (handler->ui_browser_) handler->ui_browser_->GetHost()->SetFocus(true);
         if (handler->tab_manager_) {
-          auto b = handler->tab_manager_->GetBrowser(app->GetCurrentTabId());
+          handler->tab_manager_->ClearFindState(tab_id);
+          auto b = handler->tab_manager_->GetBrowser(tab_id);
           if (b) b->GetHost()->StopFinding(true);
         }
+        if (handler->pending_find_tab_ == tab_id) {
+          handler->pending_find_tab_ = -1;
+          handler->pending_find_text_.clear();
+        }
+        app->FocusCurrentTabContent();
       }
       if (handler->findbar_subscription_) {
         handler->findbar_subscription_->Success(
             BuildFindResultEvent(0, 0, -1, "", true));
+        handler->findbar_subscription_->Success(BuildFindbarClosedEvent(tab_id));
       }
       callback->Success("");
     } else if (msg == "show-findbar") {
       OtfApp* app = OtfApp::GetInstance();
-      if (app && app->findbar_overlay_) {
-        app->findbar_overlay_->SetVisible(true);
-        if (handler->findbar_browser_) {
-          handler->findbar_browser_->GetMainFrame()->ExecuteJavaScript(
-              "(function(){try{var e=document.querySelector('input[type=text]');if(e){e.focus();e.select();}}catch(_){}})();",
-              CefString(), 0);
-          handler->findbar_browser_->GetHost()->SetFocus(true);
-        }
-      }
-      // Push per-tab find state to UI so it populates the right text on open
       if (app && handler->tab_manager_) {
         int tab_id = app->GetCurrentTabId();
-        if (tab_id >= 0 && handler->findbar_subscription_) {
-          handler->findbar_subscription_->Success(
-              BuildFindRestoreEvent(handler->tab_manager_->GetFindText(tab_id),
-                                    handler->tab_manager_->GetFindCase(tab_id)));
+        if (tab_id >= 0) {
+          handler->tab_manager_->SetFindVisible(tab_id, true);
+          app->RestoreFindSessionForTab(tab_id, true);
         }
       }
       callback->Success("");
@@ -791,14 +792,21 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kNone, Key::kEscape)) {
     if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {
       app->findbar_overlay_->SetVisible(false);
-      if (ui_browser_) ui_browser_->GetHost()->SetFocus(true);
       if (tab_manager_) {
+        tab_manager_->ClearFindState(app->GetCurrentTabId());
         auto b = tab_manager_->GetBrowser(app->GetCurrentTabId());
         if (b) b->GetHost()->StopFinding(true);
       }
+      if (pending_find_tab_ == app->GetCurrentTabId()) {
+        pending_find_tab_ = -1;
+        pending_find_text_.clear();
+      }
+      app->FocusCurrentTabContent();
       if (findbar_subscription_) {
         findbar_subscription_->Success(
             BuildFindResultEvent(0, 0, -1, "", true));
+        findbar_subscription_->Success(
+            BuildFindbarClosedEvent(app->GetCurrentTabId()));
       }
       return true;
     }
@@ -810,20 +818,9 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kCtrl, Key::kMinus))  { nav(Shortcut::kZoomOut);   return true; }
   if (M(Mod::kCtrl, Key::k0))      { nav(Shortcut::kZoomReset); return true; }
   if (M(Mod::kCtrl, Key::kF)) {
-    if (app->findbar_overlay_) {
-      app->findbar_overlay_->SetVisible(true);
-      if (findbar_browser_) {
-        findbar_browser_->GetMainFrame()->ExecuteJavaScript(
-            "(function(){try{var e=document.querySelector('input[type=text]');if(e){e.focus();e.select();}}catch(_){}})();",
-            CefString(), 0);
-        findbar_browser_->GetHost()->SetFocus(true);
-      }
-      // Push per-tab state so UI shows the right text
-      if (tab_manager_ && findbar_subscription_) {
-        findbar_subscription_->Success(
-            BuildFindRestoreEvent(tab_manager_->GetFindText(cur),
-                                  tab_manager_->GetFindCase(cur)));
-      }
+    if (app->findbar_overlay_ && tab_manager_) {
+      tab_manager_->SetFindVisible(cur, true);
+      app->RestoreFindSessionForTab(cur, true);
     }
     return true;
   }
@@ -910,9 +907,34 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
   int tab_id = view->GetID();
   if (tab_id == kUiBrowserViewId || tab_id == kFindBarBrowserViewId) return;
 
-  // Only forward results for the currently focused tab
   OtfApp* app = OtfApp::GetInstance();
-  if (!app || app->GetCurrentTabId() != tab_id) return;
+  if (!app) return;
+
+  const bool is_current_tab = app->GetCurrentTabId() == tab_id;
+  const bool is_background_stop_reset =
+      !is_current_tab && finalUpdate && count == 0 && activeMatchOrdinal == 0 &&
+      tab_manager_->IsFindVisible(tab_id) && !tab_manager_->GetFindText(tab_id).empty();
+
+  if (!is_background_stop_reset) {
+    tab_manager_->SetFindCount(tab_id, count);
+    tab_manager_->SetFindActive(tab_id, activeMatchOrdinal);
+  }
+
+  // Only forward results for the currently focused tab
+  if (!is_current_tab) return;
+
+  if (restore_find_in_progress_ && pending_find_tab_ == tab_id && finalUpdate) {
+    if (count <= 0 || restore_find_target_ordinal_ <= 1 ||
+        activeMatchOrdinal >= restore_find_target_ordinal_) {
+      restore_find_in_progress_ = false;
+      restore_find_target_ordinal_ = 0;
+    } else {
+      browser->GetHost()->Find(pending_find_text_, true,
+                               tab_manager_->GetFindCase(tab_id), true);
+    }
+  } else if (finalUpdate && pending_find_tab_ == tab_id) {
+    restore_find_target_ordinal_ = 0;
+  }
 
   if (findbar_subscription_) {
     findbar_subscription_->Success(
