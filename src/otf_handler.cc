@@ -3,7 +3,9 @@
 #include "otf_keyboard_shortcuts.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <fstream>
@@ -63,24 +65,61 @@ namespace {
 OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
 
-std::string JsonEscape(const std::string& s) {
-  std::string out;
-  out.reserve(s.size());
-  for (char c : s) {
-    switch (c) {
-      case '"':  out += "\\\""; break;
-      case '\\': out += "\\\\"; break;
-      case '\n': out += "\\n";  break;
-      case '\r': out += "\\r";  break;
-      case '\t': out += "\\t";  break;
-      default:   out += c;      break;
-    }
-  }
-  return out;
-}
-
 std::string GetDevUiUrl() {
   return CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
+}
+
+std::string BuildTabJson(TabManager* tab_manager, int tab_id) {
+  return JsonObjectBuilder()
+      .AddInt("id", tab_id)
+      .AddString("url", tab_manager ? tab_manager->GetUrl(tab_id) : "")
+      .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id) : "New Tab")
+      .Build();
+}
+
+std::string BuildTabPropertyEvent(int tab_id,
+                                  const std::string& key,
+                                  const std::string& value) {
+  return JsonObjectBuilder()
+      .AddInt("id", tab_id)
+      .AddString("key", key)
+      .AddString("value", value)
+      .Build();
+}
+
+std::string BuildTabPropertyEvent(int tab_id,
+                                  const std::string& key,
+                                  bool value) {
+  return JsonObjectBuilder()
+      .AddInt("id", tab_id)
+      .AddString("key", key)
+      .AddBool("value", value)
+      .Build();
+}
+
+std::string BuildFindResultEvent(int count,
+                                 int active,
+                                 int tab_id,
+                                 const std::string& text,
+                                 bool final_update) {
+  JsonObjectBuilder builder;
+  builder.AddString("key", "find-result")
+      .AddInt("count", count)
+      .AddInt("active", active)
+      .AddInt("tabId", tab_id)
+      .AddBool("final", final_update);
+  if (!text.empty() || tab_id < 0) {
+    builder.AddString("text", text);
+  }
+  return builder.Build();
+}
+
+std::string BuildFindRestoreEvent(const std::string& text, bool match_case) {
+  return JsonObjectBuilder()
+      .AddString("key", "find-restore")
+      .AddString("text", text)
+      .AddBool("matchCase", match_case)
+      .Build();
 }
 
 // Handle messages from the UI Shell (index.html)
@@ -98,8 +137,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     OtfHandler* handler = OtfHandler::GetInstance();
     if (!handler || !handler->tab_manager_) return false;
 
+    if (msg == "get-my-tab-id") {
+      CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+      callback->Success(view ? std::to_string(view->GetID()) : "0");
+      return true;
+    }
+
     if (msg == "subscribe-events") {
       handler->subscription_callback_ = callback;
+      return true;
+    }
+
+    if (msg == "findbar-subscribe") {
+      handler->findbar_subscription_ = callback;
       return true;
     }
 
@@ -108,11 +158,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       ss << "[";
       std::vector<int> ids = handler->tab_manager_->GetAllTabIds();
       for (size_t i = 0; i < ids.size(); ++i) {
-        std::string url = handler->tab_manager_->GetUrl(ids[i]);
-        std::string title = handler->tab_manager_->GetTitle(ids[i]);
-        ss << "{\"id\":" << ids[i]
-           << ",\"url\":\"" << JsonEscape(url) << "\""
-           << ",\"title\":\"" << JsonEscape(title) << "\"}";
+        ss << BuildTabJson(handler->tab_manager_, ids[i]);
         if (i < ids.size() - 1) ss << ",";
       }
       ss << "]";
@@ -120,34 +166,43 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "get-active-tab") {
+      OtfApp* app = OtfApp::GetInstance();
+      callback->Success(app ? std::to_string(app->GetCurrentTabId()) : "-1");
+      return true;
+    }
+
     if (msg == "get-settings") {
-      std::string path = otf::GetSettingsFilePath();
-      std::ifstream f(path);
-      if (f.is_open()) {
-        std::stringstream buffer;
-        buffer << f.rdbuf();
-        callback->Success(buffer.str());
-      } else {
-        callback->Success("{\"searchEngine\":\"\"}");
-      }
+      callback->Success(otf::LoadSettingsJson());
       return true;
     }
 
     if (msg.find("set-settings:") == 0) {
-      std::string json = msg.substr(13);
-      std::string path = otf::GetSettingsFilePath();
-      std::ofstream f(path);
-      if (f.is_open()) {
-        f << json;
+      std::string normalized_json;
+      if (otf::SaveSettingsJson(msg.substr(13), &normalized_json)) {
         callback->Success("");
-        handler->SendEvent("{\"key\":\"settings-changed\",\"value\":\"" + JsonEscape(json) + "\"}");
+        handler->SendEvent(JsonObjectBuilder()
+                               .AddString("key", "settings-changed")
+                               .AddRaw("settings", normalized_json)
+                               .Build());
       } else {
-        callback->Failure(1, "Failed to save settings");
+        callback->Failure(1, "Invalid settings payload");
       }
       return true;
     }
 
-    if (msg.find("navigate:") == 0) {
+    if (msg.find("navigate-current:") == 0) {
+      std::string url = msg.substr(17);
+      CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+      if (view && handler->tab_manager_) {
+        int tab_id = view->GetID();
+        if (url.find("browser://") == 0) {
+          handler->tab_manager_->SetSchemeUrl(tab_id, url);
+        }
+        browser->GetMainFrame()->LoadURL(url);
+      }
+      callback->Success("");
+    } else if (msg.find("navigate:") == 0) {
       size_t colon = msg.find(':', 9);
       int tab_id = std::stoi(msg.substr(9, colon - 9));
       std::string url = msg.substr(colon + 1);
@@ -163,17 +218,33 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (!app) { callback->Failure(1, "App not ready"); return true; }
       int id = app->CreateTab("browser://newtab");
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "new-tab")
+                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, id))
+                             .Build());
+      app->SwitchTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("new-tab:") == 0) {
       std::string url = msg.substr(8);
       OtfApp* app = OtfApp::GetInstance();
       if (!app) { callback->Failure(1, "App not ready"); return true; }
       int id = app->CreateTab(url);
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "new-tab")
+                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, id))
+                             .Build());
+      app->SwitchTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("close-tab:") == 0) {
       int tab_id = std::stoi(msg.substr(10));
       OtfApp* app = OtfApp::GetInstance();
-      if (app) app->CloseTab(tab_id);
+      if (app) {
+        app->CloseTab(tab_id);
+        handler->SendEvent(JsonObjectBuilder()
+                               .AddString("key", "tab-closed")
+                               .AddInt("id", tab_id)
+                               .Build());
+      }
       callback->Success("");
     } else if (msg.find("switch-tab:") == 0) {
       int tab_id = std::stoi(msg.substr(11));
@@ -205,7 +276,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double zoom = b->GetHost()->GetZoomLevel();
-        b->GetHost()->SetZoomLevel(zoom + 0.5);
+        b->GetHost()->SetZoomLevel(otf::ZoomIn(zoom));
       }
       callback->Success("");
     } else if (msg.find("zoom-out:") == 0) {
@@ -213,13 +284,153 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double zoom = b->GetHost()->GetZoomLevel();
-        b->GetHost()->SetZoomLevel(zoom - 0.5);
+        b->GetHost()->SetZoomLevel(otf::ZoomOut(zoom));
       }
       callback->Success("");
     } else if (msg.find("zoom-reset:") == 0) {
       int tab_id = std::stoi(msg.substr(11));
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) b->GetHost()->SetZoomLevel(0.0);
+      if (b) b->GetHost()->SetZoomLevel(otf::ZoomReset());
+      callback->Success("");
+    } else if (msg.find("find:") == 0) {
+      // find:<tab_id>:<text>
+      size_t c1 = msg.find(':', 5);
+      int tab_id = std::stoi(msg.substr(5, c1 - 5));
+      std::string text = msg.substr(c1 + 1);
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->GetHost()->Find(text, true, false, false);  // findNext=false: initial search
+      callback->Success("");
+    } else if (msg.find("stop-find:") == 0) {
+      int tab_id = std::stoi(msg.substr(10));
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) b->GetHost()->StopFinding(true);
+      callback->Success("");
+    } else if (msg.find("findbar-find:") == 0) {
+      // findbar-find:<text_len>:<text>:<forward>:<matchCase>:<findNext>
+      std::string payload = msg.substr(13); // after "findbar-find:"
+      std::string text;
+      bool forward = true, match_case = false, find_next = false;
+
+      // Parse text length
+      size_t len_end = payload.find(':');
+      if (len_end == std::string::npos) { callback->Success(""); return true; }
+      size_t text_len = 0;
+      std::string text_len_str = payload.substr(0, len_end);
+      char* parse_end = nullptr;
+      errno = 0;
+      unsigned long parsed = std::strtoul(text_len_str.c_str(), &parse_end, 10);
+      if (errno != 0 || parse_end == text_len_str.c_str() || *parse_end != '\0') {
+        callback->Success("");
+        return true;
+      }
+      text_len = static_cast<size_t>(parsed);
+
+      size_t text_start = len_end + 1;
+      if (text_start + text_len > payload.size()) { callback->Success(""); return true; }
+      text = payload.substr(text_start, text_len);
+
+      size_t rest_start = text_start + text_len;
+      if (rest_start >= payload.size() || payload[rest_start] != ':') {
+        // No extra params, default everything
+      } else {
+        std::string rest = payload.substr(rest_start + 1);
+        size_t r1 = rest.find(':');
+        if (r1 != std::string::npos) {
+          forward = rest.substr(0, r1) != "0";
+          size_t r2 = rest.find(':', r1 + 1);
+          if (r2 != std::string::npos) {
+            match_case = rest.substr(r1 + 1, r2 - r1 - 1) != "0";
+            find_next  = rest.substr(r2 + 1) != "0";
+          }
+        }
+      }
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app || !handler->tab_manager_) { callback->Success(""); return true; }
+      int tab_id = app->GetCurrentTabId();
+      if (tab_id < 0) { callback->Success(""); return true; }
+
+      handler->tab_manager_->SetFindText(tab_id, text);
+      handler->tab_manager_->SetFindCase(tab_id, match_case);
+
+      auto b = handler->tab_manager_->GetBrowser(tab_id);
+      if (!b) { callback->Success(""); return true; }
+
+      if (text.empty()) {
+        b->GetHost()->StopFinding(true);
+        // Clear counters in UI
+        if (handler->findbar_subscription_) {
+          handler->findbar_subscription_->Success(
+              BuildFindResultEvent(0, 0, tab_id, "", true));
+        }
+      } else {
+        // Track pending so async OnFindResult can correlate and filter
+        handler->pending_find_tab_  = tab_id;
+        handler->pending_find_text_ = text;
+        b->GetHost()->Find(text, forward, match_case, find_next);
+      }
+      callback->Success("");
+    } else if (msg == "findbar-stop:") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && handler->tab_manager_) {
+        int tab_id = app->GetCurrentTabId();
+        if (tab_id >= 0) {
+          handler->tab_manager_->ClearFindState(tab_id);
+          auto b = handler->tab_manager_->GetBrowser(tab_id);
+          if (b) b->GetHost()->StopFinding(true);
+        }
+      }
+      handler->pending_find_tab_ = -1;
+      handler->pending_find_text_.clear();
+      if (handler->findbar_subscription_) {
+        handler->findbar_subscription_->Success(
+            BuildFindResultEvent(0, 0, -1, "", true));
+      }
+      callback->Success("");
+    } else if (msg == "findbar-close:") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && app->findbar_overlay_) {
+        app->findbar_overlay_->SetVisible(false);
+        if (handler->ui_browser_) handler->ui_browser_->GetHost()->SetFocus(true);
+        if (handler->tab_manager_) {
+          auto b = handler->tab_manager_->GetBrowser(app->GetCurrentTabId());
+          if (b) b->GetHost()->StopFinding(true);
+        }
+      }
+      if (handler->findbar_subscription_) {
+        handler->findbar_subscription_->Success(
+            BuildFindResultEvent(0, 0, -1, "", true));
+      }
+      callback->Success("");
+    } else if (msg == "show-findbar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && app->findbar_overlay_) {
+        app->findbar_overlay_->SetVisible(true);
+        if (handler->findbar_browser_) {
+          handler->findbar_browser_->GetMainFrame()->ExecuteJavaScript(
+              "(function(){try{var e=document.querySelector('input[type=text]');if(e){e.focus();e.select();}}catch(_){}})();",
+              CefString(), 0);
+          handler->findbar_browser_->GetHost()->SetFocus(true);
+        }
+      }
+      // Push per-tab find state to UI so it populates the right text on open
+      if (app && handler->tab_manager_) {
+        int tab_id = app->GetCurrentTabId();
+        if (tab_id >= 0 && handler->findbar_subscription_) {
+          handler->findbar_subscription_->Success(
+              BuildFindRestoreEvent(handler->tab_manager_->GetFindText(tab_id),
+                                    handler->tab_manager_->GetFindCase(tab_id)));
+        }
+      }
+      callback->Success("");
+    } else if (msg == "hide-findbar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && app->findbar_overlay_) {
+        app->findbar_overlay_->SetVisible(false);
+        if (handler->tab_manager_) {
+          auto b = handler->tab_manager_->GetBrowser(app->GetCurrentTabId());
+          if (b) b->GetHost()->StopFinding(true);
+        }
+      }
       callback->Success("");
     } else if (msg == "focus-ui") {
       if (handler->ui_browser_) {
@@ -271,9 +482,7 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view) {
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
-    std::stringstream ss;
-    ss << "{\"id\":" << view->GetID() << ",\"key\":\"title\",\"value\":\"" << JsonEscape(title.ToString()) << "\"}";
-    SendEvent(ss.str());
+    SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
   }
 }
 
@@ -287,8 +496,9 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
       std::string url_str = url.ToString();
       std::string scheme_url = tab_manager_->GetSchemeUrl(view->GetID());
 
-      // Always store the URL so get-tabs can retrieve it
-      if (tab_manager_) {
+      if (!scheme_url.empty()) {
+        tab_manager_->SetUrl(view->GetID(), scheme_url);
+      } else if (tab_manager_) {
         tab_manager_->SetUrl(view->GetID(), url_str);
       }
 
@@ -308,9 +518,7 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
         }
       }
 
-      std::stringstream ss;
-      ss << "{\"id\":" << view->GetID() << ",\"key\":\"url\",\"value\":\"" << JsonEscape(url_str) << "\"}";
-      SendEvent(ss.str());
+      SendEvent(BuildTabPropertyEvent(view->GetID(), "url", url_str));
     }
   }
 }
@@ -322,9 +530,8 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
 
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view) {
-    std::stringstream ss;
-    ss << "{\"id\":" << view->GetID() << ",\"key\":\"favicon\",\"value\":\"" << JsonEscape(icon_urls[0].ToString()) << "\"}";
-    SendEvent(ss.str());
+    SendEvent(BuildTabPropertyEvent(view->GetID(), "favicon",
+                                    icon_urls[0].ToString()));
   }
 }
 
@@ -335,18 +542,9 @@ void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view) {
-    std::stringstream ss;
-    ss << "{\"id\":" << view->GetID() << ",\"key\":\"loading\",\"value\":\"" << (isLoading ? "true" : "false") << "\"}";
-    SendEvent(ss.str());
-    
-    // Also sync navigation state
-    std::stringstream ss_back;
-    ss_back << "{\"id\":" << view->GetID() << ",\"key\":\"canGoBack\",\"value\":\"" << (canGoBack ? "true" : "false") << "\"}";
-    SendEvent(ss_back.str());
-
-    std::stringstream ss_forward;
-    ss_forward << "{\"id\":" << view->GetID() << ",\"key\":\"canGoForward\",\"value\":\"" << (canGoForward ? "true" : "false") << "\"}";
-    SendEvent(ss_forward.str());
+    SendEvent(BuildTabPropertyEvent(view->GetID(), "loading", isLoading));
+    SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoBack", canGoBack));
+    SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoForward", canGoForward));
   }
 }
 
@@ -357,9 +555,7 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (!view || view->GetID() == kUiBrowserViewId) return;
 
-  std::stringstream ss;
-  ss << "{\"id\":" << view->GetID() << ",\"key\":\"load-end\",\"value\":\"true\"}";
-  SendEvent(ss.str());
+  SendEvent(BuildTabPropertyEvent(view->GetID(), "load-end", true));
 }
 
 void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
@@ -378,6 +574,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   if (browser_view) {
     if (browser_view->GetID() == kUiBrowserViewId) {
       ui_browser_ = browser;
+    } else if (browser_view->GetID() == kFindBarBrowserViewId) {
+      findbar_browser_ = browser;
     } else if (tab_manager_) {
       int tab_id = browser_view->GetID();
       tab_manager_->SetBrowser(tab_id, browser);
@@ -495,12 +693,13 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     OtfApp* app = OtfApp::GetInstance();
     if (!app || !tab_manager_) return false;
     int new_id = app->CreateTab(url);
-    tab_manager_->SetSchemeUrl(new_id, url);
-
-    std::stringstream ss;
-    ss << "{\"id\":0,\"key\":\"new-tab\",\"value\":\"{\\\"id\\\":" << new_id
-       << ",\\\"url\\\":\\\"" << JsonEscape(url) << "\\\",\\\"title\\\":\\\"New Tab\\\"}\"}";
-    SendEvent(ss.str());
+    if (url.rfind("browser://", 0) == 0) {
+      tab_manager_->SetSchemeUrl(new_id, url);
+    }
+    SendEvent(JsonObjectBuilder()
+                  .AddString("key", "new-tab")
+                  .AddRaw("tab", BuildTabJson(tab_manager_, new_id))
+                  .Build());
 
     return true;
   }
@@ -526,29 +725,32 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                 bool is_redirect) {
   std::string url = request->GetURL().ToString();
 
-  // Block chrome schemes and other unwanted schemes
+  // Block dangerous and internal schemes unconditionally
   if (url.rfind("chrome://", 0) == 0 ||
       url.rfind("chrome-devtools://", 0) == 0 ||
       url.rfind("chrome-extension://", 0) == 0 ||
       url.rfind("chrome-search://", 0) == 0 ||
       url.rfind("chrome-untrusted://", 0) == 0 ||
-      url.rfind("devtools://", 0) == 0) {
+      url.rfind("devtools://", 0) == 0 ||
+      url.rfind("javascript:", 0) == 0 ||
+      url.rfind("data:", 0) == 0 ||
+      url.rfind("blob:", 0) == 0 ||
+      url.rfind("about:srcdoc", 0) == 0) {
+    return true;
+  }
+
+  // Block file:// for all browsers except the UI shell
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (url.rfind("file://", 0) == 0 &&
+      (!view || view->GetID() != kUiBrowserViewId)) {
     return true;
   }
 
   std::string dev_ui_url = CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
 
-  if (!dev_ui_url.empty() && url.rfind("browser://", 0) == 0) {
-    std::string path = url.substr(10);
-    std::string transformed = dev_ui_url + "/" + path + ".html";
+  if (!dev_ui_url.empty() && IsAllowedBrowserPageUrl(url)) {
+    std::string transformed = GetBrowserPageDevUrl(dev_ui_url, url);
     request->SetURL(transformed);
-  }
-
-  // Block javascript: and data: URLs
-  if (url.rfind("javascript:", 0) == 0 ||
-      (url.rfind("data:", 0) == 0 &&
-       url.find("/ui/") == std::string::npos)) {
-    return true;
   }
 
   return false;
@@ -575,9 +777,9 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     if (action == Shortcut::kForward)   b->GoForward();
     if (action == Shortcut::kReload)    b->Reload();
     if (action == Shortcut::kEscape)    b->StopLoad();
-    if (action == Shortcut::kZoomIn)    b->GetHost()->SetZoomLevel(b->GetHost()->GetZoomLevel() + 0.5);
-    if (action == Shortcut::kZoomOut)   b->GetHost()->SetZoomLevel(b->GetHost()->GetZoomLevel() - 0.5);
-    if (action == Shortcut::kZoomReset) b->GetHost()->SetZoomLevel(0.0);
+    if (action == Shortcut::kZoomIn)    b->GetHost()->SetZoomLevel(otf::ZoomIn(b->GetHost()->GetZoomLevel()));
+    if (action == Shortcut::kZoomOut)   b->GetHost()->SetZoomLevel(otf::ZoomOut(b->GetHost()->GetZoomLevel()));
+    if (action == Shortcut::kZoomReset) b->GetHost()->SetZoomLevel(otf::ZoomReset());
   };
 
   // ── Navigation & Page ─────────────────────────────────────
@@ -587,6 +789,19 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     *is_keyboard_shortcut = true; nav(Shortcut::kReload); return true;
   }
   if (M(Mod::kNone, Key::kEscape)) {
+    if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {
+      app->findbar_overlay_->SetVisible(false);
+      if (ui_browser_) ui_browser_->GetHost()->SetFocus(true);
+      if (tab_manager_) {
+        auto b = tab_manager_->GetBrowser(app->GetCurrentTabId());
+        if (b) b->GetHost()->StopFinding(true);
+      }
+      if (findbar_subscription_) {
+        findbar_subscription_->Success(
+            BuildFindResultEvent(0, 0, -1, "", true));
+      }
+      return true;
+    }
     *is_keyboard_shortcut = true; nav(Shortcut::kEscape); return true;
   }
   if (M(Mod::kCtrl, Key::kPlus) || M(Mod::kCtrl|Mod::kShift, Key::kPlus)) {
@@ -594,6 +809,46 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   }
   if (M(Mod::kCtrl, Key::kMinus))  { nav(Shortcut::kZoomOut);   return true; }
   if (M(Mod::kCtrl, Key::k0))      { nav(Shortcut::kZoomReset); return true; }
+  if (M(Mod::kCtrl, Key::kF)) {
+    if (app->findbar_overlay_) {
+      app->findbar_overlay_->SetVisible(true);
+      if (findbar_browser_) {
+        findbar_browser_->GetMainFrame()->ExecuteJavaScript(
+            "(function(){try{var e=document.querySelector('input[type=text]');if(e){e.focus();e.select();}}catch(_){}})();",
+            CefString(), 0);
+        findbar_browser_->GetHost()->SetFocus(true);
+      }
+      // Push per-tab state so UI shows the right text
+      if (tab_manager_ && findbar_subscription_) {
+        findbar_subscription_->Success(
+            BuildFindRestoreEvent(tab_manager_->GetFindText(cur),
+                                  tab_manager_->GetFindCase(cur)));
+      }
+    }
+    return true;
+  }
+  if (M(Mod::kCtrl, Key::kG)) {
+    if (tab_manager_) {
+      std::string text = tab_manager_->GetFindText(cur);
+      bool case_sensitive = tab_manager_->GetFindCase(cur);
+      if (!text.empty()) {
+        auto b = tab_manager_->GetBrowser(cur);
+        if (b) b->GetHost()->Find(text, true, case_sensitive, true);
+      }
+    }
+    return true;
+  }
+  if (M(Mod::kCtrl|Mod::kShift, Key::kG)) {
+    if (tab_manager_) {
+      std::string text = tab_manager_->GetFindText(cur);
+      bool case_sensitive = tab_manager_->GetFindCase(cur);
+      if (!text.empty()) {
+        auto b = tab_manager_->GetBrowser(cur);
+        if (b) b->GetHost()->Find(text, false, case_sensitive, true);
+      }
+    }
+    return true;
+  }
 
   // ── Focus bar (frontend-only action) ──────────────────────
   if (M(Mod::kCtrl, Key::kL) || M(Mod::kNone, Key::kF6)) {
@@ -603,27 +858,28 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   // ── Tabs (C++ action + frontend notification) ─────────────
   if (M(Mod::kCtrl, Key::kT)) {
     int id = app->CreateTab("browser://newtab");
-    std::stringstream ss;
-    ss << "{\"id\":0,\"key\":\"new-tab\",\"value\":\"{\\\"id\\\":" << id
-       << ",\\\"url\\\":\\\"\\\",\\\"title\\\":\\\"New Tab\\\"}\"}";
-    SendEvent(ss.str());
+    SendEvent(JsonObjectBuilder()
+                  .AddString("key", "new-tab")
+                  .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                  .Build());
+    app->SwitchTab(id);
     return true;
   }
   if (M(Mod::kCtrl, Key::kW)) {
     std::string url = tab_manager_->GetUrl(cur);
     if (!url.empty() && url.find("browser://") != 0) last_closed_url_ = url;
     app->CloseTab(cur);
-    SendEvent("{\"key\":\"tab-closed\",\"value\":\"" + std::to_string(cur) + "\"}");
+    SendEvent(JsonObjectBuilder().AddString("key", "tab-closed").AddInt("id", cur).Build());
     return true;
   }
   if (M(Mod::kCtrl|Mod::kShift, Key::kT)) {
     if (!last_closed_url_.empty()) {
       int id = app->CreateTab(last_closed_url_);
-      std::stringstream ss;
-      ss << "{\"id\":0,\"key\":\"new-tab\",\"value\":\"{\\\"id\\\":" << id
-         << ",\\\"url\\\":\\\"" << JsonEscape(last_closed_url_)
-         << "\\\",\\\"title\\\":\\\"New Tab\\\"}\"}";
-      SendEvent(ss.str());
+      SendEvent(JsonObjectBuilder()
+                    .AddString("key", "new-tab")
+                    .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                    .Build());
+      app->SwitchTab(id);
       last_closed_url_.clear();
     }
     return true;
@@ -637,11 +893,31 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
       ? (it + 1 != ids.end() ? *(it + 1) : ids.front())
       : (it != ids.begin()     ? *(it - 1) : ids.back());
     app->SwitchTab(next);
-    SendEvent("{\"key\":\"tab-switched\",\"value\":\"" + std::to_string(next) + "\"}");
     return true;
   }
 
   return false;
+}
+
+void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
+                              int identifier,
+                              int count,
+                              const CefRect& selectionRect,
+                              int activeMatchOrdinal,
+                              bool finalUpdate) {
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (!view || !tab_manager_) return;
+  int tab_id = view->GetID();
+  if (tab_id == kUiBrowserViewId || tab_id == kFindBarBrowserViewId) return;
+
+  // Only forward results for the currently focused tab
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || app->GetCurrentTabId() != tab_id) return;
+
+  if (findbar_subscription_) {
+    findbar_subscription_->Success(
+        BuildFindResultEvent(count, activeMatchOrdinal, tab_id, "", finalUpdate));
+  }
 }
 
 } // namespace otf

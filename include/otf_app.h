@@ -41,12 +41,14 @@ class OtfApp : public CefApp,
 
   int CreateTab(const std::string& url);
   void SwitchTab(int tab_id);
-  void CloseTab(int tab_id);
+  int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
+  void CreateFindBarOverlay();
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;
   CefRefPtr<CefPanel> content_panel_;
+  CefRefPtr<CefOverlayController> findbar_overlay_;
 
  private:
   TabManager tab_manager_;

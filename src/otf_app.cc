@@ -1,6 +1,7 @@
 #include "otf_app.h"
 
 #include <string>
+#include "otf_utils.h"
 #include <unistd.h>
 #include <libgen.h>
 
@@ -58,6 +59,8 @@ class OtfWindowDelegate : public CefWindowDelegate {
 
     window->Layout();
 
+    app->CreateFindBarOverlay();
+
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
     }
@@ -65,6 +68,14 @@ class OtfWindowDelegate : public CefWindowDelegate {
     if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
       window->CenterWindow(CefSize(1280, 800));
       window->Show();
+    }
+  }
+
+  void OnLayoutChanged(CefRefPtr<CefView> view, const CefRect& new_bounds) override {
+    OtfApp* app = OtfApp::GetInstance();
+    if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {
+      app->findbar_overlay_->SetBounds(
+          CefRect(new_bounds.width - 400, 60, 380, 36));
     }
   }
 
@@ -135,13 +146,13 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     std::string dev_ui_url = CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
     std::string html_content;
 
-    if (!dev_ui_url.empty()) {
-      std::string path = url.substr(10);
-      if (!path.empty() && path.back() == '/') path.pop_back();
-      std::string full_url = dev_ui_url + "/" + path + ".html";
-      html_content = "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0;url=" + full_url + "'></head><body>Redirecting...</body></html>";
+    std::string full_url = GetBrowserPageDevUrl(dev_ui_url, url);
+    if (!full_url.empty()) {
+      html_content =
+          "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0;url=" +
+          full_url + "'></head><body>Redirecting...</body></html>";
     } else {
-      std::string file_path = otf::GetExecutableDir() + "/ui/" + url.substr(10) + ".html";
+      std::string file_path = GetBrowserPageFilePath(url);
       FILE* f = fopen(file_path.c_str(), "rb");
       if (f) {
         fseek(f, 0, SEEK_END);
@@ -154,7 +165,8 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
         fclose(f);
       }
       if (html_content.empty()) {
-        html_content = "<!DOCTYPE html><html><body>Page not found: " + url + "</body></html>";
+        html_content =
+            "<!DOCTYPE html><html><body><h1>404</h1><p>Page not found.</p></body></html>";
       }
     }
 
@@ -200,6 +212,26 @@ int OtfApp::CreateTab(const std::string& url) {
     content_view->SetVisible(false);
   }
 
+  // Hide find bar and clear per-tab find state on the new tab
+  if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
+    findbar_overlay_->SetVisible(false);
+    CefRefPtr<CefBrowser> b = tab_manager_.GetBrowser(tab_id);
+    if (b) b->GetHost()->StopFinding(true);
+    tab_manager_.ClearFindState(tab_id);
+    OtfHandler* h = OtfHandler::GetInstance();
+    if (h && h->findbar_subscription_) {
+      h->findbar_subscription_->Success(
+          JsonObjectBuilder()
+              .AddString("key", "find-result")
+              .AddInt("count", 0)
+              .AddInt("active", 0)
+              .AddInt("tabId", -1)
+              .AddString("text", "")
+              .AddBool("final", true)
+              .Build());
+    }
+  }
+
   return tab_id;
 }
 
@@ -207,7 +239,13 @@ void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
   
   if (current_tab_id_ == tab_id) return;
- 
+
+  // Clear any active find on the old tab so highlights don't linger
+  if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
+    CefRefPtr<CefBrowser> old_browser = tab_manager_.GetBrowser(current_tab_id_);
+    if (old_browser) old_browser->GetHost()->StopFinding(true);
+  }
+
   CefRefPtr<CefBrowserView> old_view = tab_manager_.GetView(current_tab_id_);
   CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
 
@@ -221,22 +259,72 @@ void OtfApp::SwitchTab(int tab_id) {
     content_panel_->InvalidateLayout();
     window_->Layout();
     current_tab_id_ = tab_id;
+    OtfHandler* handler = OtfHandler::GetInstance();
+    if (handler) {
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "active-tab-changed")
+                             .AddInt("id", tab_id)
+                             .Build());
+    }
+
+    // Push new tab's find state so the UI updates without losing the bar
+    if (findbar_overlay_ && findbar_overlay_->IsVisible() && handler && handler->findbar_subscription_) {
+      handler->findbar_subscription_->Success(
+          JsonObjectBuilder()
+              .AddString("key", "find-restore")
+              .AddString("text", tab_manager_.GetFindText(tab_id))
+              .AddBool("matchCase", tab_manager_.GetFindCase(tab_id))
+              .Build());
+    }
+    return;
   }
 }
 
-void OtfApp::CloseTab(int tab_id) {
+int OtfApp::CloseTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
+  std::vector<int> tab_ids = tab_manager_.GetAllTabIds();
+  int next_active_tab_id = -1;
+  if (tab_id == current_tab_id_) {
+    next_active_tab_id = SelectNextActiveTabId(tab_ids, tab_id);
+  }
+
   CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
   if (view && content_panel_) {
     content_panel_->RemoveChildView(view);
     content_panel_->Layout();
   }
   tab_manager_.RemoveTab(tab_id);
+  if (current_tab_id_ == tab_id) {
+    current_tab_id_ = -1;
+  }
+
+  if (next_active_tab_id >= 0) {
+    SwitchTab(next_active_tab_id);
+  }
 
   // Close the window if no tabs are left
   if (tab_manager_.GetAllTabIds().empty() && window_) {
     window_->Close();
   }
+  return next_active_tab_id;
+}
+
+void OtfApp::CreateFindBarOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/findbar.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/findbar.html";
+  }
+  CefBrowserSettings settings;
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 34));
+  view->SetID(kFindBarBrowserViewId);
+  findbar_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  CefRect bounds = window_->GetBounds();
+  findbar_overlay_->SetBounds(CefRect(bounds.width - 400, 60, 380, 36));
 }
 
 void OtfApp::OnContextInitialized() {

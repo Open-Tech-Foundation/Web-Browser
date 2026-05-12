@@ -1,11 +1,20 @@
 import React, { useRef, useEffect, useReducer } from 'react';
 import AddressBar from './components/AddressBar';
 import TabStrip from './components/TabStrip';
+import { resolveUrl } from './shared/search';
 import './styles/App.css';
 
 const BROWSER_SCHEME = {
   SETTINGS: 'browser://settings',
 };
+
+const normalizeTab = (tab) => ({
+  ...tab,
+  url: (tab.url && (tab.url.startsWith('browser://newtab') || tab.url.includes('/newtab.html'))) ? '' : (tab.url || ''),
+  loading: Boolean(tab.loading),
+  canGoBack: Boolean(tab.canGoBack),
+  canGoForward: Boolean(tab.canGoForward),
+});
 
 const tabReducer = (state, action) => {
   switch (action.type) {
@@ -28,12 +37,7 @@ const tabReducer = (state, action) => {
         tabs: [...state.tabs, action.payload]
       };
     case 'REMOVE_TAB':
-      const nextTabs = state.tabs.filter(t => t.id !== action.payload);
-      let nextActiveId = state.activeTabId;
-      if (state.activeTabId === action.payload && nextTabs.length > 0) {
-        nextActiveId = nextTabs[nextTabs.length - 1].id;
-      }
-      return { ...state, tabs: nextTabs, activeTabId: nextActiveId };
+      return { ...state, tabs: state.tabs.filter(t => t.id !== action.payload) };
     default:
       return state;
   }
@@ -46,7 +50,6 @@ const App = () => {
   const stateRef = useRef(state);
   stateRef.current = state;
   const addressBarRef = useRef(null);
-  const lastClosedUrl = useRef(null);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -72,14 +75,12 @@ const App = () => {
           try {
             const event = JSON.parse(eventStr);
             if (event.key === 'new-tab') {
-              const tabData = JSON.parse(event.value);
+              const tabData = normalizeTab(event.tab || {});
               dispatch({
                 type: 'ADD_TAB',
-                payload: { ...tabData, loading: false }
+                payload: tabData
               });
               if (!tabData.url) {
-                dispatch({ type: 'SET_ACTIVE', payload: tabData.id });
-                window.cefQuery({ request: `switch-tab:${tabData.id}` });
                 setTimeout(() => {
                   addressBarRef.current?.focus();
                   window.cefQuery({ request: 'focus-ui' });
@@ -89,20 +90,11 @@ const App = () => {
               const tab = stateRef.current.tabs.find(t => t.id === event.id);
               if (tab && !tab.url) addressBarRef.current?.focus();
             } else if (event.key === 'settings-changed') {
-              try {
-                const settings = JSON.parse(event.value);
-                setSearchEngine(settings.searchEngine || '');
-              } catch (e) {}
+              setSearchEngine(event.settings?.searchEngine || '');
             } else if (event.key === 'tab-closed') {
-              const closedId = parseInt(event.value);
-              dispatch({ type: 'REMOVE_TAB', payload: closedId });
-              const remaining = stateRef.current.tabs.filter(t => t.id !== closedId);
-              if (stateRef.current.activeTabId === closedId && remaining.length > 0) {
-                const nextId = remaining[remaining.length - 1].id;
-                window.cefQuery({ request: `switch-tab:${nextId}` });
-              }
-            } else if (event.key === 'tab-switched') {
-              dispatch({ type: 'SET_ACTIVE', payload: parseInt(event.value) });
+              dispatch({ type: 'REMOVE_TAB', payload: event.id });
+            } else if (event.key === 'active-tab-changed') {
+              dispatch({ type: 'SET_ACTIVE', payload: event.id });
             } else if (event.key === 'shortcut') {
               if (event.value === 'focus-bar') {
                 addressBarRef.current?.focus();
@@ -114,9 +106,7 @@ const App = () => {
                 payload: { 
                   id: event.id, 
                   key: event.key, 
-                  value: ['loading', 'canGoBack', 'canGoForward'].includes(event.key)
-                    ? event.value === 'true' 
-                    : event.value 
+                  value: event.value
                 } 
               });
             }
@@ -134,13 +124,11 @@ const App = () => {
           try {
             const existingTabs = JSON.parse(tabsJson);
             if (existingTabs.length > 0) {
-              const formattedTabs = existingTabs.map(t => ({
-                ...t,
-                url: (t.url && (t.url.startsWith('browser://newtab') || t.url.includes('/newtab.html'))) ? '' : (t.url || ''),
-                loading: false
-              }));
-              dispatch({ type: 'SET_TABS', payload: formattedTabs });
-              dispatch({ type: 'SET_ACTIVE', payload: formattedTabs[0].id });
+              dispatch({ type: 'SET_TABS', payload: existingTabs.map(normalizeTab) });
+              window.cefQuery({
+                request: 'get-active-tab',
+                onSuccess: (activeId) => dispatch({ type: 'SET_ACTIVE', payload: parseInt(activeId, 10) }),
+              });
             } else {
               handleNewTab();
             }
@@ -157,34 +145,9 @@ const App = () => {
     }
   }, []);
 
-  const buildSearchUrl = (engine, query) => {
-    const engineMap = {
-      google: 'https://www.google.com/search?q=',
-      bing: 'https://www.bing.com/search?q=',
-      yahoo: 'https://search.yahoo.com/search?p=',
-      duckduckgo: 'https://duckduckgo.com/?q=',
-      baidu: 'https://www.baidu.com/s?wd=',
-      yandex: 'https://yandex.com/search/?text=',
-      ecosia: 'https://www.ecosia.org/search?q=',
-      naver: 'https://search.naver.com/search.naver?query=',
-      startpage: 'https://www.startpage.com/search?q='
-    };
-    const baseUrl = engineMap[engine];
-    if (!baseUrl) return BROWSER_SCHEME.SETTINGS;
-    return baseUrl + encodeURIComponent(query);
-  };
-
   const handleNavigate = (input) => {
     if (state.activeTabId !== null) {
-      let finalUrl = input;
-      // Simple URL detection: starts with protocol or contains a dot and no spaces
-      const isUrl = /^[a-zA-Z][a-zA-Z\d+./-]*:\/\//.test(input) || 
-                    (input.includes('.') && !input.includes(' '));
-      
-      if (!isUrl && !input.startsWith('browser://')) {
-        finalUrl = buildSearchUrl(searchEngine, input);
-      }
-      
+      const finalUrl = resolveUrl(input, searchEngine);
       window.cefQuery({ request: `navigate:${state.activeTabId}:${finalUrl}` });
       
       if (finalUrl === BROWSER_SCHEME.SETTINGS) {
@@ -205,34 +168,16 @@ const App = () => {
 
   const handleNewTab = (url = "") => {
     window.cefQuery({
-      request: url ? `new-tab:${url}` : "new-tab:",
-      onSuccess: (id) => {
-        const newId = parseInt(id);
-        const newTab = { id: newId, title: 'New Tab', url: url || '', loading: false };
-        dispatch({ type: 'ADD_TAB', payload: newTab });
-        dispatch({ type: 'SET_ACTIVE', payload: newId });
-        window.cefQuery({ request: `switch-tab:${newId}` });
-        addressBarRef.current?.focus();
-        window.cefQuery({ request: 'focus-ui' });
-      }
+      request: url ? `new-tab:${url}` : "new-tab:"
     });
   };
 
   const handleCloseTab = (id) => {
-    const tab = state.tabs.find(t => t.id === id);
-    if (tab?.url) lastClosedUrl.current = tab.url;
     window.cefQuery({ request: `close-tab:${id}` });
-    dispatch({ type: 'REMOVE_TAB', payload: id });
-    const remaining = state.tabs.filter(t => t.id !== id);
-    if (state.activeTabId === id && remaining.length > 0) {
-      const nextId = remaining[remaining.length - 1].id;
-      window.cefQuery({ request: `switch-tab:${nextId}` });
-    }
   };
 
   const handleSwitchTab = (id) => {
     window.cefQuery({ request: `switch-tab:${id}` });
-    dispatch({ type: 'SET_ACTIVE', payload: id });
   };
 
   const handleNavAction = (action) => {
@@ -253,38 +198,38 @@ const App = () => {
 
   return (
     <div className="flex flex-col h-[60px] max-h-[60px] w-full bg-slate-100 dark:bg-slate-950 border-b border-slate-300 dark:border-slate-800 antialiased overflow-hidden select-none box-border m-0 p-0">
-      <TabStrip 
-        tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))} 
-        onSwitch={handleSwitchTab} 
-        onClose={handleCloseTab} 
-        onNew={handleNewTab} 
+      <TabStrip
+        tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))}
+        onSwitch={handleSwitchTab}
+        onClose={handleCloseTab}
+        onNew={handleNewTab}
       />
       <div className="flex items-center px-3 h-[36px] min-h-[36px] bg-bar-light dark:bg-bar-dark box-border border-t border-slate-200 dark:border-white/5 m-0 p-0">
-        <div className="flex gap-0.5 mr-2">
-          <NavButton 
-            disabled={!currentActiveTab?.canGoBack}
-            onClick={() => handleNavAction('back')} 
-            icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>} 
-          />
-          <NavButton 
-            disabled={!currentActiveTab?.canGoForward}
-            onClick={() => handleNavAction('forward')} 
-            icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>} 
-          />
-          <NavButton onClick={() => handleNavAction(currentActiveTab?.loading ? 'stop' : 'reload')} icon={
-            currentActiveTab?.loading
-              ? <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-              : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>
-          } />
+          <div className="flex gap-0.5 mr-2">
+            <NavButton
+              disabled={!currentActiveTab?.canGoBack}
+              onClick={() => handleNavAction('back')}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>}
+            />
+            <NavButton
+              disabled={!currentActiveTab?.canGoForward}
+              onClick={() => handleNavAction('forward')}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>}
+            />
+            <NavButton onClick={() => handleNavAction(currentActiveTab?.loading ? 'stop' : 'reload')} icon={
+              currentActiveTab?.loading
+                ? <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>
+            } />
+          </div>
+          <AddressBar ref={addressBarRef} url={currentActiveTab?.url || ''} tabId={state.activeTabId} onNavigate={handleNavigate} />
+          <div className="flex ml-1">
+            <NavButton
+              onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
+            />
+          </div>
         </div>
-        <AddressBar ref={addressBarRef} url={currentActiveTab?.url || ''} onNavigate={handleNavigate} />
-        <div className="flex ml-1">
-          <NavButton 
-            onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
-            icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
-          />
-        </div>
-      </div>
     </div>
   );
 };

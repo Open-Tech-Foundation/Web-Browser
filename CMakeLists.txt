@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(otf-browser)
+enable_testing()
 
 # Set CMake policies
 cmake_policy(SET CMP0074 NEW)
@@ -88,3 +89,13 @@ if(OS_LINUX)
         COMMAND ${CMAKE_COMMAND} -E echo "Executable: ${CEF_TARGET_OUT_DIR}/otf-browser"
     )
 endif()
+
+add_executable(otf-browser-native-tests
+    tests/otf_native_tests.cc
+    src/otf_utils.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-native-tests)
+target_include_directories(otf-browser-native-tests PRIVATE include)
+target_compile_options(otf-browser-native-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+target_link_libraries(otf-browser-native-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+add_test(NAME otf-browser-native-tests COMMAND otf-browser-native-tests)
