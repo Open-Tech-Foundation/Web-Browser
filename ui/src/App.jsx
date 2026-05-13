@@ -47,6 +47,7 @@ const tabReducer = (state, action) => {
 const App = () => {
   const [state, dispatch] = useReducer(tabReducer, { tabs: [], activeTabId: null });
   const [searchEngine, setSearchEngine] = React.useState('');
+  const [downloadBadge, setDownloadBadge] = React.useState(0);
   const initialized = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -96,6 +97,8 @@ const App = () => {
               dispatch({ type: 'REMOVE_TAB', payload: event.id });
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
+            } else if (event.key === 'downloads-badge') {
+              setDownloadBadge(Number(event.value) || 0);
             } else if (event.key === 'shortcut') {
               if (event.value === 'focus-bar') {
                 addressBarRef.current?.focus();
@@ -194,6 +197,7 @@ const App = () => {
   };
 
   const currentActiveTab = state.tabs.find(t => t.id === state.activeTabId);
+  const downloadButtonClass = downloadBadge > 0 ? 'animate-download-pulse text-brand-orange' : '';
 
   if (state.tabs.length === 0) {
     return (
@@ -239,6 +243,22 @@ const App = () => {
                 </svg>
               }
             />
+            <div className="relative">
+              <NavButton
+                onClick={() => window.cefQuery({ request: 'toggle-downloadsbar' })}
+                className={downloadButtonClass}
+                icon={
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/>
+                  </svg>
+                }
+              />
+              {downloadBadge > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-brand-orange px-1 text-center text-[10px] font-semibold leading-[14px] text-white">
+                  {downloadBadge > 9 ? '9+' : downloadBadge}
+                </span>
+              )}
+            </div>
             <NavButton
               onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
               icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
@@ -249,15 +269,16 @@ const App = () => {
   );
 };
 
-const NavButton = ({ icon, onClick, disabled }) => (
+const NavButton = ({ icon, onClick, disabled, className = '' }) => (
   <button 
     onClick={onClick}
     disabled={disabled}
     className={`
-      w-7 h-7 flex items-center justify-center rounded transition-colors active:scale-90
+      w-7 h-7 flex items-center justify-center rounded transition-all active:scale-90
       ${disabled 
         ? 'opacity-30 cursor-default' 
         : 'hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200'}
+      ${className}
     `}
   >
     {icon}

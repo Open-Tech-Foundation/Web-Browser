@@ -1,8 +1,10 @@
 #ifndef OTF_BROWSER_HANDLER_H_
 #define OTF_BROWSER_HANDLER_H_
 
+#include <map>
 #include <list>
 #include "include/cef_client.h"
+#include "include/cef_download_handler.h"
 #include "include/wrapper/cef_message_router.h"
 #include "otf_browser_shell.h"
 
@@ -12,6 +14,7 @@ class OtfHandler : public CefClient,
                    public CefDisplayHandler,
                    public CefLifeSpanHandler,
                    public CefLoadHandler,
+                   public CefDownloadHandler,
                    public CefContextMenuHandler,
                    public CefRequestHandler,
                    public CefKeyboardHandler,
@@ -30,6 +33,9 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override {
+    return this;
+  }
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override {
     return this;
   }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override {
@@ -71,6 +77,18 @@ class OtfHandler : public CefClient,
                    const CefString& errorText,
                    const CefString& failedUrl) override;
 
+  // CefDownloadHandler methods:
+  bool CanDownload(CefRefPtr<CefBrowser> browser,
+                   const CefString& url,
+                   const CefString& request_method) override;
+  bool OnBeforeDownload(CefRefPtr<CefBrowser> browser,
+                        CefRefPtr<CefDownloadItem> download_item,
+                        const CefString& suggested_name,
+                        CefRefPtr<CefBeforeDownloadCallback> callback) override;
+  void OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
+                         CefRefPtr<CefDownloadItem> download_item,
+                         CefRefPtr<CefDownloadItemCallback> callback) override;
+
   // CefContextMenuHandler methods:
   void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
                            CefRefPtr<CefFrame> frame,
@@ -105,6 +123,9 @@ class OtfHandler : public CefClient,
 
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }
+  std::string GetDownloadsJson() const;
+  void NotifyDownloadsChanged();
+  void NotifyDownloadBadge();
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
@@ -116,6 +137,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> subscription_callback_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> findbar_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> zoombar_subscription_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> downloads_subscription_;
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation
@@ -123,6 +145,32 @@ class OtfHandler : public CefClient,
   int         pending_find_tab_ = -1;
   int         restore_find_target_ordinal_ = 0;
   bool        restore_find_in_progress_ = false;
+
+  struct DownloadState {
+    uint32_t id = 0;
+    std::string url;
+    std::string original_url;
+    std::string suggested_name;
+    std::string full_path;
+    std::string status;
+    int percent = -1;
+    int64_t received_bytes = 0;
+    int64_t total_bytes = 0;
+    int64_t speed_bytes_per_sec = 0;
+    bool is_in_progress = false;
+    bool is_complete = false;
+    bool is_canceled = false;
+    bool is_interrupted = false;
+    bool is_paused = false;
+    bool can_cancel = false;
+    bool can_pause = false;
+    bool can_resume = false;
+    bool can_open = false;
+    bool can_show_in_folder = false;
+  };
+
+  std::map<uint32_t, DownloadState> downloads_;
+  std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> download_callbacks_;
 
  private:
   const bool use_alloy_style_;

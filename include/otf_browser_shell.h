@@ -12,6 +12,7 @@ namespace otf {
 constexpr int kUiBrowserViewId = 100;
 constexpr int kFindBarBrowserViewId = 999;
 constexpr int kZoomBarBrowserViewId = 1000;
+constexpr int kDownloadsBrowserViewId = 1001;
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {

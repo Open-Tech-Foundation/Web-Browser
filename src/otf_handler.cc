@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <string>
 #include <fstream>
@@ -14,6 +15,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <shellapi.h>
 #endif
 
 #include "include/base/cef_callback.h"
@@ -68,6 +70,51 @@ const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
 
 std::string GetDevUiUrl() {
   return CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
+}
+
+std::string QuoteForShell(const std::string& value) {
+  std::string out = "'";
+  for (char c : value) {
+    if (c == '\'') {
+      out += "'\\''";
+    } else {
+      out += c;
+    }
+  }
+  out += "'";
+  return out;
+}
+
+void OpenPathWithSystemApp(const std::string& path) {
+#if defined(_WIN32)
+  ShellExecuteA(nullptr, "open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+  std::string command = "open " + QuoteForShell(path) + " >/dev/null 2>&1 &";
+  const int result = std::system(command.c_str());
+  (void)result;
+#else
+  std::string command = "xdg-open " + QuoteForShell(path) + " >/dev/null 2>&1 &";
+  const int result = std::system(command.c_str());
+  (void)result;
+#endif
+}
+
+void RevealPathInFolder(const std::string& path) {
+#if defined(_WIN32)
+  ShellExecuteA(nullptr, "open", std::filesystem::path(path).parent_path().string().c_str(),
+                nullptr, nullptr, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+  std::string command =
+      "open -R " + QuoteForShell(path) + " >/dev/null 2>&1 &";
+  const int result = std::system(command.c_str());
+  (void)result;
+#else
+  std::string command =
+      "xdg-open " + QuoteForShell(std::filesystem::path(path).parent_path().string()) +
+      " >/dev/null 2>&1 &";
+  const int result = std::system(command.c_str());
+  (void)result;
+#endif
 }
 
 std::string BuildTabJson(TabManager* tab_manager, int tab_id) {
@@ -137,6 +184,79 @@ std::string BuildZoomUpdateEvent(int tab_id, int zoom_percent) {
       .Build();
 }
 
+std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
+  return JsonObjectBuilder()
+      .AddInt("id", static_cast<int>(item.id))
+      .AddString("url", item.url)
+      .AddString("originalUrl", item.original_url)
+      .AddString("suggestedName", item.suggested_name)
+      .AddString("fullPath", item.full_path)
+      .AddString("status", item.status)
+      .AddInt("percent", item.percent)
+      .AddRaw("receivedBytes", std::to_string(item.received_bytes))
+      .AddRaw("totalBytes", std::to_string(item.total_bytes))
+      .AddRaw("speedBytesPerSec", std::to_string(item.speed_bytes_per_sec))
+      .AddBool("isInProgress", item.is_in_progress)
+      .AddBool("isComplete", item.is_complete)
+      .AddBool("isCanceled", item.is_canceled)
+      .AddBool("isInterrupted", item.is_interrupted)
+      .AddBool("isPaused", item.is_paused)
+      .AddBool("canCancel", item.can_cancel)
+      .AddBool("canPause", item.can_pause)
+      .AddBool("canResume", item.can_resume)
+      .AddBool("canOpen", item.can_open)
+      .AddBool("canShowInFolder", item.can_show_in_folder)
+      .Build();
+}
+
+std::string BuildDownloadsJson(const std::map<uint32_t, OtfHandler::DownloadState>& downloads) {
+  std::ostringstream out;
+  out << "[";
+  bool first = true;
+  for (auto it = downloads.rbegin(); it != downloads.rend(); ++it) {
+    if (!first) {
+      out << ",";
+    }
+    first = false;
+    out << BuildDownloadItemJson(it->second);
+  }
+  out << "]";
+  return out.str();
+}
+
+std::string DownloadStatusLabel(const OtfHandler::DownloadState& item) {
+  if (item.is_complete) return "completed";
+  if (item.is_canceled) return "canceled";
+  if (item.is_interrupted) return "interrupted";
+  if (item.is_paused) return "paused";
+  if (item.is_in_progress) return "downloading";
+  return "pending";
+}
+
+std::string DownloadDisplayName(const std::string& suggested_name,
+                                const std::string& full_path,
+                                const std::string& url) {
+  if (!suggested_name.empty()) {
+    return suggested_name;
+  }
+  if (!full_path.empty()) {
+    std::filesystem::path path(full_path);
+    if (!path.filename().empty()) {
+      return path.filename().string();
+    }
+  }
+  if (!url.empty()) {
+    const size_t query_pos = url.find_first_of("?#");
+    const std::string trimmed =
+        query_pos == std::string::npos ? url : url.substr(0, query_pos);
+    const size_t slash_pos = trimmed.find_last_of('/');
+    if (slash_pos != std::string::npos && slash_pos + 1 < trimmed.size()) {
+      return trimmed.substr(slash_pos + 1);
+    }
+  }
+  return "download";
+}
+
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
  public:
@@ -173,6 +293,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "downloads-subscribe") {
+      handler->downloads_subscription_ = callback;
+      callback->Success(JsonObjectBuilder()
+                            .AddString("key", "downloads-update")
+                            .AddRaw("downloads", handler->GetDownloadsJson())
+                            .Build());
+      return true;
+    }
+
     if (msg == "get-tabs") {
       std::stringstream ss;
       ss << "[";
@@ -189,6 +318,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "get-active-tab") {
       OtfApp* app = OtfApp::GetInstance();
       callback->Success(app ? std::to_string(app->GetCurrentTabId()) : "-1");
+      return true;
+    }
+
+    if (msg == "get-downloads") {
+      callback->Success(handler->GetDownloadsJson());
       return true;
     }
 
@@ -353,6 +487,69 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (app) {
         app->HideZoomBarOverlay();
       }
+      callback->Success("");
+    } else if (msg == "toggle-downloadsbar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && app->downloads_overlay_) {
+        if (app->downloads_overlay_->IsVisible()) {
+          app->HideDownloadsOverlay();
+        } else {
+          app->ShowDownloadsOverlay();
+        }
+      }
+      callback->Success("");
+    } else if (msg == "hide-downloadsbar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideDownloadsOverlay();
+      }
+      callback->Success("");
+    } else if (msg.find("cancel-download:") == 0) {
+      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(16)));
+      auto it = handler->download_callbacks_.find(download_id);
+      if (it != handler->download_callbacks_.end()) {
+        it->second->Cancel();
+      }
+      callback->Success("");
+    } else if (msg.find("pause-download:") == 0) {
+      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(15)));
+      auto it = handler->download_callbacks_.find(download_id);
+      if (it != handler->download_callbacks_.end()) {
+        it->second->Pause();
+      }
+      callback->Success("");
+    } else if (msg.find("resume-download:") == 0) {
+      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(16)));
+      auto it = handler->download_callbacks_.find(download_id);
+      if (it != handler->download_callbacks_.end()) {
+        it->second->Resume();
+      }
+      callback->Success("");
+    } else if (msg.find("open-download:") == 0) {
+      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(14)));
+      auto it = handler->downloads_.find(download_id);
+      if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
+        OpenPathWithSystemApp(it->second.full_path);
+      }
+      callback->Success("");
+    } else if (msg.find("show-download-in-folder:") == 0) {
+      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(24)));
+      auto it = handler->downloads_.find(download_id);
+      if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
+        RevealPathInFolder(it->second.full_path);
+      }
+      callback->Success("");
+    } else if (msg == "clear-finished-downloads") {
+      for (auto it = handler->downloads_.begin(); it != handler->downloads_.end();) {
+        if (it->second.is_complete || it->second.is_canceled || it->second.is_interrupted) {
+          handler->download_callbacks_.erase(it->first);
+          it = handler->downloads_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+      handler->NotifyDownloadsChanged();
+      handler->NotifyDownloadBadge();
       callback->Success("");
     } else if (msg.find("find:") == 0) {
       // find:<tab_id>:<text>
@@ -534,6 +731,42 @@ OtfHandler* OtfHandler::GetInstance() {
   return g_instance;
 }
 
+bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
+                             const CefString& url,
+                             const CefString& request_method) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)browser;
+  (void)request_method;
+  return true;
+}
+
+std::string OtfHandler::GetDownloadsJson() const {
+  return BuildDownloadsJson(downloads_);
+}
+
+void OtfHandler::NotifyDownloadsChanged() {
+  if (downloads_subscription_) {
+    downloads_subscription_->Success(
+        JsonObjectBuilder()
+            .AddString("key", "downloads-update")
+            .AddRaw("downloads", GetDownloadsJson())
+            .Build());
+  }
+}
+
+void OtfHandler::NotifyDownloadBadge() {
+  int active_count = 0;
+  for (const auto& [id, item] : downloads_) {
+    if (item.is_in_progress || item.is_paused) {
+      ++active_count;
+    }
+  }
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "downloads-badge")
+                .AddInt("value", active_count)
+                .Build());
+}
+
 void OtfHandler::SendEvent(const std::string& event_json) {
   if (subscription_callback_) {
     subscription_callback_->Success(event_json);
@@ -639,7 +872,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     if (browser_view->GetID() == kUiBrowserViewId) {
       ui_browser_ = browser;
     } else if (browser_view->GetID() == kFindBarBrowserViewId ||
-               browser_view->GetID() == kZoomBarBrowserViewId) {
+               browser_view->GetID() == kZoomBarBrowserViewId ||
+               browser_view->GetID() == kDownloadsBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
       }
@@ -699,6 +933,94 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
      << std::string(failedUrl) << " with error " << std::string(errorText)
      << " (" << errorCode << ").</h2></body></html>";
   frame->LoadURL(GetDataURI(ss.str(), "text/html"));
+}
+
+bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
+                                  CefRefPtr<CefDownloadItem> download_item,
+                                  const CefString& suggested_name,
+                                  CefRefPtr<CefBeforeDownloadCallback> callback) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)browser;
+  if (!download_item || !callback) {
+    return false;
+  }
+
+  const std::string resolved_name = suggested_name.ToString().empty()
+                                        ? download_item->GetSuggestedFileName().ToString()
+                                        : suggested_name.ToString();
+
+  const uint32_t id = download_item->GetId();
+  DownloadState& state = downloads_[id];
+  state.id = id;
+  state.url = download_item->GetURL();
+  state.original_url = download_item->GetOriginalUrl();
+  state.suggested_name = resolved_name;
+  state.full_path = BuildDownloadPath(state.suggested_name);
+  state.status = "starting";
+  state.can_cancel = true;
+  state.can_pause = true;
+  state.can_resume = false;
+  state.can_open = false;
+  state.can_show_in_folder = false;
+  callback->Continue(state.full_path, false);
+  NotifyDownloadsChanged();
+  NotifyDownloadBadge();
+  return true;
+}
+
+void OtfHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
+                                   CefRefPtr<CefDownloadItem> download_item,
+                                   CefRefPtr<CefDownloadItemCallback> callback) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!download_item) {
+    return;
+  }
+
+  const uint32_t id = download_item->GetId();
+  DownloadState& state = downloads_[id];
+  state.id = id;
+  state.url = download_item->GetURL();
+  state.original_url = download_item->GetOriginalUrl();
+  state.suggested_name = DownloadDisplayName(
+      download_item->GetSuggestedFileName().ToString(),
+      download_item->GetFullPath().ToString(),
+      download_item->GetURL().ToString());
+  state.full_path = download_item->GetFullPath();
+  state.percent = download_item->GetPercentComplete();
+  state.received_bytes = download_item->GetReceivedBytes();
+  state.total_bytes = download_item->GetTotalBytes();
+  state.speed_bytes_per_sec = download_item->GetCurrentSpeed();
+  state.is_in_progress = download_item->IsInProgress();
+  state.is_complete = download_item->IsComplete();
+  state.is_canceled = download_item->IsCanceled();
+  state.is_interrupted = download_item->IsInterrupted();
+#if CEF_API_ADDED(14400)
+  state.is_paused = download_item->IsPaused();
+#else
+  state.is_paused = false;
+#endif
+  state.can_cancel = state.is_in_progress;
+#if CEF_API_ADDED(14400)
+  state.can_pause = state.is_in_progress && !state.is_paused;
+  state.can_resume = state.is_paused;
+#else
+  state.can_pause = false;
+  state.can_resume = false;
+#endif
+  state.can_open = state.is_complete && !state.full_path.empty();
+  state.can_show_in_folder = !state.full_path.empty();
+  state.status = DownloadStatusLabel(state);
+
+  if (callback) {
+    download_callbacks_[id] = callback;
+  }
+
+  if (!state.is_in_progress) {
+    download_callbacks_.erase(id);
+  }
+
+  NotifyDownloadsChanged();
+  NotifyDownloadBadge();
 }
 
 void OtfHandler::CloseAllBrowsers(bool force_close) {
@@ -794,7 +1116,17 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                 bool is_redirect) {
   std::string url = request->GetURL().ToString();
 
-  // Block dangerous and internal schemes unconditionally
+  const bool is_main_frame = !frame || frame->IsMain();
+
+  // Chromium features such as the built-in PDF viewer can load internal
+  // extension/untrusted subframes. Keep blocking direct top-level navigation.
+  if ((url.rfind("chrome-extension://", 0) == 0 ||
+       url.rfind("chrome-untrusted://", 0) == 0) &&
+      !is_main_frame) {
+    return false;
+  }
+
+  // Block dangerous and internal schemes for top-level/user navigation.
   if (url.rfind("chrome://", 0) == 0 ||
       url.rfind("chrome-devtools://", 0) == 0 ||
       url.rfind("chrome-extension://", 0) == 0 ||
@@ -874,6 +1206,11 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     *is_keyboard_shortcut = true; nav(Shortcut::kReload); return true;
   }
   if (M(Mod::kNone, Key::kEscape)) {
+    if (app->downloads_overlay_ && app->downloads_overlay_->IsVisible()) {
+      app->HideDownloadsOverlay();
+      app->FocusCurrentTabContent();
+      return true;
+    }
     if (app->zoombar_overlay_ && app->zoombar_overlay_->IsVisible()) {
       app->HideZoomBarOverlay();
       app->FocusCurrentTabContent();
@@ -1008,7 +1345,10 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (!view || !tab_manager_) return;
   int tab_id = view->GetID();
-  if (tab_id == kUiBrowserViewId || tab_id == kFindBarBrowserViewId) return;
+  if (tab_id == kUiBrowserViewId || tab_id == kFindBarBrowserViewId ||
+      tab_id == kZoomBarBrowserViewId || tab_id == kDownloadsBrowserViewId) {
+    return;
+  }
 
   OtfApp* app = OtfApp::GetInstance();
   if (!app) return;

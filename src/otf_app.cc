@@ -61,6 +61,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
 
     app->CreateFindBarOverlay();
     app->CreateZoomBarOverlay();
+    app->CreateDownloadsOverlay();
 
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
@@ -77,6 +78,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     if (app) {
       app->PositionFindBarOverlay();
       app->PositionZoomBarOverlay();
+      app->PositionDownloadsOverlay();
     }
   }
 
@@ -338,6 +340,23 @@ void OtfApp::CreateZoomBarOverlay() {
   PositionZoomBarOverlay();
 }
 
+void OtfApp::CreateDownloadsOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/downloadsbar.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/downloadsbar.html";
+  }
+  CefBrowserSettings settings;
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 380));
+  view->SetID(kDownloadsBrowserViewId);
+  downloads_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionDownloadsOverlay();
+}
+
 void OtfApp::FocusCurrentTabContent() {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowser> browser = tab_manager_.GetBrowser(current_tab_id_);
@@ -435,6 +454,41 @@ void OtfApp::HideZoomBarOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (zoombar_overlay_) {
     zoombar_overlay_->SetVisible(false);
+  }
+}
+
+void OtfApp::PositionDownloadsOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !downloads_overlay_) return;
+
+  constexpr int kOverlayWidth = 420;
+  constexpr int kOverlayHeight = 360;
+  constexpr int kOverlayTop = 60;
+  constexpr int kOverlayRightMargin = 18;
+
+  CefRect bounds = window_->GetBounds();
+  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
+  downloads_overlay_->SetBounds(
+      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+}
+
+void OtfApp::ShowDownloadsOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !downloads_overlay_) return;
+
+  PositionDownloadsOverlay();
+  downloads_overlay_->SetVisible(true);
+  if (handler->downloads_subscription_) {
+    handler->downloads_subscription_->Success(
+        JsonObjectBuilder().AddString("key", "downloads-refresh").Build());
+  }
+}
+
+void OtfApp::HideDownloadsOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (downloads_overlay_) {
+    downloads_overlay_->SetVisible(false);
   }
 }
 

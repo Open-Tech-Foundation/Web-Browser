@@ -25,6 +25,9 @@ class JsonObjectBuilder {
 std::string GetExecutableDir();
 std::string GetHomeDir();
 std::string GetSettingsFilePath();
+std::string GetDownloadsDir();
+std::string SanitizeFilename(const std::string& filename);
+std::string BuildDownloadPath(const std::string& suggested_name);
 std::string GetDefaultSettingsJson();
 bool IsAllowedSearchEngineId(const std::string& search_engine_id);
 bool NormalizeSettingsJson(const std::string& raw_json, std::string* normalized_json);

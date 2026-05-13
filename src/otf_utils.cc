@@ -13,6 +13,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <shlobj.h>
+#endif
+
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
 
@@ -32,6 +37,10 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
   }
 
   std::string page = url.substr(std::strlen(kBrowserSchemePrefix));
+  const size_t query_pos = page.find_first_of("?#");
+  if (query_pos != std::string::npos) {
+    page = page.substr(0, query_pos);
+  }
   if (!page.empty() && page.back() == '/') {
     page.pop_back();
   }
@@ -148,6 +157,72 @@ std::string GetSettingsFilePath() {
   }
 
   return (settings_dir / "settings.json").string();
+}
+
+std::string GetDownloadsDir() {
+#if defined(_WIN32)
+  PWSTR path = nullptr;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &path))) {
+    std::wstring wide_path(path);
+    CoTaskMemFree(path);
+    if (!wide_path.empty()) {
+      int len = WideCharToMultiByte(CP_UTF8, 0, wide_path.c_str(), -1, nullptr, 0,
+                                    nullptr, nullptr);
+      if (len > 0) {
+        std::string utf8_path(static_cast<size_t>(len - 1), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide_path.c_str(), -1, utf8_path.data(),
+                            len, nullptr, nullptr);
+        return utf8_path;
+      }
+    }
+  }
+#endif
+  std::string home = GetHomeDir();
+  if (home.empty()) {
+    return "";
+  }
+  return (std::filesystem::path(home) / "Downloads").string();
+}
+
+std::string SanitizeFilename(const std::string& filename) {
+  std::string out = filename.empty() ? "download" : filename;
+  for (char& c : out) {
+    if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+        c == '"' || c == '<' || c == '>' || c == '|') {
+      c = '_';
+    }
+  }
+  while (!out.empty() && (out.back() == ' ' || out.back() == '.')) {
+    out.pop_back();
+  }
+  if (out.empty()) {
+    return "download";
+  }
+  return out;
+}
+
+std::string BuildDownloadPath(const std::string& suggested_name) {
+  std::filesystem::path downloads_dir = GetDownloadsDir();
+  if (downloads_dir.empty()) {
+    downloads_dir = std::filesystem::temp_directory_path();
+  }
+  std::filesystem::create_directories(downloads_dir);
+
+  std::filesystem::path candidate = downloads_dir / SanitizeFilename(suggested_name);
+  if (!std::filesystem::exists(candidate)) {
+    return candidate.string();
+  }
+
+  const std::string stem = candidate.stem().string();
+  const std::string ext = candidate.extension().string();
+  for (int i = 1; i < 1000; ++i) {
+    std::filesystem::path numbered =
+        downloads_dir / (stem + " (" + std::to_string(i) + ")" + ext);
+    if (!std::filesystem::exists(numbered)) {
+      return numbered.string();
+    }
+  }
+  return candidate.string();
 }
 
 std::string GetDefaultSettingsJson() {
