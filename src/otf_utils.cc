@@ -1,6 +1,7 @@
 #include "otf_utils.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -45,13 +46,45 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
     page.pop_back();
   }
   if (page == "newtab" || page == "settings" || page == "findbar" ||
-      page == "history" || page == "bookmarks" || page == "downloads") {
+      page == "history" || page == "bookmarks" || page == "downloads" ||
+      page == "security" || page == "insecure-blocked") {
     if (page_name) {
       *page_name = page;
     }
     return true;
   }
   return false;
+}
+
+std::string ExtractBrowserPageSuffix(const std::string& url) {
+  if (url.rfind(kBrowserSchemePrefix, 0) != 0) {
+    return "";
+  }
+
+  const size_t start = std::strlen(kBrowserSchemePrefix);
+  const size_t query_pos = url.find_first_of("?#", start);
+  if (query_pos == std::string::npos) {
+    return "";
+  }
+  return url.substr(query_pos);
+}
+
+std::string BrowserPageHtmlName(const std::string& page_name) {
+  return page_name + ".html";
+}
+
+std::string ToLowerCopy(const std::string& value) {
+  std::string out = value;
+  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return out;
+}
+
+bool IsLoopbackHost(const std::string& host) {
+  const std::string lower_host = ToLowerCopy(host);
+  return lower_host == "localhost" || lower_host == "127.0.0.1" ||
+         lower_host == "::1";
 }
 
 std::string BuildSettingsJson(const std::string& search_engine_id) {
@@ -331,7 +364,7 @@ std::string GetBrowserPageFilePath(const std::string& url) {
   if (!ExtractBrowserPageName(url, &page_name)) {
     return "";
   }
-  return GetExecutableDir() + "/ui/" + page_name + ".html";
+  return GetExecutableDir() + "/ui/" + BrowserPageHtmlName(page_name);
 }
 
 std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
@@ -340,11 +373,29 @@ std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
   if (dev_ui_url.empty() || !ExtractBrowserPageName(url, &page_name)) {
     return "";
   }
-  return dev_ui_url + "/" + page_name + ".html";
+  return dev_ui_url + "/" + BrowserPageHtmlName(page_name) +
+         ExtractBrowserPageSuffix(url);
 }
 
 bool IsPersistableWebUrl(const std::string& url) {
   return url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
+}
+
+bool IsAllowedHttpUrl(const std::string& url) {
+  if (url.rfind("https://", 0) == 0) {
+    return true;
+  }
+  if (url.rfind("http://", 0) != 0) {
+    return false;
+  }
+
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) {
+    return false;
+  }
+
+  const std::string host = CefString(&parts.host).ToString();
+  return IsLoopbackHost(host);
 }
 
 std::string NormalizeBookmarkUrl(const std::string& url) {

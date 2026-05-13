@@ -597,6 +597,18 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "back-current") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && handler->tab_manager_) {
+        CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(app->GetCurrentTabId());
+        if (b && b->CanGoBack()) {
+          b->GoBack();
+        }
+      }
+      callback->Success("");
+      return true;
+    }
+
     if (msg.find("navigate-current:") == 0) {
       std::string url = msg.substr(17);
       CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
@@ -1094,16 +1106,12 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
     if (view) {
       std::string url_str = url.ToString();
-      std::string scheme_url = tab_manager_->GetSchemeUrl(view->GetID());
-
-      if (!scheme_url.empty()) {
-        tab_manager_->SetUrl(view->GetID(), scheme_url);
-      } else if (tab_manager_) {
-        tab_manager_->SetUrl(view->GetID(), url_str);
+      if (url_str.rfind("browser://insecure-blocked", 0) == 0) {
+        return;
       }
 
-      if (!scheme_url.empty() && url_str != scheme_url) {
-        return;
+      if (tab_manager_) {
+        tab_manager_->SetUrl(view->GetID(), url_str);
       }
 
       if (url_str.find("browser://") == 0) {
@@ -1488,7 +1496,10 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
     if (view && tab_manager_) {
       std::string current_url = tab_manager_->GetUrl(view->GetID());
       std::string next_url = request->GetURL().ToString();
-      if (current_url != next_url) {
+      const bool entering_insecure_block_page =
+          next_url.rfind("browser://insecure-blocked", 0) == 0 ||
+          next_url.find("/insecure-blocked.html") != std::string::npos;
+      if (current_url != next_url && !entering_insecure_block_page) {
         tab_manager_->SetSslError(view->GetID(), false);
         SendEvent(JsonObjectBuilder()
                       .AddInt("id", view->GetID())
@@ -1531,6 +1542,28 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (url.rfind("file://", 0) == 0 &&
       (!view || view->GetID() != kUiBrowserViewId)) {
+    return true;
+  }
+
+  if (is_main_frame && url.rfind("http://", 0) == 0 &&
+      !IsAllowedHttpUrl(url)) {
+    if (view && tab_manager_) {
+      const int tab_id = view->GetID();
+      tab_manager_->SetUrl(tab_id, url);
+      tab_manager_->SetSslError(tab_id, true);
+      SendEvent(JsonObjectBuilder()
+                    .AddInt("id", tab_id)
+                    .AddString("key", "sslError")
+                    .AddBool("value", true)
+                    .Build());
+      SendEvent(JsonObjectBuilder()
+                    .AddInt("id", tab_id)
+                    .AddString("key", "url")
+                    .AddString("value", url)
+                    .Build());
+    }
+    browser->GetMainFrame()->LoadURL("browser://insecure-blocked?url=" +
+                                     CefURIEncode(url, true).ToString());
     return true;
   }
 

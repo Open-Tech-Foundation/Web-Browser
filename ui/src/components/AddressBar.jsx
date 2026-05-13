@@ -5,6 +5,11 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef(null);
 
+  const getDisplayUrl = (value) => {
+    if (!value) return '';
+    return value.replace(/^https?:\/\//, '').replace(/^browser:\/\//, 'browser://');
+  };
+
   useImperativeHandle(ref, () => ({
     focus: () => {
       inputRef.current?.focus();
@@ -34,18 +39,21 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
     setIsFocused(false);
   };
 
-  const isSecure = (url?.startsWith('https://') || 
-                   (url?.startsWith('http://localhost') || url?.startsWith('http://127.0.0.1'))) && !sslError;
-  const displayUrl = isFocused ? url : url?.replace(/^https?:\/\//, '').replace(/^browser:\/\//, 'browser://');
+  const isLocalHttp = url?.startsWith('http://localhost') ||
+                      url?.startsWith('http://127.0.0.1');
+  const isBlockedHttp = url?.startsWith('http://') && !isLocalHttp;
+  const isSecure = (url?.startsWith('https://') || isLocalHttp) && !sslError;
+  const isInsecure = Boolean(sslError || isBlockedHttp);
+  const displayUrl = isFocused ? url : getDisplayUrl(url);
 
   return (
     <div className="flex flex-1 items-center h-8 bg-input-light dark:bg-input-dark rounded-lg px-3 border border-transparent focus-within:border-brand-orange transition-all duration-200 mx-2 group relative">
       {/* Security Icon */}
-      {(isSecure || sslError) && !isFocused && (
-        <div className={`mr-2 animate-in fade-in zoom-in duration-300 ${sslError ? 'text-red-500' : 'text-green-500'}`}>
+      {((isSecure || isInsecure) && !isFocused) && (
+        <div className={`mr-2 animate-in fade-in zoom-in duration-300 ${isInsecure ? 'text-red-500' : 'text-green-500'}`}>
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            {sslError ? (
+            {isInsecure ? (
               <>
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />

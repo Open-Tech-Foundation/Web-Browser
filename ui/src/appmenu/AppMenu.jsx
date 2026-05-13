@@ -45,7 +45,7 @@ const AppMenu = () => {
 
   return (
     <div className="w-full h-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl p-5 flex flex-col overflow-hidden relative">
-      <div className="grid grid-cols-3 gap-4 relative z-10">
+      <div className="grid grid-cols-4 gap-4 relative z-10">
         <AppMenuItem 
           name="Downloads" 
           icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/></svg>}
@@ -60,6 +60,11 @@ const AppMenu = () => {
           name="History" 
           icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>}
           onClick={() => handleNavigate('browser://history')}
+        />
+        <AppMenuItem 
+          name="Security" 
+          icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>}
+          onClick={() => handleNavigate('browser://security')}
         />
       </div>
     </div>

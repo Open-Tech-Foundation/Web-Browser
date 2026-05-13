@@ -65,6 +65,21 @@ void TestBrowserPageAllowlist() {
   assert(!otf::IsAllowedBrowserPageUrl("https://example.com"));
   assert(otf::GetBrowserPageDevUrl("http://localhost:3000", "browser://settings") ==
          "http://localhost:3000/settings.html");
+  assert(otf::GetBrowserPageDevUrl(
+             "http://localhost:3000",
+             "browser://insecure-blocked?url=http%3A%2F%2Fexample.com") ==
+         "http://localhost:3000/insecure-blocked.html?url=http%3A%2F%2Fexample.com");
+  assert(otf::GetBrowserPageFilePath("browser://insecure-blocked") ==
+         otf::GetExecutableDir() + "/ui/insecure-blocked.html");
+}
+
+void TestHttpUrlGate() {
+  assert(otf::IsAllowedHttpUrl("https://example.com"));
+  assert(otf::IsAllowedHttpUrl("http://localhost:3000"));
+  assert(otf::IsAllowedHttpUrl("http://127.0.0.1:8080"));
+  assert(otf::IsAllowedHttpUrl("http://[::1]:3000"));
+  assert(!otf::IsAllowedHttpUrl("http://example.com"));
+  assert(!otf::IsAllowedHttpUrl("http://192.168.1.10"));
 }
 
 void TestCloseSelection() {
@@ -136,6 +151,7 @@ int main() {
   TestSettingsValidation();
   TestSettingsLoadAndSave();
   TestBrowserPageAllowlist();
+  TestHttpUrlGate();
   TestCloseSelection();
   TestZoomHelpers();
   TestStorePersistence();

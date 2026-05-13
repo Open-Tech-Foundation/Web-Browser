@@ -19,7 +19,9 @@ export default defineConfig({
         zoombar: resolve(__dirname, 'zoombar.html'),
         downloadsbar: resolve(__dirname, 'downloadsbar.html'),
         downloads: resolve(__dirname, 'downloads.html'),
-        appmenu: resolve(__dirname, 'appmenu.html')
+        appmenu: resolve(__dirname, 'appmenu.html'),
+        security: resolve(__dirname, 'security.html'),
+        'insecure-blocked': resolve(__dirname, 'insecure-blocked.html')
       }
     }
   }
