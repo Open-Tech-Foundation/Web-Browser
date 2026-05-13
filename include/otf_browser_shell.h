@@ -11,6 +11,7 @@ namespace otf {
 
 constexpr int kUiBrowserViewId = 100;
 constexpr int kFindBarBrowserViewId = 999;
+constexpr int kZoomBarBrowserViewId = 1000;
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {
@@ -157,6 +158,16 @@ class TabManager {
     return 0;
   }
 
+  void SetZoomPercent(int tab_id, int zoom_percent) {
+    zoom_percent_map_[tab_id] = zoom_percent;
+  }
+
+  int GetZoomPercent(int tab_id) {
+    auto it = zoom_percent_map_.find(tab_id);
+    if (it != zoom_percent_map_.end()) return it->second;
+    return 100;
+  }
+
  private:
   std::map<int, CefRefPtr<CefBrowserView>> view_map_;
   std::map<int, CefRefPtr<CefBrowser>> browser_map_;
@@ -168,6 +179,7 @@ class TabManager {
   std::map<int, int> find_count_map_;
   std::map<int, int> find_active_map_;
   std::map<int, bool> find_visible_map_;
+  std::map<int, int> zoom_percent_map_;
   int next_tab_id_;
 };
 

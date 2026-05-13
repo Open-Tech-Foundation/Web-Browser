@@ -60,6 +60,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     window->Layout();
 
     app->CreateFindBarOverlay();
+    app->CreateZoomBarOverlay();
 
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
@@ -75,6 +76,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     OtfApp* app = OtfApp::GetInstance();
     if (app) {
       app->PositionFindBarOverlay();
+      app->PositionZoomBarOverlay();
     }
   }
 
@@ -248,6 +250,7 @@ void OtfApp::SwitchTab(int tab_id) {
 
     if (tab_manager_.IsFindVisible(tab_id)) {
       RestoreFindSessionForTab(tab_id, false);
+      HideZoomBarOverlay();
     } else if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
       findbar_overlay_->SetVisible(false);
       if (handler && handler->findbar_subscription_) {
@@ -267,6 +270,7 @@ void OtfApp::SwitchTab(int tab_id) {
                 .Build());
       }
     }
+    HideZoomBarOverlay();
     return;
   }
 }
@@ -315,6 +319,23 @@ void OtfApp::CreateFindBarOverlay() {
   findbar_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionFindBarOverlay();
+}
+
+void OtfApp::CreateZoomBarOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/zoombar.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/zoombar.html";
+  }
+  CefBrowserSettings settings;
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 40));
+  view->SetID(kZoomBarBrowserViewId);
+  zoombar_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionZoomBarOverlay();
 }
 
 void OtfApp::FocusCurrentTabContent() {
@@ -376,6 +397,45 @@ void OtfApp::PositionFindBarOverlay() {
   int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
   findbar_overlay_->SetBounds(
       CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+}
+
+void OtfApp::PositionZoomBarOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !zoombar_overlay_) return;
+
+  constexpr int kOverlayWidth = 146;
+  constexpr int kOverlayHeight = 40;
+  constexpr int kOverlayTop = 60;
+  constexpr int kOverlayRightMargin = 54;
+
+  CefRect bounds = window_->GetBounds();
+  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
+  zoombar_overlay_->SetBounds(
+      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+}
+
+void OtfApp::ShowZoomBarOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !zoombar_overlay_) return;
+
+  PositionZoomBarOverlay();
+  zoombar_overlay_->SetVisible(true);
+  if (handler->zoombar_subscription_) {
+    handler->zoombar_subscription_->Success(
+        JsonObjectBuilder()
+            .AddString("key", "zoom-restore")
+            .AddInt("tabId", current_tab_id_)
+            .AddInt("zoomPercent", tab_manager_.GetZoomPercent(current_tab_id_))
+            .Build());
+  }
+}
+
+void OtfApp::HideZoomBarOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (zoombar_overlay_) {
+    zoombar_overlay_->SetVisible(false);
+  }
 }
 
 void OtfApp::OnContextInitialized() {

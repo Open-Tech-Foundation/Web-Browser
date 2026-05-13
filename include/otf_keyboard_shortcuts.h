@@ -17,9 +17,15 @@ namespace Key {
   constexpr int kLeft      = 0x25;
   constexpr int kRight     = 0x27;
   constexpr int k0         = 0x30;
+  constexpr int kEquals    = 0x3D;
   constexpr int kF5        = 0x74;
   constexpr int kF6        = 0x75;
+  constexpr int kNum0      = 0x60;
+  constexpr int kNumAdd    = 0x6B;
+  constexpr int kNumMinus  = 0x6D;
 
+  constexpr int kF = 0x46;
+  constexpr int kG = 0x47;
   constexpr int kL = 0x4C;
   constexpr int kP = 0x50;
   constexpr int kR = 0x52;
@@ -61,6 +67,9 @@ namespace Shortcut {
   inline constexpr const char* kZoomIn    = "zoom-in";
   inline constexpr const char* kZoomOut   = "zoom-out";
   inline constexpr const char* kZoomReset = "zoom-reset";
+  inline constexpr const char* kFind      = "find";
+  inline constexpr const char* kFindNext  = "find-next";
+  inline constexpr const char* kFindPrev  = "find-prev";
 }
 
 inline void SendShortcut(OtfHandler* handler, const char* name) {

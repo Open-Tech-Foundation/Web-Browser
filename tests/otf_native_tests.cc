@@ -74,6 +74,12 @@ void TestCloseSelection() {
   assert(otf::SelectNextActiveTabId({}, 7) == -1);
 }
 
+void TestZoomHelpers() {
+  assert(static_cast<int>(otf::ZoomLevelToPercent(otf::ZoomReset())) == 100);
+  assert(static_cast<int>(otf::ZoomLevelToPercent(otf::ZoomIn(otf::ZoomReset()))) == 110);
+  assert(static_cast<int>(otf::ZoomLevelToPercent(otf::ZoomOut(otf::ZoomReset()))) == 90);
+}
+
 }  // namespace
 
 int main() {
@@ -82,5 +88,6 @@ int main() {
   TestSettingsLoadAndSave();
   TestBrowserPageAllowlist();
   TestCloseSelection();
+  TestZoomHelpers();
   return 0;
 }

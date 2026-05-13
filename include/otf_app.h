@@ -44,14 +44,19 @@ class OtfApp : public CefApp,
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
   void CreateFindBarOverlay();
+  void CreateZoomBarOverlay();
   void FocusCurrentTabContent();
   void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
   void PositionFindBarOverlay();
+  void PositionZoomBarOverlay();
+  void ShowZoomBarOverlay();
+  void HideZoomBarOverlay();
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;
   CefRefPtr<CefPanel> content_panel_;
   CefRefPtr<CefOverlayController> findbar_overlay_;
+  CefRefPtr<CefOverlayController> zoombar_overlay_;
 
  private:
   TabManager tab_manager_;

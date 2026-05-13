@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -70,11 +71,14 @@ std::string GetDevUiUrl() {
 }
 
 std::string BuildTabJson(TabManager* tab_manager, int tab_id) {
-  return JsonObjectBuilder()
-      .AddInt("id", tab_id)
+  JsonObjectBuilder builder;
+  builder.AddInt("id", tab_id)
       .AddString("url", tab_manager ? tab_manager->GetUrl(tab_id) : "")
-      .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id) : "New Tab")
-      .Build();
+      .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id) : "New Tab");
+  if (tab_manager) {
+    builder.AddInt("zoomPercent", tab_manager->GetZoomPercent(tab_id));
+  }
+  return builder.Build();
 }
 
 std::string BuildTabPropertyEvent(int tab_id,
@@ -95,6 +99,10 @@ std::string BuildTabPropertyEvent(int tab_id,
       .AddString("key", key)
       .AddBool("value", value)
       .Build();
+}
+
+int ToRoundedZoomPercent(double zoom_level) {
+  return static_cast<int>(std::lround(otf::ZoomLevelToPercent(zoom_level)));
 }
 
 std::string BuildFindResultEvent(int count,
@@ -118,6 +126,14 @@ std::string BuildFindbarClosedEvent(int tab_id) {
   return JsonObjectBuilder()
       .AddString("key", "findbar-closed")
       .AddInt("tabId", tab_id)
+      .Build();
+}
+
+std::string BuildZoomUpdateEvent(int tab_id, int zoom_percent) {
+  return JsonObjectBuilder()
+      .AddString("key", "zoom-restore")
+      .AddInt("tabId", tab_id)
+      .AddInt("zoomPercent", zoom_percent)
       .Build();
 }
 
@@ -149,6 +165,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "findbar-subscribe") {
       handler->findbar_subscription_ = callback;
+      return true;
+    }
+
+    if (msg == "zoombar-subscribe") {
+      handler->zoombar_subscription_ = callback;
       return true;
     }
 
@@ -275,7 +296,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double zoom = b->GetHost()->GetZoomLevel();
-        b->GetHost()->SetZoomLevel(otf::ZoomIn(zoom));
+        double next_zoom = otf::ZoomIn(zoom);
+        b->GetHost()->SetZoomLevel(next_zoom);
+        handler->tab_manager_->SetZoomPercent(tab_id, ToRoundedZoomPercent(next_zoom));
+        handler->SendEvent(BuildTabPropertyEvent(
+            tab_id, "zoomPercent", std::to_string(handler->tab_manager_->GetZoomPercent(tab_id))));
+        if (handler->zoombar_subscription_) {
+          handler->zoombar_subscription_->Success(
+              BuildZoomUpdateEvent(tab_id, handler->tab_manager_->GetZoomPercent(tab_id)));
+        }
       }
       callback->Success("");
     } else if (msg.find("zoom-out:") == 0) {
@@ -283,13 +312,47 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double zoom = b->GetHost()->GetZoomLevel();
-        b->GetHost()->SetZoomLevel(otf::ZoomOut(zoom));
+        double next_zoom = otf::ZoomOut(zoom);
+        b->GetHost()->SetZoomLevel(next_zoom);
+        handler->tab_manager_->SetZoomPercent(tab_id, ToRoundedZoomPercent(next_zoom));
+        handler->SendEvent(BuildTabPropertyEvent(
+            tab_id, "zoomPercent", std::to_string(handler->tab_manager_->GetZoomPercent(tab_id))));
+        if (handler->zoombar_subscription_) {
+          handler->zoombar_subscription_->Success(
+              BuildZoomUpdateEvent(tab_id, handler->tab_manager_->GetZoomPercent(tab_id)));
+        }
       }
       callback->Success("");
     } else if (msg.find("zoom-reset:") == 0) {
       int tab_id = std::stoi(msg.substr(11));
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) b->GetHost()->SetZoomLevel(otf::ZoomReset());
+      if (b) {
+        double next_zoom = otf::ZoomReset();
+        b->GetHost()->SetZoomLevel(next_zoom);
+        handler->tab_manager_->SetZoomPercent(tab_id, ToRoundedZoomPercent(next_zoom));
+        handler->SendEvent(BuildTabPropertyEvent(
+            tab_id, "zoomPercent", std::to_string(handler->tab_manager_->GetZoomPercent(tab_id))));
+        if (handler->zoombar_subscription_) {
+          handler->zoombar_subscription_->Success(
+              BuildZoomUpdateEvent(tab_id, handler->tab_manager_->GetZoomPercent(tab_id)));
+        }
+      }
+      callback->Success("");
+    } else if (msg == "toggle-zoombar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && app->zoombar_overlay_) {
+        if (app->zoombar_overlay_->IsVisible()) {
+          app->HideZoomBarOverlay();
+        } else {
+          app->ShowZoomBarOverlay();
+        }
+      }
+      callback->Success("");
+    } else if (msg == "hide-zoombar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideZoomBarOverlay();
+      }
       callback->Success("");
     } else if (msg.find("find:") == 0) {
       // find:<tab_id>:<text>
@@ -575,11 +638,16 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   if (browser_view) {
     if (browser_view->GetID() == kUiBrowserViewId) {
       ui_browser_ = browser;
-    } else if (browser_view->GetID() == kFindBarBrowserViewId) {
-      findbar_browser_ = browser;
+    } else if (browser_view->GetID() == kFindBarBrowserViewId ||
+               browser_view->GetID() == kZoomBarBrowserViewId) {
+      if (browser_view->GetID() == kFindBarBrowserViewId) {
+        findbar_browser_ = browser;
+      }
     } else if (tab_manager_) {
       int tab_id = browser_view->GetID();
       tab_manager_->SetBrowser(tab_id, browser);
+      tab_manager_->SetZoomPercent(
+          tab_id, ToRoundedZoomPercent(browser->GetHost()->GetZoomLevel()));
       std::string current = browser->GetMainFrame()->GetURL().ToString();
       if (current.empty() || current == "about:blank") {
         std::string stored = tab_manager_->GetUrl(tab_id);
@@ -778,9 +846,25 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     if (action == Shortcut::kForward)   b->GoForward();
     if (action == Shortcut::kReload)    b->Reload();
     if (action == Shortcut::kEscape)    b->StopLoad();
-    if (action == Shortcut::kZoomIn)    b->GetHost()->SetZoomLevel(otf::ZoomIn(b->GetHost()->GetZoomLevel()));
-    if (action == Shortcut::kZoomOut)   b->GetHost()->SetZoomLevel(otf::ZoomOut(b->GetHost()->GetZoomLevel()));
-    if (action == Shortcut::kZoomReset) b->GetHost()->SetZoomLevel(otf::ZoomReset());
+    if (action == Shortcut::kZoomIn || action == Shortcut::kZoomOut ||
+        action == Shortcut::kZoomReset) {
+      double next_zoom = b->GetHost()->GetZoomLevel();
+      if (action == Shortcut::kZoomIn) {
+        next_zoom = otf::ZoomIn(next_zoom);
+      } else if (action == Shortcut::kZoomOut) {
+        next_zoom = otf::ZoomOut(next_zoom);
+      } else {
+        next_zoom = otf::ZoomReset();
+      }
+      b->GetHost()->SetZoomLevel(next_zoom);
+      tab_manager_->SetZoomPercent(cur, ToRoundedZoomPercent(next_zoom));
+      SendEvent(BuildTabPropertyEvent(
+          cur, "zoomPercent", std::to_string(tab_manager_->GetZoomPercent(cur))));
+      if (zoombar_subscription_) {
+        zoombar_subscription_->Success(
+            BuildZoomUpdateEvent(cur, tab_manager_->GetZoomPercent(cur)));
+      }
+    }
   };
 
   // ── Navigation & Page ─────────────────────────────────────
@@ -790,6 +874,11 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     *is_keyboard_shortcut = true; nav(Shortcut::kReload); return true;
   }
   if (M(Mod::kNone, Key::kEscape)) {
+    if (app->zoombar_overlay_ && app->zoombar_overlay_->IsVisible()) {
+      app->HideZoomBarOverlay();
+      app->FocusCurrentTabContent();
+      return true;
+    }
     if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {
       app->findbar_overlay_->SetVisible(false);
       if (tab_manager_) {
@@ -812,11 +901,25 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     }
     *is_keyboard_shortcut = true; nav(Shortcut::kEscape); return true;
   }
-  if (M(Mod::kCtrl, Key::kPlus) || M(Mod::kCtrl|Mod::kShift, Key::kPlus)) {
-    nav(Shortcut::kZoomIn); return true;
+  if (M(Mod::kCtrl, Key::kPlus) ||
+      M(Mod::kCtrl|Mod::kShift, Key::kPlus) ||
+      M(Mod::kCtrl, Key::kEquals) ||
+      M(Mod::kCtrl|Mod::kShift, Key::kEquals) ||
+      M(Mod::kCtrl, Key::kNumAdd)) {
+    *is_keyboard_shortcut = true;
+    nav(Shortcut::kZoomIn);
+    return true;
   }
-  if (M(Mod::kCtrl, Key::kMinus))  { nav(Shortcut::kZoomOut);   return true; }
-  if (M(Mod::kCtrl, Key::k0))      { nav(Shortcut::kZoomReset); return true; }
+  if (M(Mod::kCtrl, Key::kMinus) || M(Mod::kCtrl, Key::kNumMinus))  {
+    *is_keyboard_shortcut = true;
+    nav(Shortcut::kZoomOut);
+    return true;
+  }
+  if (M(Mod::kCtrl, Key::k0) || M(Mod::kCtrl, Key::kNum0))      {
+    *is_keyboard_shortcut = true;
+    nav(Shortcut::kZoomReset);
+    return true;
+  }
   if (M(Mod::kCtrl, Key::kF)) {
     if (app->findbar_overlay_ && tab_manager_) {
       tab_manager_->SetFindVisible(cur, true);

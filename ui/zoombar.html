@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { overflow: hidden; background: transparent; }
+      :root {
+        --bg: #ffffff;
+        --fg: #0f172a;
+        --muted: #64748b;
+        --sep: #e2e8f0;
+        --accent: #FF7A00;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1e293b;
+          --fg: #e2e8f0;
+          --muted: #94a3b8;
+          --sep: #334155;
+          --accent: #f97316;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/zoombar/main.jsx"></script>
+  </body>
+</html>

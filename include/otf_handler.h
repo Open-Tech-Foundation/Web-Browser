@@ -115,6 +115,7 @@ class OtfHandler : public CefClient,
 
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> subscription_callback_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> findbar_subscription_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> zoombar_subscription_;
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation

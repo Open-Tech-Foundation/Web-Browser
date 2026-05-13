@@ -12,7 +12,9 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         settings: resolve(__dirname, 'settings.html'),
-        newtab: resolve(__dirname, 'newtab.html')
+        newtab: resolve(__dirname, 'newtab.html'),
+        findbar: resolve(__dirname, 'findbar.html'),
+        zoombar: resolve(__dirname, 'zoombar.html')
       }
     }
   }
