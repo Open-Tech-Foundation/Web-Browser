@@ -21,6 +21,7 @@
 #include "include/base/cef_callback.h"
 #include "include/cef_app.h"
 #include "include/cef_parser.h"
+#include "include/cef_ssl_info.h"
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_closure_task.h"
@@ -213,6 +214,27 @@ std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
       .AddBool("canShowInFolder", item.can_show_in_folder)
       .AddRaw("endedAt", std::to_string(item.ended_at))
       .Build();
+}
+
+bool IsCertificateErrorCode(cef_errorcode_t error_code) {
+  return error_code <= ERR_CERT_COMMON_NAME_INVALID && error_code >= ERR_CERT_END;
+}
+
+bool IsSecurityErrorDocumentUrl(const std::string& url) {
+  return url.rfind("browser://insecure-blocked", 0) == 0 ||
+         url.find("/insecure-blocked.html") != std::string::npos ||
+         url.rfind("chrome-error://", 0) == 0 ||
+         url.rfind("data:", 0) == 0;
+}
+
+bool IsSameSecurityUrl(const std::string& a, const std::string& b) {
+  if (a == b) {
+    return true;
+  }
+  if (IsPersistableWebUrl(a) && IsPersistableWebUrl(b)) {
+    return NormalizeBookmarkUrl(a) == NormalizeBookmarkUrl(b);
+  }
+  return false;
 }
 
 std::string BuildDownloadsJson(const std::map<int, OtfHandler::DownloadState>& downloads) {
@@ -450,7 +472,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       ss << "[";
       std::vector<int> ids = handler->tab_manager_->GetAllTabIds();
       for (size_t i = 0; i < ids.size(); ++i) {
-        ss << BuildTabJson(handler->tab_manager_, handler->store_, ids[i]);
+        ss << BuildTabJson(handler->tab_manager_, handler->store_.get(), ids[i]);
         if (i < ids.size() - 1) ss << ",";
       }
       ss << "]";
@@ -642,7 +664,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int id = app->CreateTab("browser://newtab");
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "new-tab")
-                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_, id))
+                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_.get(), id))
                              .Build());
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
@@ -653,7 +675,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int id = app->CreateTab(url);
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "new-tab")
-                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_, id))
+                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_.get(), id))
                              .Build());
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
@@ -779,7 +801,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         int id = app->CreateTab("browser://downloads");
         handler->SendEvent(JsonObjectBuilder()
                       .AddString("key", "new-tab")
-                      .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_, id))
+                      .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_.get(), id))
                       .Build());
         app->SwitchTab(id);
       }
@@ -1122,6 +1144,17 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
         return;
       }
 
+      if (tab_manager_ && tab_manager_->HasSslError(view->GetID()) &&
+          !IsSecurityErrorDocumentUrl(url_str) &&
+          !IsSameSecurityUrl(url_str, tab_manager_->GetSslErrorUrl(view->GetID()))) {
+        tab_manager_->SetSslError(view->GetID(), false);
+        SendEvent(JsonObjectBuilder()
+                      .AddInt("id", view->GetID())
+                      .AddString("key", "sslError")
+                      .AddBool("value", false)
+                      .Build());
+      }
+
       std::string dev_ui_url = GetDevUiUrl();
       if (!dev_ui_url.empty()) {
         std::string prefix = dev_ui_url + "/";
@@ -1171,19 +1204,45 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
   if (!frame->IsMain()) return;
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (!view || view->GetID() == kUiBrowserViewId) return;
+  const int tab_id = view->GetID();
 
   if (httpStatusCode >= 200 && httpStatusCode < 400 && store_ && tab_manager_) {
     const std::string url = frame->GetURL().ToString();
-    const std::string current = tab_manager_->GetUrl(view->GetID());
+    CefRefPtr<CefNavigationEntry> entry =
+        browser->GetHost() ? browser->GetHost()->GetVisibleNavigationEntry()
+                           : nullptr;
+    CefRefPtr<CefSSLStatus> ssl_status =
+        entry ? entry->GetSSLStatus() : nullptr;
+    const bool has_cert_error =
+        ssl_status && CefIsCertStatusError(ssl_status->GetCertStatus());
+    if (has_cert_error) {
+      tab_manager_->SetSslError(tab_id, true);
+      tab_manager_->SetSslErrorUrl(tab_id, url);
+      SendEvent(JsonObjectBuilder()
+                    .AddInt("id", tab_id)
+                    .AddString("key", "sslError")
+                    .AddBool("value", true)
+                    .Build());
+    } else if (tab_manager_->HasSslError(tab_id) &&
+               url != tab_manager_->GetSslErrorUrl(tab_id) &&
+               !IsSecurityErrorDocumentUrl(url)) {
+      tab_manager_->SetSslError(tab_id, false);
+      SendEvent(JsonObjectBuilder()
+                    .AddInt("id", tab_id)
+                    .AddString("key", "sslError")
+                    .AddBool("value", false)
+                    .Build());
+    }
+    const std::string current = tab_manager_->GetUrl(tab_id);
     if (IsPersistableWebUrl(url) &&
         (current.empty() || current.rfind("browser://", 0) != 0)) {
-      store_->RecordVisit(url, tab_manager_->GetTitle(view->GetID()), "link");
+      store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link");
     }
     SendEvent(BuildBookmarkSyncEvent(
-        view->GetID(), url, store_->IsBookmarked(NormalizeBookmarkUrl(url))));
+        tab_id, url, store_->IsBookmarked(NormalizeBookmarkUrl(url))));
   }
 
-  SendEvent(BuildTabPropertyEvent(view->GetID(), "load-end", true));
+  SendEvent(BuildTabPropertyEvent(tab_id, "load-end", true));
 }
 
 void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
@@ -1257,6 +1316,26 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
   CEF_REQUIRE_UI_THREAD();
   if (errorCode == ERR_ABORTED) {
     return;
+  }
+  if (frame->IsMain()) {
+    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+    if (view && tab_manager_ && IsCertificateErrorCode(errorCode)) {
+      const int tab_id = view->GetID();
+      const std::string failed_url = failedUrl.ToString();
+      tab_manager_->SetUrl(tab_id, failed_url);
+      tab_manager_->SetSslError(tab_id, true);
+      tab_manager_->SetSslErrorUrl(tab_id, failed_url);
+      SendEvent(JsonObjectBuilder()
+                    .AddInt("id", tab_id)
+                    .AddString("key", "url")
+                    .AddString("value", failed_url)
+                    .Build());
+      SendEvent(JsonObjectBuilder()
+                    .AddInt("id", tab_id)
+                    .AddString("key", "sslError")
+                    .AddBool("value", true)
+                    .Build());
+    }
   }
   std::stringstream ss;
   ss << "<html><body bgcolor=\"white\">"
@@ -1473,7 +1552,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     }
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, new_id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_id))
                   .Build());
 
     return true;
@@ -1499,16 +1578,20 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                  bool user_gesture,
                                  bool is_redirect) {
   CEF_REQUIRE_UI_THREAD();
-  
+
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
     if (view && tab_manager_) {
-      std::string current_url = tab_manager_->GetUrl(view->GetID());
-      std::string next_url = request->GetURL().ToString();
-      const bool entering_insecure_block_page =
-          next_url.rfind("browser://insecure-blocked", 0) == 0 ||
-          next_url.find("/insecure-blocked.html") != std::string::npos;
-      if (current_url != next_url && !entering_insecure_block_page) {
+      const std::string current_url = tab_manager_->GetUrl(view->GetID());
+      const std::string next_url = request->GetURL().ToString();
+      const std::string ssl_error_url =
+          tab_manager_->GetSslErrorUrl(view->GetID());
+      const bool is_real_navigation =
+          IsPersistableWebUrl(next_url) ||
+          (next_url.rfind("browser://", 0) == 0 &&
+           !IsSecurityErrorDocumentUrl(next_url));
+      if (tab_manager_->HasSslError(view->GetID()) && current_url != next_url &&
+          next_url != ssl_error_url && is_real_navigation) {
         tab_manager_->SetSslError(view->GetID(), false);
         SendEvent(JsonObjectBuilder()
                       .AddInt("id", view->GetID())
@@ -1757,7 +1840,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://history");
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
                   .Build());
     app->SwitchTab(id);
     return true;
@@ -1766,7 +1849,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://downloads");
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
                   .Build());
     app->SwitchTab(id);
     return true;
@@ -1777,7 +1860,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://newtab");
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
                   .Build());
     app->SwitchTab(id);
     return true;
@@ -1794,7 +1877,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
       int id = app->CreateTab(last_closed_url_);
       SendEvent(JsonObjectBuilder()
                     .AddString("key", "new-tab")
-                    .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
+                    .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
                     .Build());
       app->SwitchTab(id);
       last_closed_url_.clear();
@@ -1875,7 +1958,9 @@ bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view && tab_manager_) {
     int tab_id = view->GetID();
+    const std::string url = request_url.ToString();
     tab_manager_->SetSslError(tab_id, true);
+    tab_manager_->SetSslErrorUrl(tab_id, url);
     SendEvent(JsonObjectBuilder()
                   .AddInt("id", tab_id)
                   .AddString("key", "sslError")

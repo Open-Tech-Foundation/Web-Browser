@@ -42,8 +42,12 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   const isLocalHttp = url?.startsWith('http://localhost') ||
                       url?.startsWith('http://127.0.0.1');
   const isBlockedHttp = url?.startsWith('http://') && !isLocalHttp;
+  const isInsecureBlockPage = url?.startsWith('browser://insecure-blocked') ||
+                              url?.includes('/insecure-blocked.html') ||
+                              url?.startsWith('chrome-error://') ||
+                              url?.startsWith('data:text/html');
   const isSecure = (url?.startsWith('https://') || isLocalHttp) && !sslError;
-  const isInsecure = Boolean(sslError || isBlockedHttp);
+  const isInsecure = Boolean(sslError || isBlockedHttp || isInsecureBlockPage);
   const visibleIsBookmarked = Boolean(isBookmarked);
   const displayUrl = isFocused ? url : getDisplayUrl(url);
 

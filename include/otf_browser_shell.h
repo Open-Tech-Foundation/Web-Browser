@@ -172,12 +172,25 @@ class TabManager {
 
   void SetSslError(int tab_id, bool has_error) {
     ssl_error_map_[tab_id] = has_error;
+    if (!has_error) {
+      ssl_error_url_map_.erase(tab_id);
+    }
   }
 
   bool HasSslError(int tab_id) {
     auto it = ssl_error_map_.find(tab_id);
     if (it != ssl_error_map_.end()) return it->second;
     return false;
+  }
+
+  void SetSslErrorUrl(int tab_id, const std::string& url) {
+    ssl_error_url_map_[tab_id] = url;
+  }
+
+  std::string GetSslErrorUrl(int tab_id) {
+    auto it = ssl_error_url_map_.find(tab_id);
+    if (it != ssl_error_url_map_.end()) return it->second;
+    return "";
   }
 
  private:
@@ -193,6 +206,7 @@ class TabManager {
   std::map<int, bool> find_visible_map_;
   std::map<int, int> zoom_percent_map_;
   std::map<int, bool> ssl_error_map_;
+  std::map<int, std::string> ssl_error_url_map_;
   int next_tab_id_;
 };
 
