@@ -45,7 +45,7 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
     page.pop_back();
   }
   if (page == "newtab" || page == "settings" || page == "findbar" ||
-      page == "history" || page == "bookmarks") {
+      page == "history" || page == "bookmarks" || page == "downloads") {
     if (page_name) {
       *page_name = page;
     }

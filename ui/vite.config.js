@@ -13,9 +13,13 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         settings: resolve(__dirname, 'settings.html'),
         newtab: resolve(__dirname, 'newtab.html'),
+        history: resolve(__dirname, 'history.html'),
+        bookmarks: resolve(__dirname, 'bookmarks.html'),
         findbar: resolve(__dirname, 'findbar.html'),
         zoombar: resolve(__dirname, 'zoombar.html'),
-        downloadsbar: resolve(__dirname, 'downloadsbar.html')
+        downloadsbar: resolve(__dirname, 'downloadsbar.html'),
+        downloads: resolve(__dirname, 'downloads.html'),
+        appmenu: resolve(__dirname, 'appmenu.html')
       }
     }
   }

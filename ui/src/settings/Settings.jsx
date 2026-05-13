@@ -218,6 +218,8 @@ const Settings = () => {
                     ]],
                     ['Page', [
                       ['Ctrl + F', 'Find in page'],
+                      ['Ctrl + G', 'Find next'],
+                      ['Ctrl + Shift + G', 'Find previous'],
                       ['Ctrl + D', 'Bookmark current page'],
                       ['Ctrl + P', 'Print'],
                       ['Ctrl + +', 'Zoom in'],
@@ -225,6 +227,8 @@ const Settings = () => {
                       ['Ctrl + 0', 'Reset zoom'],
                     ]],
                     ['Browser', [
+                      ['Ctrl + H', 'Open history page'],
+                      ['Ctrl + J', 'Open downloads page'],
                       ['Space', 'Scroll down'],
                       ['Shift + Space', 'Scroll up'],
                     ]],

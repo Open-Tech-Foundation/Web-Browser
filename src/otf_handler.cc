@@ -720,6 +720,20 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->HideDownloadsOverlay();
       }
       callback->Success("");
+    } else if (msg == "open-downloads-page") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideDownloadsOverlay();
+      }
+      CefRefPtr<CefBrowserView> view = handler->tab_manager_->GetView(
+          OtfApp::GetInstance() ? OtfApp::GetInstance()->GetCurrentTabId() : -1);
+      if (view) {
+        CefRefPtr<CefBrowser> tab_browser = view->GetBrowser();
+        if (tab_browser) {
+          tab_browser->GetMainFrame()->LoadURL("browser://downloads");
+        }
+      }
+      callback->Success("");
     } else if (msg == "toggle-appmenu") {
       OtfApp* app = OtfApp::GetInstance();
       if (app && app->appmenu_overlay_) {
@@ -1029,6 +1043,7 @@ void OtfHandler::NotifyDownloadsChanged() {
 
 void OtfHandler::NotifyDownloadBadge() {
   int active_count = 0;
+  const int total_count = static_cast<int>(downloads_.size());
   for (const auto& [id, item] : downloads_) {
     if (item.is_in_progress && !item.is_complete && !item.is_canceled &&
         !item.is_interrupted) {
@@ -1038,6 +1053,7 @@ void OtfHandler::NotifyDownloadBadge() {
   SendEvent(JsonObjectBuilder()
                 .AddString("key", "downloads-badge")
                 .AddInt("value", active_count)
+                .AddInt("total", total_count)
                 .Build());
 }
 
@@ -1463,10 +1479,30 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
 
 
 bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
-                                CefRefPtr<CefFrame> frame,
-                                CefRefPtr<CefRequest> request,
-                                bool user_gesture,
-                                bool is_redirect) {
+                                 CefRefPtr<CefFrame> frame,
+                                 CefRefPtr<CefRequest> request,
+                                 bool user_gesture,
+                                 bool is_redirect) {
+  CEF_REQUIRE_UI_THREAD();
+  
+  if (frame->IsMain()) {
+    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+    if (view && tab_manager_) {
+      std::string current_url = tab_manager_->GetUrl(view->GetID());
+      std::string next_url = request->GetURL().ToString();
+      if (current_url != next_url) {
+        tab_manager_->SetSslError(view->GetID(), false);
+        SendEvent(JsonObjectBuilder()
+                      .AddInt("id", view->GetID())
+                      .AddString("key", "sslError")
+                      .AddBool("value", false)
+                      .Build());
+      }
+    }
+  }
+
+  message_router_->OnBeforeBrowse(browser, frame);
+
   std::string url = request->GetURL().ToString();
 
   const bool is_main_frame = !frame || frame->IsMain();
@@ -1660,9 +1696,19 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kCtrl, Key::kL) || M(Mod::kNone, Key::kF6)) {
     SendShortcut(this, Shortcut::kFocusBar); return true;
   }
+  if (M(Mod::kCtrl, Key::kH)) {
+    int id = app->CreateTab("browser://history");
+    SendEvent(JsonObjectBuilder()
+                  .AddString("key", "new-tab")
+                  .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                  .Build());
+    app->SwitchTab(id);
+    return true;
+  }
   if (M(Mod::kCtrl, Key::kJ)) {
-    if (app->downloads_overlay_) {
-      app->ShowDownloadsOverlay();
+    auto b = tab_manager_->GetBrowser(cur);
+    if (b) {
+      b->GetMainFrame()->LoadURL("browser://downloads");
     }
     return true;
   }
@@ -1758,6 +1804,27 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
     findbar_subscription_->Success(
         BuildFindResultEvent(count, activeMatchOrdinal, tab_id, "", finalUpdate));
   }
+}
+
+bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
+                                     ErrorCode cert_error,
+                                     const CefString& request_url,
+                                     CefRefPtr<CefSSLInfo> ssl_info,
+                                     CefRefPtr<CefCallback> callback) {
+  CEF_REQUIRE_UI_THREAD();
+  
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view && tab_manager_) {
+    int tab_id = view->GetID();
+    tab_manager_->SetSslError(tab_id, true);
+    SendEvent(JsonObjectBuilder()
+                  .AddInt("id", tab_id)
+                  .AddString("key", "sslError")
+                  .AddBool("value", true)
+                  .Build());
+  }
+  
+  return false;
 }
 
 } // namespace otf
