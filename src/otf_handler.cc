@@ -297,6 +297,41 @@ std::string ParseLengthPrefixedField(const std::string& input,
   return input.substr(value_start, len);
 }
 
+struct FindbarFindRequest {
+  int tab_id = -1;
+  std::string text;
+  bool forward = true;
+  bool match_case = false;
+  bool find_next = false;
+};
+
+bool ParseFindbarFindRequest(const std::string& raw_json,
+                             FindbarFindRequest* request) {
+  if (!request) {
+    return false;
+  }
+
+  CefRefPtr<CefValue> root =
+      CefParseJSON(raw_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return false;
+  }
+
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey("tabId") || !dict->HasKey("text") ||
+      !dict->HasKey("forward") || !dict->HasKey("matchCase") ||
+      !dict->HasKey("findNext")) {
+    return false;
+  }
+
+  request->tab_id = dict->GetInt("tabId");
+  request->text = dict->GetString("text").ToString();
+  request->forward = dict->GetBool("forward");
+  request->match_case = dict->GetBool("matchCase");
+  request->find_next = dict->GetBool("findNext");
+  return request->tab_id >= 0;
+}
+
 std::string BuildHistoryJson(const std::vector<HistoryEntry>& items) {
   std::ostringstream out;
   out << "[";
@@ -814,62 +849,25 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (b) b->GetHost()->StopFinding(true);
       callback->Success("");
     } else if (msg.find("findbar-find:") == 0) {
-      // findbar-find:<tab_id>:<text_len>:<text>:<forward>:<matchCase>:<findNext>
-      std::string payload = msg.substr(13); // after "findbar-find:"
-      std::string text;
-      bool forward = true, match_case = false, find_next = false;
-
-      size_t tab_end = payload.find(':');
-      if (tab_end == std::string::npos) { callback->Success(""); return true; }
-      int requested_tab_id = std::stoi(payload.substr(0, tab_end));
-
-      // Parse text length
-      size_t len_end = payload.find(':', tab_end + 1);
-      if (len_end == std::string::npos) { callback->Success(""); return true; }
-      size_t text_len = 0;
-      std::string text_len_str = payload.substr(tab_end + 1, len_end - tab_end - 1);
-      char* parse_end = nullptr;
-      errno = 0;
-      unsigned long parsed = std::strtoul(text_len_str.c_str(), &parse_end, 10);
-      if (errno != 0 || parse_end == text_len_str.c_str() || *parse_end != '\0') {
+      FindbarFindRequest request;
+      if (!ParseFindbarFindRequest(msg.substr(13), &request)) {
         callback->Success("");
         return true;
-      }
-      text_len = static_cast<size_t>(parsed);
-
-      size_t text_start = len_end + 1;
-      if (text_start + text_len > payload.size()) { callback->Success(""); return true; }
-      text = payload.substr(text_start, text_len);
-
-      size_t rest_start = text_start + text_len;
-      if (rest_start >= payload.size() || payload[rest_start] != ':') {
-        // No extra params, default everything
-      } else {
-        std::string rest = payload.substr(rest_start + 1);
-        size_t r1 = rest.find(':');
-        if (r1 != std::string::npos) {
-          forward = rest.substr(0, r1) != "0";
-          size_t r2 = rest.find(':', r1 + 1);
-          if (r2 != std::string::npos) {
-            match_case = rest.substr(r1 + 1, r2 - r1 - 1) != "0";
-            find_next  = rest.substr(r2 + 1) != "0";
-          }
-        }
       }
       OtfApp* app = OtfApp::GetInstance();
       if (!app || !handler->tab_manager_) { callback->Success(""); return true; }
       int tab_id = app->GetCurrentTabId();
       if (tab_id < 0) { callback->Success(""); return true; }
-      if (requested_tab_id != tab_id) { callback->Success(""); return true; }
+      if (request.tab_id != tab_id) { callback->Success(""); return true; }
 
       handler->tab_manager_->SetFindVisible(tab_id, true);
-      handler->tab_manager_->SetFindText(tab_id, text);
-      handler->tab_manager_->SetFindCase(tab_id, match_case);
+      handler->tab_manager_->SetFindText(tab_id, request.text);
+      handler->tab_manager_->SetFindCase(tab_id, request.match_case);
 
       auto b = handler->tab_manager_->GetBrowser(tab_id);
       if (!b) { callback->Success(""); return true; }
 
-      if (text.empty()) {
+      if (request.text.empty()) {
         b->GetHost()->StopFinding(true);
         // Clear counters in UI
         if (handler->findbar_subscription_) {
@@ -879,8 +877,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       } else {
         // Track pending so async OnFindResult can correlate and filter
         handler->pending_find_tab_  = tab_id;
-        handler->pending_find_text_ = text;
-        b->GetHost()->Find(text, forward, match_case, find_next);
+        handler->pending_find_text_ = request.text;
+        b->GetHost()->Find(request.text, request.forward, request.match_case, request.find_next);
       }
       callback->Success("");
     } else if (msg == "findbar-stop:") {

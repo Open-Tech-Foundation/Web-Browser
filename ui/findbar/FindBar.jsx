@@ -147,7 +147,13 @@ const FindBar = () => {
     }
     if (!findNext) setIsFinal(false);
     window.cefQuery({
-      request: `findbar-find:${activeTabId}:${t.length}:${t}:${fwd ? '1' : '0'}:${caseSensitive ? '1' : '0'}:${findNext ? '1' : '0'}`,
+      request: `findbar-find:${JSON.stringify({
+        tabId: activeTabId,
+        text: t,
+        forward: !!fwd,
+        matchCase: !!caseSensitive,
+        findNext: !!findNext,
+      })}`,
     });
   }, [activeTabId, cancelPendingFind, text]);
 
@@ -171,7 +177,13 @@ const FindBar = () => {
       debounceRef.current = null;
       if (t && tabIdAtSchedule >= 0) {
         window.cefQuery({
-          request: `findbar-find:${tabIdAtSchedule}:${t.length}:${t}:1:${matchCase ? '1' : '0'}:0`,
+          request: `findbar-find:${JSON.stringify({
+            tabId: tabIdAtSchedule,
+            text: t,
+            forward: true,
+            matchCase: !!matchCase,
+            findNext: false,
+          })}`,
         });
       }
     }, 200);
@@ -199,7 +211,13 @@ const FindBar = () => {
     if (t && activeTabId >= 0) {
       setIsFinal(false);
       window.cefQuery({
-        request: `findbar-find:${activeTabId}:${t.length}:${t}:1:${next ? '1' : '0'}:0`,
+        request: `findbar-find:${JSON.stringify({
+          tabId: activeTabId,
+          text: t,
+          forward: true,
+          matchCase: !!next,
+          findNext: false,
+        })}`,
       });
     }
   }, [activeTabId, cancelPendingFind, matchCase, text]);
