@@ -124,6 +124,7 @@ std::string BuildTabJson(TabManager* tab_manager, int tab_id) {
       .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id) : "New Tab");
   if (tab_manager) {
     builder.AddInt("zoomPercent", tab_manager->GetZoomPercent(tab_id));
+    builder.AddBool("sslError", tab_manager->HasSslError(tab_id));
   }
   return builder.Build();
 }
@@ -724,16 +725,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         app->HideDownloadsOverlay();
-      }
-      CefRefPtr<CefBrowserView> view = handler->tab_manager_->GetView(
-          OtfApp::GetInstance() ? OtfApp::GetInstance()->GetCurrentTabId() : -1);
-      if (view) {
-        CefRefPtr<CefBrowser> tab_browser = view->GetBrowser();
-        if (tab_browser) {
-          tab_browser->GetMainFrame()->LoadURL("browser://downloads");
-        }
+        int id = app->CreateTab("browser://downloads");
+        handler->SendEvent(JsonObjectBuilder()
+                      .AddString("key", "new-tab")
+                      .AddRaw("tab", BuildTabJson(handler->tab_manager_, id))
+                      .Build());
+        app->SwitchTab(id);
       }
       callback->Success("");
+      return true;
     } else if (msg == "toggle-appmenu") {
       OtfApp* app = OtfApp::GetInstance();
       if (app && app->appmenu_overlay_) {
@@ -1706,10 +1706,12 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     return true;
   }
   if (M(Mod::kCtrl, Key::kJ)) {
-    auto b = tab_manager_->GetBrowser(cur);
-    if (b) {
-      b->GetMainFrame()->LoadURL("browser://downloads");
-    }
+    int id = app->CreateTab("browser://downloads");
+    SendEvent(JsonObjectBuilder()
+                  .AddString("key", "new-tab")
+                  .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                  .Build());
+    app->SwitchTab(id);
     return true;
   }
 

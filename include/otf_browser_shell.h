@@ -170,6 +170,16 @@ class TabManager {
     return 100;
   }
 
+  void SetSslError(int tab_id, bool has_error) {
+    ssl_error_map_[tab_id] = has_error;
+  }
+
+  bool HasSslError(int tab_id) {
+    auto it = ssl_error_map_.find(tab_id);
+    if (it != ssl_error_map_.end()) return it->second;
+    return false;
+  }
+
  private:
   std::map<int, CefRefPtr<CefBrowserView>> view_map_;
   std::map<int, CefRefPtr<CefBrowser>> browser_map_;
@@ -182,6 +192,7 @@ class TabManager {
   std::map<int, int> find_active_map_;
   std::map<int, bool> find_visible_map_;
   std::map<int, int> zoom_percent_map_;
+  std::map<int, bool> ssl_error_map_;
   int next_tab_id_;
 };
 

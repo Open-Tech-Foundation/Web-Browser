@@ -17,6 +17,7 @@ const normalizeTab = (tab) => ({
   canGoBack: Boolean(tab.canGoBack),
   canGoForward: Boolean(tab.canGoForward),
   zoomPercent: Number(tab.zoomPercent ?? 100),
+  sslError: Boolean(tab.sslError),
 });
 
 const tabReducer = (state, action) => {
@@ -50,6 +51,7 @@ const App = () => {
   const [state, dispatch] = useReducer(tabReducer, { tabs: [], activeTabId: null });
   const [searchEngine, setSearchEngine] = React.useState('');
   const [downloadBadge, setDownloadBadge] = React.useState(0);
+  const [hasDownloads, setHasDownloads] = React.useState(false);
   const [isBookmarked, setIsBookmarked] = React.useState(false);
   const initialized = useRef(false);
   const stateRef = useRef(state);
@@ -119,6 +121,7 @@ const App = () => {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
             } else if (event.key === 'downloads-badge') {
               setDownloadBadge(Number(event.value) || 0);
+              setHasDownloads(Number(event.total) > 0);
             } else if (event.key === 'bookmarks-changed') {
               if (event.id === stateRef.current.activeTabId) {
                 setIsBookmarked(Boolean(event.bookmarked));
@@ -181,6 +184,16 @@ const App = () => {
           }
         },
         onFailure: (code, msg) => console.error("Failed to get tabs:", msg)
+      });
+
+      window.cefQuery({
+        request: 'get-downloads',
+        onSuccess: (json) => {
+          try {
+            const items = JSON.parse(json);
+            setHasDownloads(Array.isArray(items) && items.length > 0);
+          } catch (e) {}
+        },
       });
     }
   }, []);
@@ -283,6 +296,7 @@ const App = () => {
             onNavigate={handleNavigate}
             isBookmarked={isBookmarked}
             onToggleBookmark={handleToggleBookmark}
+            sslError={currentActiveTab?.sslError}
           />
           <div className="flex items-center ml-1 gap-1">
             <NavButton
@@ -293,7 +307,7 @@ const App = () => {
                 </svg>
               }
             />
-            {downloadBadge > 0 && (
+            {hasDownloads && (
               <div className="relative">
                 <NavButton
                   onClick={() => window.cefQuery({ request: 'toggle-downloadsbar' })}
@@ -304,9 +318,11 @@ const App = () => {
                     </svg>
                   }
                 />
-                <span className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-brand-orange px-1 text-center text-[10px] font-semibold leading-[14px] text-white">
-                  {downloadBadge > 9 ? '9+' : downloadBadge}
-                </span>
+                {downloadBadge > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-brand-orange px-1 text-center text-[10px] font-semibold leading-[14px] text-white">
+                    {downloadBadge > 9 ? '9+' : downloadBadge}
+                  </span>
+                )}
               </div>
             )}
             <NavButton

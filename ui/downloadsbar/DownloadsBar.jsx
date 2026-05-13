@@ -26,6 +26,14 @@ const S = {
     padding: 10,
     background: 'var(--surface, #f8fafc)',
   },
+  footer: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 8,
+    padding: 10,
+    borderTop: '1px solid var(--sep, #e2e8f0)',
+    background: 'var(--bg, #fff)',
+  },
   card: {
     display: 'flex',
     flexDirection: 'column',
@@ -88,6 +96,7 @@ function formatBytes(bytes) {
 }
 
 function formatProgress(item) {
+  if (item.isComplete || item.isCanceled || item.isInterrupted) return '';
   if (item.percent >= 0) return `${item.percent}%`;
   if (item.totalBytes > 0) return `${formatBytes(item.receivedBytes)} / ${formatBytes(item.totalBytes)}`;
   return formatBytes(item.receivedBytes);
@@ -101,6 +110,44 @@ function formatFileSize(item) {
 
 function shouldShowProgress(item) {
   return item.isInProgress || item.isPaused || (!item.isComplete && !item.isCanceled && !item.isInterrupted);
+}
+
+function statusChip(item) {
+  if (item.isComplete) {
+    return (
+      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="8 12.5 11 15.5 16 9.5" />
+        </svg>
+        Completed
+      </span>
+    );
+  }
+  if (item.isCanceled) {
+    return (
+      <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9 9l6 6M15 9l-6 6" />
+        </svg>
+        Cancelled
+      </span>
+    );
+  }
+  if (item.isInterrupted) {
+    return (
+      <span style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3l10 18H2L12 3z" />
+          <path d="M12 9v5" />
+          <path d="M12 17h.01" />
+        </svg>
+        Failed
+      </span>
+    );
+  }
+  return <span>{item.status}</span>;
 }
 
 const DownloadsBar = () => {
@@ -149,12 +196,14 @@ const DownloadsBar = () => {
 
   const sortedDownloads = useMemo(() => {
     return [...downloads].sort((a, b) => {
-      const aActive = a.isInProgress || a.isPaused;
-      const bActive = b.isInProgress || b.isPaused;
+      const aActive = a.isInProgress;
+      const bActive = b.isInProgress;
       if (aActive !== bActive) return aActive ? -1 : 1;
       return b.id - a.id;
     });
   }, [downloads]);
+
+  const latestDownloads = useMemo(() => sortedDownloads.slice(0, 5), [sortedDownloads]);
 
   const run = (request) => window.cefQuery?.({ request });
 
@@ -162,20 +211,22 @@ const DownloadsBar = () => {
     <div style={S.panel}>
       <div style={S.header}>
         <div style={{ fontSize: 13, fontWeight: 800 }}>Downloads</div>
-        <button style={S.button} onClick={() => run('clear-finished-downloads')}>Clear Finished</button>
+        <div style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>
+          Latest 5
+        </div>
       </div>
       <div style={S.list}>
-        {sortedDownloads.length === 0 ? (
+        {latestDownloads.length === 0 ? (
           <div style={{ color: 'var(--muted, #64748b)', fontSize: 12, padding: 12 }}>
             No downloads yet.
           </div>
-        ) : sortedDownloads.map((item) => (
+        ) : latestDownloads.map((item) => (
           <div key={item.id} style={S.card}>
             <div style={S.title}>{item.suggestedName || 'download'}</div>
             <div style={S.meta}>
-              <span>{item.status}</span>
+              {statusChip(item)}
               {formatFileSize(item) && <span>{formatFileSize(item)}</span>}
-              <span>{formatProgress(item)}</span>
+              {!item.isComplete && !item.isCanceled && !item.isInterrupted && <span>{formatProgress(item)}</span>}
               {item.speedBytesPerSec > 0 && <span>{formatBytes(item.speedBytesPerSec)}/s</span>}
             </div>
             {shouldShowProgress(item) && (
@@ -192,6 +243,10 @@ const DownloadsBar = () => {
             </div>
           </div>
         ))}
+      </div>
+      <div style={S.footer}>
+        <button style={S.button} onClick={() => run('clear-finished-downloads')}>Clear Finished</button>
+        <button style={S.button} onClick={() => run('open-downloads-page')}>Show All Downloads</button>
       </div>
     </div>
   );

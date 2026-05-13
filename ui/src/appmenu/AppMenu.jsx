@@ -30,7 +30,7 @@ const AppMenu = () => {
         <AppMenuItem 
           name="Downloads" 
           icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/></svg>}
-          onClick={() => handleAction('toggle-downloadsbar')}
+          onClick={() => handleNavigate('browser://downloads')}
         />
         <AppMenuItem 
           name="Bookmarks" 

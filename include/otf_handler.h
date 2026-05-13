@@ -104,10 +104,15 @@ class OtfHandler : public CefClient,
 
   // CefRequestHandler methods:
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
-                       CefRefPtr<CefFrame> frame,
-                       CefRefPtr<CefRequest> request,
-                       bool user_gesture,
-                       bool is_redirect) override;
+                      CefRefPtr<CefFrame> frame,
+                      CefRefPtr<CefRequest> request,
+                      bool user_gesture,
+                      bool is_redirect) override;
+  bool OnCertificateError(CefRefPtr<CefBrowser> browser,
+                          ErrorCode cert_error,
+                          const CefString& request_url,
+                          CefRefPtr<CefSSLInfo> ssl_info,
+                          CefRefPtr<CefCallback> callback) override;
 
   // CefKeyboardHandler methods:
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
