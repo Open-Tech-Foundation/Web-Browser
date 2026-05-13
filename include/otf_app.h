@@ -46,15 +46,19 @@ class OtfApp : public CefApp,
   void CreateFindBarOverlay();
   void CreateZoomBarOverlay();
   void CreateDownloadsOverlay();
+  void CreateAppMenuOverlay();
   void FocusCurrentTabContent();
   void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
   void PositionFindBarOverlay();
   void PositionZoomBarOverlay();
   void PositionDownloadsOverlay();
+  void PositionAppMenuOverlay();
   void ShowZoomBarOverlay();
   void HideZoomBarOverlay();
   void ShowDownloadsOverlay();
   void HideDownloadsOverlay();
+  void ShowAppMenuOverlay();
+  void HideAppMenuOverlay();
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;
@@ -62,6 +66,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> findbar_overlay_;
   CefRefPtr<CefOverlayController> zoombar_overlay_;
   CefRefPtr<CefOverlayController> downloads_overlay_;
+  CefRefPtr<CefOverlayController> appmenu_overlay_;
 
  private:
   TabManager tab_manager_;
