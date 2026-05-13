@@ -104,12 +104,7 @@ const App = () => {
                 type: 'ADD_TAB',
                 payload: tabData
               });
-              if (!tabData.url) {
-                setTimeout(() => {
-                  addressBarRef.current?.focus();
-                  window.cefQuery({ request: 'focus-ui' });
-                }, 100);
-              }
+              // Tab opened, focus will be handled by the page content (e.g. New Tab page)
             } else if (event.key === 'load-end') {
               const tab = stateRef.current.tabs.find(t => t.id === event.id);
               if (tab && !tab.url) addressBarRef.current?.focus();
@@ -175,10 +170,6 @@ const App = () => {
             } else {
               handleNewTab();
             }
-            setTimeout(() => {
-              addressBarRef.current?.focus();
-              window.cefQuery?.({ request: 'focus-ui' });
-            }, 100);
           } catch (e) {
             console.error("Failed to parse initial tabs:", e);
           }
