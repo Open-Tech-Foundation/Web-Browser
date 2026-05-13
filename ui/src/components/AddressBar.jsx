@@ -44,6 +44,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   const isBlockedHttp = url?.startsWith('http://') && !isLocalHttp;
   const isSecure = (url?.startsWith('https://') || isLocalHttp) && !sslError;
   const isInsecure = Boolean(sslError || isBlockedHttp);
+  const visibleIsBookmarked = Boolean(isBookmarked);
   const displayUrl = isFocused ? url : getDisplayUrl(url);
 
   return (
@@ -81,16 +82,16 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
         <button
           onClick={onToggleBookmark}
           className={`ml-2 p-1 rounded-md transition-all active:scale-90 ${
-            isBookmarked ? 'text-[#D4AF37]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+            visibleIsBookmarked ? 'text-[#D4AF37]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
           }`}
-          title={isBookmarked ? 'Remove bookmark' : 'Bookmark this page'}
+          title={visibleIsBookmarked ? 'Remove bookmark' : 'Bookmark this page'}
         >
           <svg 
             xmlns="http://www.w3.org/2000/svg" 
             width="14" 
             height="14" 
             viewBox="0 0 24 24" 
-            fill={isBookmarked ? "currentColor" : "none"} 
+            fill={visibleIsBookmarked ? "currentColor" : "none"} 
             stroke="currentColor" 
             strokeWidth="2.5" 
             strokeLinecap="round" 

@@ -117,15 +117,19 @@ void RevealPathInFolder(const std::string& path) {
 #endif
 }
 
-std::string BuildTabJson(TabManager* tab_manager, int tab_id) {
+std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
   JsonObjectBuilder builder;
+  const std::string url = tab_manager ? tab_manager->GetUrl(tab_id) : "";
   builder.AddInt("id", tab_id)
-      .AddString("url", tab_manager ? tab_manager->GetUrl(tab_id) : "")
+      .AddString("url", url)
       .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id) : "New Tab");
   if (tab_manager) {
     builder.AddInt("zoomPercent", tab_manager->GetZoomPercent(tab_id));
     builder.AddBool("sslError", tab_manager->HasSslError(tab_id));
   }
+  builder.AddBool("bookmarked",
+                  store && IsPersistableWebUrl(url) &&
+                      store->IsBookmarked(NormalizeBookmarkUrl(url)));
   return builder.Build();
 }
 
@@ -446,7 +450,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       ss << "[";
       std::vector<int> ids = handler->tab_manager_->GetAllTabIds();
       for (size_t i = 0; i < ids.size(); ++i) {
-        ss << BuildTabJson(handler->tab_manager_, ids[i]);
+        ss << BuildTabJson(handler->tab_manager_, handler->store_, ids[i]);
         if (i < ids.size() - 1) ss << ",";
       }
       ss << "]";
@@ -638,7 +642,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int id = app->CreateTab("browser://newtab");
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "new-tab")
-                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, id))
+                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_, id))
                              .Build());
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
@@ -649,7 +653,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int id = app->CreateTab(url);
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "new-tab")
-                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, id))
+                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_, id))
                              .Build());
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
@@ -775,7 +779,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         int id = app->CreateTab("browser://downloads");
         handler->SendEvent(JsonObjectBuilder()
                       .AddString("key", "new-tab")
-                      .AddRaw("tab", BuildTabJson(handler->tab_manager_, id))
+                      .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_, id))
                       .Build());
         app->SwitchTab(id);
       }
@@ -1127,6 +1131,11 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
       }
 
       SendEvent(BuildTabPropertyEvent(view->GetID(), "url", url_str));
+      if (store_ && IsPersistableWebUrl(url_str)) {
+        SendEvent(BuildBookmarkSyncEvent(
+            view->GetID(), url_str,
+            store_->IsBookmarked(NormalizeBookmarkUrl(url_str))));
+      }
     }
   }
 }
@@ -1464,7 +1473,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     }
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, new_id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, new_id))
                   .Build());
 
     return true;
@@ -1748,7 +1757,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://history");
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
                   .Build());
     app->SwitchTab(id);
     return true;
@@ -1757,7 +1766,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://downloads");
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
                   .Build());
     app->SwitchTab(id);
     return true;
@@ -1768,7 +1777,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://newtab");
     SendEvent(JsonObjectBuilder()
                   .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
                   .Build());
     app->SwitchTab(id);
     return true;
@@ -1785,7 +1794,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
       int id = app->CreateTab(last_closed_url_);
       SendEvent(JsonObjectBuilder()
                     .AddString("key", "new-tab")
-                    .AddRaw("tab", BuildTabJson(tab_manager_, id))
+                    .AddRaw("tab", BuildTabJson(tab_manager_, store_, id))
                     .Build());
       app->SwitchTab(id);
       last_closed_url_.clear();

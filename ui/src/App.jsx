@@ -18,6 +18,7 @@ const normalizeTab = (tab) => ({
   canGoForward: Boolean(tab.canGoForward),
   zoomPercent: Number(tab.zoomPercent ?? 100),
   sslError: Boolean(tab.sslError),
+  bookmarked: Boolean(tab.bookmarked),
 });
 
 const tabReducer = (state, action) => {
@@ -52,28 +53,10 @@ const App = () => {
   const [searchEngine, setSearchEngine] = React.useState('');
   const [downloadBadge, setDownloadBadge] = React.useState(0);
   const [hasDownloads, setHasDownloads] = React.useState(false);
-  const [isBookmarked, setIsBookmarked] = React.useState(false);
   const initialized = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
   const addressBarRef = useRef(null);
-
-  const refreshBookmarkState = React.useCallback((urlOverride) => {
-    const url = urlOverride ?? (stateRef.current.tabs.find(t => t.id === stateRef.current.activeTabId)?.url || '');
-    if (!window.cefQuery || !/^https?:\/\//.test(url)) {
-      setIsBookmarked(false);
-      return;
-    }
-    const encoded = encodeURIComponent(url);
-    window.cefQuery({
-      request: `is-bookmarked-url:${encoded}`,
-      onSuccess: (value) => {
-        const next = value === 'true';
-        setIsBookmarked((prev) => (prev === next ? prev : next));
-      },
-      onFailure: () => setIsBookmarked(false),
-    });
-  }, []);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -118,20 +101,22 @@ const App = () => {
               setDownloadBadge(Number(event.value) || 0);
               setHasDownloads(Number(event.total) > 0);
             } else if (event.key === 'bookmarks-changed') {
-              if (event.id === stateRef.current.activeTabId) {
-                setIsBookmarked(Boolean(event.bookmarked));
-              }
+              dispatch({
+                type: 'UPDATE_TAB',
+                payload: { id: event.id, key: 'bookmarked', value: Boolean(event.bookmarked) }
+              });
             } else if (event.key === 'bookmark-sync') {
-              if (event.id === stateRef.current.activeTabId) {
-                setIsBookmarked(Boolean(event.bookmarked));
-              }
+              dispatch({
+                type: 'UPDATE_TAB',
+                payload: { id: event.id, key: 'bookmarked', value: Boolean(event.bookmarked) }
+              });
             } else if (event.key === 'shortcut') {
               if (event.value === 'focus-bar') {
                 addressBarRef.current?.focus();
                 window.cefQuery({ request: 'focus-ui' });
               }
             } else {
-              dispatch({ 
+              dispatch({
                 type: 'UPDATE_TAB', 
                 payload: { 
                   id: event.id, 
@@ -139,9 +124,6 @@ const App = () => {
                   value: event.key === 'zoomPercent' ? Number(event.value) : event.value
                 } 
               });
-              if (event.key === 'url' && event.id === stateRef.current.activeTabId) {
-                refreshBookmarkState(event.value || '');
-              }
             }
           } catch (e) {
             console.error("Failed to parse browser event:", e);
@@ -163,8 +145,6 @@ const App = () => {
                 onSuccess: (activeId) => {
                   const parsedId = parseInt(activeId, 10);
                   dispatch({ type: 'SET_ACTIVE', payload: parsedId });
-                  const activeTab = existingTabs.find((tab) => tab.id === parsedId);
-                  refreshBookmarkState(activeTab?.url || '');
                 },
               });
             } else {
@@ -239,7 +219,6 @@ const App = () => {
   const handleToggleBookmark = () => {
     window.cefQuery({
       request: 'toggle-bookmark-current',
-      onSuccess: (value) => setIsBookmarked(value === 'true'),
     });
   };
 
@@ -285,7 +264,7 @@ const App = () => {
             url={currentActiveTab?.url || ''} 
             tabId={state.activeTabId} 
             onNavigate={handleNavigate}
-            isBookmarked={isBookmarked}
+            isBookmarked={Boolean(currentActiveTab?.bookmarked)}
             onToggleBookmark={handleToggleBookmark}
             sslError={currentActiveTab?.sslError}
           />
