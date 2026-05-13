@@ -1,44 +1,77 @@
-import React from 'react';
-
-const BROWSER_SCHEME = {
-  NEWTAB: 'browser://newtab',
-  SETTINGS: 'browser://settings',
-};
+import React, { useState, useEffect } from 'react';
+import SearchHero from './SearchHero';
+import QuickLinks from './QuickLinks';
 
 const NewTab = () => {
+  const [tabId, setTabId] = useState(null);
+  const [time, setTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: 'get-my-tab-id',
+        onSuccess: (id) => setTabId(parseInt(id))
+      });
+    }
+  }, []);
+
+  const getGreeting = () => {
+    const hour = time.getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-[#0f172a] text-slate-100 selection:bg-orange-500/30">
-      <div className="relative group">
-        <div className="absolute -inset-1 bg-gradient-to-r from-orange-600 to-amber-500 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
-        <div className="relative flex items-center justify-center w-24 h-24 bg-[#1e293b] rounded-full border border-white/10 text-orange-500 shadow-2xl">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
-            <path d="M2 12h20"></path>
-          </svg>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-[#020617] text-slate-100 selection:bg-orange-500/30 overflow-x-hidden relative">
+      {/* Ambient Background Glow */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-500/5 blur-[120px] rounded-full pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-500/5 blur-[120px] rounded-full pointer-events-none"></div>
+
+      {/* Top Right Date/Time */}
+      <div className="absolute top-8 right-10 text-right animate-in fade-in slide-in-from-top-4 duration-1000">
+        <p className="text-2xl font-bold text-white tracking-tight leading-none mb-1">
+          {time.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+        </p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">
+          {time.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+        </p>
+      </div>
+
+      <div className="flex flex-col items-center w-full max-w-4xl px-6 relative z-10">
+        <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000 flex flex-col items-center">
+          <div className="flex items-center gap-4 mb-3">
+            <div className="relative group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-orange-600 to-amber-500 rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+              <div className="relative flex items-center justify-center w-12 h-12 bg-[#1e293b]/80 backdrop-blur-xl rounded-xl border border-white/10 text-orange-500 shadow-2xl">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+                  <path d="M2 12h20"></path>
+                </svg>
+              </div>
+            </div>
+            <h1 className="text-4xl font-extrabold tracking-tight text-white">
+              OTF <span className="text-orange-500">Browser</span>
+            </h1>
+          </div>
+          
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-[0.3em] mb-4">
+            {getGreeting()}, Explorer
+          </p>
         </div>
+
+        <SearchHero tabId={tabId} />
+        <QuickLinks />
       </div>
       
-      <h1 className="mt-8 text-4xl font-bold tracking-tight text-white/90">
-        OTF <span className="text-orange-500">Browser</span>
-      </h1>
-      
-      <p className="mt-4 text-slate-400 text-lg font-medium animate-pulse">
-        Search or type a URL to get started
-      </p>
-
-      <div className="mt-12 flex gap-4">
-        {['GitHub', 'Documentation', 'Settings'].map((item) => (
-          <div 
-            key={item}
-            className="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm font-medium text-slate-300 hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer"
-            onClick={() => {
-              if (item === 'Settings') window.cefQuery({ request: `new-tab:${BROWSER_SCHEME.SETTINGS}` });
-            }}
-          >
-            {item}
-          </div>
-        ))}
+      <div className="absolute bottom-10 text-slate-700 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500">
+        Engineered for Privacy & Security
       </div>
     </div>
   );
