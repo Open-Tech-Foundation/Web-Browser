@@ -221,6 +221,8 @@ const Settings = () => {
                       ['Ctrl + G', 'Find next'],
                       ['Ctrl + Shift + G', 'Find previous'],
                       ['Ctrl + D', 'Bookmark current page'],
+                      ['Ctrl + Home', 'Scroll to top'],
+                      ['Ctrl + End', 'Scroll to bottom'],
                       ['Ctrl + P', 'Print'],
                       ['Ctrl + +', 'Zoom in'],
                       ['Ctrl + −', 'Zoom out'],

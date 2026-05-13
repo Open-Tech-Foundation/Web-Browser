@@ -1644,6 +1644,23 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     nav(Shortcut::kZoomReset);
     return true;
   }
+  if (M(Mod::kCtrl, Key::kHome)) {
+    auto b = tab_manager_->GetBrowser(cur);
+    if (b) {
+      b->GetMainFrame()->ExecuteJavaScript(
+          "window.scrollTo({ top: 0, behavior: 'auto' });", "", 0);
+    }
+    return true;
+  }
+  if (M(Mod::kCtrl, Key::kEnd)) {
+    auto b = tab_manager_->GetBrowser(cur);
+    if (b) {
+      b->GetMainFrame()->ExecuteJavaScript(
+          "window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });",
+          "", 0);
+    }
+    return true;
+  }
   if (M(Mod::kCtrl, Key::kF)) {
     if (app->findbar_overlay_ && tab_manager_) {
       tab_manager_->SetFindVisible(cur, true);

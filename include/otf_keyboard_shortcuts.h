@@ -16,6 +16,8 @@ namespace Key {
   constexpr int kSpace     = 0x20;
   constexpr int kLeft      = 0x25;
   constexpr int kRight     = 0x27;
+  constexpr int kHome      = 0x24;
+  constexpr int kEnd       = 0x23;
   constexpr int k0         = 0x30;
   constexpr int kEquals    = 0x3D;
   constexpr int kF5        = 0x74;
