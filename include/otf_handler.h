@@ -3,10 +3,12 @@
 
 #include <map>
 #include <list>
+#include <memory>
 #include "include/cef_client.h"
 #include "include/cef_download_handler.h"
 #include "include/wrapper/cef_message_router.h"
 #include "otf_browser_shell.h"
+#include "otf_store.h"
 
 namespace otf {
 
@@ -126,6 +128,7 @@ class OtfHandler : public CefClient,
   std::string GetDownloadsJson() const;
   void NotifyDownloadsChanged();
   void NotifyDownloadBadge();
+  void NotifyBookmarkStateForTab(int tab_id);
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
@@ -147,16 +150,19 @@ class OtfHandler : public CefClient,
   bool        restore_find_in_progress_ = false;
 
   struct DownloadState {
-    uint32_t id = 0;
+    int id = 0;
+    uint32_t runtime_id = 0;
     std::string url;
     std::string original_url;
     std::string suggested_name;
+    std::string mime_type;
     std::string full_path;
     std::string status;
     int percent = -1;
     int64_t received_bytes = 0;
     int64_t total_bytes = 0;
     int64_t speed_bytes_per_sec = 0;
+    int64_t ended_at = 0;
     bool is_in_progress = false;
     bool is_complete = false;
     bool is_canceled = false;
@@ -169,8 +175,10 @@ class OtfHandler : public CefClient,
     bool can_show_in_folder = false;
   };
 
-  std::map<uint32_t, DownloadState> downloads_;
-  std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> download_callbacks_;
+  std::map<int, DownloadState> downloads_;
+  std::map<int, CefRefPtr<CefDownloadItemCallback>> download_callbacks_;
+  std::map<uint32_t, int> runtime_download_ids_;
+  std::unique_ptr<OtfStore> store_;
 
  private:
   const bool use_alloy_style_;

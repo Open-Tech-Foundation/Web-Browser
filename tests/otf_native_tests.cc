@@ -1,4 +1,5 @@
 #include "otf_utils.h"
+#include "otf_store.h"
 
 #include <cassert>
 #include <cstdlib>
@@ -59,7 +60,8 @@ void TestBrowserPageAllowlist() {
   assert(otf::IsAllowedBrowserPageUrl("browser://newtab"));
   assert(otf::IsAllowedBrowserPageUrl("browser://settings/"));
   assert(otf::IsAllowedBrowserPageUrl("browser://findbar"));
-  assert(!otf::IsAllowedBrowserPageUrl("browser://history"));
+  assert(otf::IsAllowedBrowserPageUrl("browser://history"));
+  assert(otf::IsAllowedBrowserPageUrl("browser://bookmarks"));
   assert(!otf::IsAllowedBrowserPageUrl("https://example.com"));
   assert(otf::GetBrowserPageDevUrl("http://localhost:3000", "browser://settings") ==
          "http://localhost:3000/settings.html");
@@ -80,6 +82,52 @@ void TestZoomHelpers() {
   assert(static_cast<int>(otf::ZoomLevelToPercent(otf::ZoomOut(otf::ZoomReset()))) == 90);
 }
 
+void TestStorePersistence() {
+  fs::path temp_home = fs::temp_directory_path() / "otf-browser-store-tests-home";
+  fs::remove_all(temp_home);
+  fs::create_directories(temp_home);
+  setenv("HOME", temp_home.c_str(), 1);
+
+  otf::OtfStore store;
+  assert(store.IsReady());
+
+  assert(store.RecordVisit("https://example.com", "Example", "link"));
+  assert(store.UpdateHistoryTitle("https://example.com", "Example Title"));
+  const auto history = store.GetHistory();
+  assert(history.size() == 1);
+  assert(history[0].url == "https://example.com");
+  assert(history[0].title == "Example Title");
+
+  const int download_id = store.CreateDownload(
+      "https://example.com/file.zip", "https://example.com/file.zip",
+      "/tmp/file.zip", "file.zip", "application/zip", "starting");
+  assert(download_id > 0);
+  otf::PersistedDownload item;
+  item.id = download_id;
+  item.url = "https://example.com/file.zip";
+  item.original_url = "https://example.com/file.zip";
+  item.target_path = "/tmp/file.zip";
+  item.filename = "file.zip";
+  item.mime_type = "application/zip";
+  item.total_bytes = 2048;
+  item.received_bytes = 2048;
+  item.status = "completed";
+  assert(store.UpdateDownload(item));
+  assert(store.GetDownloads().size() == 1);
+
+  assert(store.AddBookmark("https://example.com", "Example"));
+  assert(store.IsBookmarked("https://example.com"));
+  assert(store.IsBookmarked("https://example.com/"));
+  assert(store.GetBookmarks().size() == 1);
+}
+
+void TestBookmarkNormalization() {
+  assert(otf::NormalizeBookmarkUrl("https://example.com") ==
+         otf::NormalizeBookmarkUrl("https://example.com/"));
+  assert(otf::NormalizeBookmarkUrl("https://example.com/path/") ==
+         "https://example.com/path");
+}
+
 }  // namespace
 
 int main() {
@@ -89,5 +137,7 @@ int main() {
   TestBrowserPageAllowlist();
   TestCloseSelection();
   TestZoomHelpers();
+  TestStorePersistence();
+  TestBookmarkNormalization();
   return 0;
 }

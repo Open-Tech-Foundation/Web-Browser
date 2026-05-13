@@ -62,6 +62,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateFindBarOverlay();
     app->CreateZoomBarOverlay();
     app->CreateDownloadsOverlay();
+    app->CreateAppMenuOverlay();
 
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
@@ -79,6 +80,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionFindBarOverlay();
       app->PositionZoomBarOverlay();
       app->PositionDownloadsOverlay();
+      app->PositionAppMenuOverlay();
     }
   }
 
@@ -130,6 +132,10 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
 
   cef_runtime_style_t GetBrowserRuntimeStyle() override {
     return runtime_style_;
+  }
+
+  cef_color_t GetBackgroundColor(CefRefPtr<CefView> view) {
+    return CefColorSetARGB(0, 0, 0, 0);
   }
 
  private:
@@ -248,6 +254,7 @@ void OtfApp::SwitchTab(int tab_id) {
                              .AddString("key", "active-tab-changed")
                              .AddInt("id", tab_id)
                              .Build());
+      handler->NotifyBookmarkStateForTab(tab_id);
     }
 
     if (tab_manager_.IsFindVisible(tab_id)) {
@@ -314,10 +321,12 @@ void OtfApp::CreateFindBarOverlay() {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/findbar.html";
   }
   CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
       OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 34));
   view->SetID(kFindBarBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   findbar_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionFindBarOverlay();
@@ -331,10 +340,12 @@ void OtfApp::CreateZoomBarOverlay() {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/zoombar.html";
   }
   CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
       OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 40));
   view->SetID(kZoomBarBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   zoombar_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionZoomBarOverlay();
@@ -348,13 +359,34 @@ void OtfApp::CreateDownloadsOverlay() {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/downloadsbar.html";
   }
   CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
       OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 380));
   view->SetID(kDownloadsBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   downloads_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionDownloadsOverlay();
+}
+
+void OtfApp::CreateAppMenuOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/appmenu.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/appmenu.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 140));
+  view->SetID(kAppMenuBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  appmenu_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionAppMenuOverlay();
 }
 
 void OtfApp::FocusCurrentTabContent() {
@@ -489,6 +521,36 @@ void OtfApp::HideDownloadsOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (downloads_overlay_) {
     downloads_overlay_->SetVisible(false);
+  }
+}
+
+void OtfApp::PositionAppMenuOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !appmenu_overlay_) return;
+
+  constexpr int kOverlayWidth = 300;
+  constexpr int kOverlayHeight = 140;
+  constexpr int kOverlayTop = 60;
+  constexpr int kOverlayRightMargin = 16;
+
+  CefRect bounds = window_->GetBounds();
+  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
+  appmenu_overlay_->SetBounds(
+      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+}
+
+void OtfApp::ShowAppMenuOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!appmenu_overlay_) return;
+
+  PositionAppMenuOverlay();
+  appmenu_overlay_->SetVisible(true);
+}
+
+void OtfApp::HideAppMenuOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (appmenu_overlay_) {
+    appmenu_overlay_->SetVisible(false);
   }
 }
 

@@ -24,8 +24,10 @@ namespace Key {
   constexpr int kNumAdd    = 0x6B;
   constexpr int kNumMinus  = 0x6D;
 
+  constexpr int kD = 0x44;
   constexpr int kF = 0x46;
   constexpr int kG = 0x47;
+  constexpr int kJ = 0x4A;
   constexpr int kL = 0x4C;
   constexpr int kP = 0x50;
   constexpr int kR = 0x52;

@@ -218,6 +218,7 @@ const Settings = () => {
                     ]],
                     ['Page', [
                       ['Ctrl + F', 'Find in page'],
+                      ['Ctrl + D', 'Bookmark current page'],
                       ['Ctrl + P', 'Print'],
                       ['Ctrl + +', 'Zoom in'],
                       ['Ctrl + −', 'Zoom out'],

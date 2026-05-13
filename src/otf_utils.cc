@@ -44,7 +44,8 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
   if (!page.empty() && page.back() == '/') {
     page.pop_back();
   }
-  if (page == "newtab" || page == "settings" || page == "findbar") {
+  if (page == "newtab" || page == "settings" || page == "findbar" ||
+      page == "history" || page == "bookmarks") {
     if (page_name) {
       *page_name = page;
     }
@@ -340,6 +341,45 @@ std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
     return "";
   }
   return dev_ui_url + "/" + page_name + ".html";
+}
+
+bool IsPersistableWebUrl(const std::string& url) {
+  return url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
+}
+
+std::string NormalizeBookmarkUrl(const std::string& url) {
+  if (!IsPersistableWebUrl(url)) {
+    return url;
+  }
+
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) {
+    return url;
+  }
+
+  const std::string scheme = CefString(&parts.scheme).ToString();
+  const std::string host = CefString(&parts.host).ToString();
+  const std::string port = CefString(&parts.port).ToString();
+  std::string path = CefString(&parts.path).ToString();
+  const std::string query = CefString(&parts.query).ToString();
+
+  if (path.empty() || path == "/") {
+    path = "/";
+  } else {
+    while (path.size() > 1 && path.back() == '/') {
+      path.pop_back();
+    }
+  }
+
+  std::string fallback = scheme + "://" + host;
+  if (!port.empty()) {
+    fallback += ":" + port;
+  }
+  fallback += path;
+  if (!query.empty()) {
+    fallback += "?" + query;
+  }
+  return fallback;
 }
 
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id) {

@@ -6,6 +6,8 @@ import './styles/App.css';
 
 const BROWSER_SCHEME = {
   SETTINGS: 'browser://settings',
+  HISTORY: 'browser://history',
+  BOOKMARKS: 'browser://bookmarks',
 };
 
 const normalizeTab = (tab) => ({
@@ -48,10 +50,28 @@ const App = () => {
   const [state, dispatch] = useReducer(tabReducer, { tabs: [], activeTabId: null });
   const [searchEngine, setSearchEngine] = React.useState('');
   const [downloadBadge, setDownloadBadge] = React.useState(0);
+  const [isBookmarked, setIsBookmarked] = React.useState(false);
   const initialized = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
   const addressBarRef = useRef(null);
+
+  const refreshBookmarkState = React.useCallback((urlOverride) => {
+    const url = urlOverride ?? (stateRef.current.tabs.find(t => t.id === stateRef.current.activeTabId)?.url || '');
+    if (!window.cefQuery || !/^https?:\/\//.test(url)) {
+      setIsBookmarked(false);
+      return;
+    }
+    const encoded = encodeURIComponent(url);
+    window.cefQuery({
+      request: `is-bookmarked-url:${encoded}`,
+      onSuccess: (value) => {
+        const next = value === 'true';
+        setIsBookmarked((prev) => (prev === next ? prev : next));
+      },
+      onFailure: () => setIsBookmarked(false),
+    });
+  }, []);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -99,6 +119,14 @@ const App = () => {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
             } else if (event.key === 'downloads-badge') {
               setDownloadBadge(Number(event.value) || 0);
+            } else if (event.key === 'bookmarks-changed') {
+              if (event.id === stateRef.current.activeTabId) {
+                setIsBookmarked(Boolean(event.bookmarked));
+              }
+            } else if (event.key === 'bookmark-sync') {
+              if (event.id === stateRef.current.activeTabId) {
+                setIsBookmarked(Boolean(event.bookmarked));
+              }
             } else if (event.key === 'shortcut') {
               if (event.value === 'focus-bar') {
                 addressBarRef.current?.focus();
@@ -113,6 +141,9 @@ const App = () => {
                   value: event.key === 'zoomPercent' ? Number(event.value) : event.value
                 } 
               });
+              if (event.key === 'url' && event.id === stateRef.current.activeTabId) {
+                refreshBookmarkState(event.value || '');
+              }
             }
           } catch (e) {
             console.error("Failed to parse browser event:", e);
@@ -126,12 +157,17 @@ const App = () => {
         request: "get-tabs",
         onSuccess: (tabsJson) => {
           try {
-            const existingTabs = JSON.parse(tabsJson);
+            const existingTabs = JSON.parse(tabsJson).map(normalizeTab);
             if (existingTabs.length > 0) {
-              dispatch({ type: 'SET_TABS', payload: existingTabs.map(normalizeTab) });
+              dispatch({ type: 'SET_TABS', payload: existingTabs });
               window.cefQuery({
                 request: 'get-active-tab',
-                onSuccess: (activeId) => dispatch({ type: 'SET_ACTIVE', payload: parseInt(activeId, 10) }),
+                onSuccess: (activeId) => {
+                  const parsedId = parseInt(activeId, 10);
+                  dispatch({ type: 'SET_ACTIVE', payload: parsedId });
+                  const activeTab = existingTabs.find((tab) => tab.id === parsedId);
+                  refreshBookmarkState(activeTab?.url || '');
+                },
               });
             } else {
               handleNewTab();
@@ -196,6 +232,13 @@ const App = () => {
     }
   };
 
+  const handleToggleBookmark = () => {
+    window.cefQuery({
+      request: 'toggle-bookmark-current',
+      onSuccess: (value) => setIsBookmarked(value === 'true'),
+    });
+  };
+
   const currentActiveTab = state.tabs.find(t => t.id === state.activeTabId);
   const downloadButtonClass = downloadBadge > 0 ? 'animate-download-pulse text-brand-orange' : '';
 
@@ -233,7 +276,14 @@ const App = () => {
                 : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>
             } />
           </div>
-          <AddressBar ref={addressBarRef} url={currentActiveTab?.url || ''} tabId={state.activeTabId} onNavigate={handleNavigate} />
+          <AddressBar 
+            ref={addressBarRef} 
+            url={currentActiveTab?.url || ''} 
+            tabId={state.activeTabId} 
+            onNavigate={handleNavigate}
+            isBookmarked={isBookmarked}
+            onToggleBookmark={handleToggleBookmark}
+          />
           <div className="flex items-center ml-1 gap-1">
             <NavButton
               onClick={() => window.cefQuery({ request: 'toggle-zoombar' })}
@@ -243,22 +293,26 @@ const App = () => {
                 </svg>
               }
             />
-            <div className="relative">
-              <NavButton
-                onClick={() => window.cefQuery({ request: 'toggle-downloadsbar' })}
-                className={downloadButtonClass}
-                icon={
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/>
-                  </svg>
-                }
-              />
-              {downloadBadge > 0 && (
+            {downloadBadge > 0 && (
+              <div className="relative">
+                <NavButton
+                  onClick={() => window.cefQuery({ request: 'toggle-downloadsbar' })}
+                  className={downloadButtonClass}
+                  icon={
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/>
+                    </svg>
+                  }
+                />
                 <span className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-brand-orange px-1 text-center text-[10px] font-semibold leading-[14px] text-white">
                   {downloadBadge > 9 ? '9+' : downloadBadge}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
+            <NavButton
+              onClick={() => window.cefQuery({ request: 'toggle-appmenu' })}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>}
+            />
             <NavButton
               onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
               icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
@@ -268,6 +322,18 @@ const App = () => {
     </div>
   );
 };
+
+const AppMenuItem = ({ name, icon, onClick }) => (
+  <button 
+    onClick={onClick}
+    className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 transition-all group active:scale-95"
+  >
+    <div className="w-12 h-12 flex items-center justify-center bg-slate-100 dark:bg-white/5 rounded-xl border border-transparent group-hover:border-orange-500/30 group-hover:bg-orange-500/10 group-hover:text-orange-500 text-slate-600 dark:text-slate-400 transition-all">
+      {icon}
+    </div>
+    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{name}</span>
+  </button>
+);
 
 const NavButton = ({ icon, onClick, disabled, className = '' }) => (
   <button 

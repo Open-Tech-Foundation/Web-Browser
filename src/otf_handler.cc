@@ -186,7 +186,7 @@ std::string BuildZoomUpdateEvent(int tab_id, int zoom_percent) {
 
 std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
   return JsonObjectBuilder()
-      .AddInt("id", static_cast<int>(item.id))
+      .AddInt("id", item.id)
       .AddString("url", item.url)
       .AddString("originalUrl", item.original_url)
       .AddString("suggestedName", item.suggested_name)
@@ -206,10 +206,11 @@ std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
       .AddBool("canResume", item.can_resume)
       .AddBool("canOpen", item.can_open)
       .AddBool("canShowInFolder", item.can_show_in_folder)
+      .AddRaw("endedAt", std::to_string(item.ended_at))
       .Build();
 }
 
-std::string BuildDownloadsJson(const std::map<uint32_t, OtfHandler::DownloadState>& downloads) {
+std::string BuildDownloadsJson(const std::map<int, OtfHandler::DownloadState>& downloads) {
   std::ostringstream out;
   out << "[";
   bool first = true;
@@ -255,6 +256,108 @@ std::string DownloadDisplayName(const std::string& suggested_name,
     }
   }
   return "download";
+}
+
+int FindDownloadRecordId(const std::map<int, OtfHandler::DownloadState>& downloads,
+                         const std::string& url,
+                         const std::string& full_path) {
+  for (const auto& [id, item] : downloads) {
+    if (item.url == url && item.full_path == full_path) {
+      return id;
+    }
+  }
+  return -1;
+}
+
+std::string ParseLengthPrefixedField(const std::string& input,
+                                     size_t* cursor,
+                                     bool* ok) {
+  *ok = false;
+  if (!cursor || *cursor >= input.size()) {
+    return "";
+  }
+  size_t len_end = input.find(':', *cursor);
+  if (len_end == std::string::npos) {
+    return "";
+  }
+  const std::string len_str = input.substr(*cursor, len_end - *cursor);
+  char* parse_end = nullptr;
+  errno = 0;
+  unsigned long len = std::strtoul(len_str.c_str(), &parse_end, 10);
+  if (errno != 0 || parse_end == len_str.c_str() || *parse_end != '\0') {
+    return "";
+  }
+  const size_t value_start = len_end + 1;
+  if (value_start + len > input.size()) {
+    return "";
+  }
+  *cursor = value_start + len;
+  *ok = true;
+  return input.substr(value_start, len);
+}
+
+std::string BuildHistoryJson(const std::vector<HistoryEntry>& items) {
+  std::ostringstream out;
+  out << "[";
+  for (size_t i = 0; i < items.size(); ++i) {
+    const auto& item = items[i];
+    if (i > 0) {
+      out << ",";
+    }
+    out << JsonObjectBuilder()
+               .AddInt("id", item.id)
+               .AddString("url", item.url)
+               .AddString("title", item.title)
+               .AddInt("visitCount", item.visit_count)
+               .AddRaw("lastVisitAt", std::to_string(item.last_visit_at))
+               .AddRaw("createdAt", std::to_string(item.created_at))
+               .Build();
+  }
+  out << "]";
+  return out.str();
+}
+
+std::string BuildBookmarksJson(const std::vector<BookmarkEntry>& items) {
+  std::ostringstream out;
+  out << "[";
+  for (size_t i = 0; i < items.size(); ++i) {
+    const auto& item = items[i];
+    if (i > 0) {
+      out << ",";
+    }
+    out << JsonObjectBuilder()
+               .AddInt("id", item.id)
+               .AddString("title", item.title)
+               .AddString("url", item.url)
+               .AddInt("position", item.position)
+               .AddRaw("createdAt", std::to_string(item.created_at))
+               .AddRaw("updatedAt", std::to_string(item.updated_at))
+               .Build();
+  }
+  out << "]";
+  return out.str();
+}
+
+std::string BuildBookmarkStateEvent(int tab_id,
+                                    const std::string& url,
+                                    bool bookmarked) {
+  return JsonObjectBuilder()
+      .AddString("key", "bookmarks-changed")
+      .AddInt("id", tab_id)
+      .AddString("url", url)
+      .AddBool("bookmarked", bookmarked)
+      .Build();
+}
+
+std::string BuildBookmarkSyncEvent(int tab_id,
+                                   const std::string& url,
+                                   bool bookmarked) {
+  return JsonObjectBuilder()
+      .AddString("key", "bookmark-sync")
+      .AddInt("id", tab_id)
+      .AddString("url", url)
+      .AddBool("bookmarked", bookmarked)
+      .Build();
 }
 
 // Handle messages from the UI Shell (index.html)
@@ -326,6 +429,16 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "get-history") {
+      callback->Success(handler->store_ ? BuildHistoryJson(handler->store_->GetHistory()) : "[]");
+      return true;
+    }
+
+    if (msg == "get-bookmarks") {
+      callback->Success(handler->store_ ? BuildBookmarksJson(handler->store_->GetBookmarks()) : "[]");
+      return true;
+    }
+
     if (msg == "get-settings") {
       callback->Success(otf::LoadSettingsJson());
       return true;
@@ -342,6 +455,109 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       } else {
         callback->Failure(1, "Invalid settings payload");
       }
+      return true;
+    }
+
+    if (msg.find("delete-history-item:") == 0) {
+      if (handler->store_) {
+        handler->store_->DeleteHistoryItem(std::stoi(msg.substr(20)));
+      }
+      callback->Success("");
+      return true;
+    }
+
+    if (msg == "clear-history") {
+      if (handler->store_) {
+        handler->store_->ClearHistory();
+      }
+      callback->Success("");
+      return true;
+    }
+
+    if (msg == "toggle-bookmark-current") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && handler->tab_manager_ && handler->store_) {
+        const int tab_id = app->GetCurrentTabId();
+        const std::string url = NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
+        if (IsPersistableWebUrl(url)) {
+          bool bookmarked = false;
+          if (handler->store_->IsBookmarked(url)) {
+            handler->store_->RemoveBookmarkByUrl(url);
+            callback->Success("false");
+          } else {
+            handler->store_->AddBookmark(url, handler->tab_manager_->GetTitle(tab_id));
+            callback->Success("true");
+            bookmarked = true;
+          }
+          handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
+          return true;
+        }
+      }
+      callback->Success("false");
+      return true;
+    }
+
+    if (msg.find("is-bookmarked-url:") == 0) {
+      const std::string encoded = msg.substr(18);
+      const std::string url = NormalizeBookmarkUrl(CefURIDecode(encoded, true, UU_NORMAL).ToString());
+      const bool bookmarked = handler->store_ && !url.empty() && handler->store_->IsBookmarked(url);
+      callback->Success(bookmarked ? "true" : "false");
+      return true;
+    }
+
+    if (msg.find("remove-bookmark:") == 0) {
+      if (handler->store_) {
+        handler->store_->RemoveBookmark(std::stoi(msg.substr(16)));
+        handler->SendEvent(BuildBookmarkStateEvent(-1, "", false));
+      }
+      callback->Success("");
+      return true;
+    }
+
+    if (msg.find("add-bookmark:") == 0) {
+      size_t cursor = 13;
+      bool ok = false;
+      const std::string url = ParseLengthPrefixedField(msg, &cursor, &ok);
+      if (!ok || cursor >= msg.size() || msg[cursor] != ':') {
+        callback->Failure(1, "Invalid bookmark payload");
+        return true;
+      }
+      ++cursor;
+      const std::string title = ParseLengthPrefixedField(msg, &cursor, &ok);
+      if (!ok || !handler->store_ || !IsPersistableWebUrl(url)) {
+        callback->Failure(1, "Invalid bookmark payload");
+        return true;
+      }
+      handler->store_->AddBookmark(url, title);
+      handler->SendEvent(BuildBookmarkStateEvent(-1, url, true));
+      callback->Success("");
+      return true;
+    }
+
+    if (msg.find("update-bookmark:") == 0) {
+      size_t cursor = 16;
+      size_t id_end = msg.find(':', cursor);
+      if (id_end == std::string::npos) {
+        callback->Failure(1, "Invalid bookmark payload");
+        return true;
+      }
+      const int bookmark_id = std::stoi(msg.substr(cursor, id_end - cursor));
+      cursor = id_end + 1;
+      bool ok = false;
+      const std::string url = ParseLengthPrefixedField(msg, &cursor, &ok);
+      if (!ok || cursor >= msg.size() || msg[cursor] != ':') {
+        callback->Failure(1, "Invalid bookmark payload");
+        return true;
+      }
+      ++cursor;
+      const std::string title = ParseLengthPrefixedField(msg, &cursor, &ok);
+      if (!ok || !handler->store_ || !IsPersistableWebUrl(url)) {
+        callback->Failure(1, "Invalid bookmark payload");
+        return true;
+      }
+      handler->store_->UpdateBookmark(bookmark_id, url, title);
+      handler->SendEvent(BuildBookmarkStateEvent(-1, url, true));
+      callback->Success("");
       return true;
     }
 
@@ -504,6 +720,22 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->HideDownloadsOverlay();
       }
       callback->Success("");
+    } else if (msg == "toggle-appmenu") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && app->appmenu_overlay_) {
+        if (app->appmenu_overlay_->IsVisible()) {
+          app->HideAppMenuOverlay();
+        } else {
+          app->ShowAppMenuOverlay();
+        }
+      }
+      callback->Success("");
+    } else if (msg == "hide-appmenu") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideAppMenuOverlay();
+      }
+      callback->Success("");
     } else if (msg.find("cancel-download:") == 0) {
       uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(16)));
       auto it = handler->download_callbacks_.find(download_id);
@@ -547,6 +779,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         } else {
           ++it;
         }
+      }
+      if (handler->store_) {
+        handler->store_->DeleteFinishedDownloads();
       }
       handler->NotifyDownloadsChanged();
       handler->NotifyDownloadBadge();
@@ -720,6 +955,44 @@ OtfHandler::OtfHandler(bool use_alloy_style)
   DCHECK(!g_instance);
   g_instance = this;
   tab_manager_ = nullptr;
+  store_ = std::make_unique<OtfStore>();
+  if (store_ && store_->IsReady()) {
+    for (const auto& item : store_->GetDownloads()) {
+      DownloadState state;
+      state.id = item.id;
+      state.url = item.url;
+      state.original_url = item.original_url;
+      state.suggested_name = item.filename;
+      state.mime_type = item.mime_type;
+      state.full_path = item.target_path;
+      state.status = item.status;
+      state.ended_at = item.ended_at;
+      state.received_bytes = item.received_bytes;
+      state.total_bytes = item.total_bytes;
+      state.is_complete = item.status == "completed";
+      state.is_canceled = item.status == "canceled";
+      state.is_interrupted = item.status == "interrupted" ||
+                             item.status == "downloading" ||
+                             item.status == "starting" ||
+                             item.status == "paused";
+      state.is_paused = false;
+      state.is_in_progress = false;
+      state.can_cancel = false;
+      state.can_pause = false;
+      state.can_resume = false;
+      state.can_open = state.is_complete && !state.full_path.empty();
+      state.can_show_in_folder = !state.full_path.empty();
+      downloads_[state.id] = state;
+      if (item.status == "downloading" || item.status == "starting" || item.status == "paused") {
+        PersistedDownload normalized = item;
+        normalized.status = "interrupted";
+        if (normalized.ended_at == 0) {
+          normalized.ended_at = static_cast<int64_t>(std::time(nullptr));
+        }
+        store_->UpdateDownload(normalized);
+      }
+    }
+  }
 }
 
 OtfHandler::~OtfHandler() {
@@ -757,7 +1030,8 @@ void OtfHandler::NotifyDownloadsChanged() {
 void OtfHandler::NotifyDownloadBadge() {
   int active_count = 0;
   for (const auto& [id, item] : downloads_) {
-    if (item.is_in_progress || item.is_paused) {
+    if (item.is_in_progress && !item.is_complete && !item.is_canceled &&
+        !item.is_interrupted) {
       ++active_count;
     }
   }
@@ -765,6 +1039,17 @@ void OtfHandler::NotifyDownloadBadge() {
                 .AddString("key", "downloads-badge")
                 .AddInt("value", active_count)
                 .Build());
+}
+
+void OtfHandler::NotifyBookmarkStateForTab(int tab_id) {
+  if (tab_id < 0 || !store_ || !tab_manager_) {
+    return;
+  }
+
+  const std::string url = tab_manager_->GetUrl(tab_id);
+  const bool bookmarked =
+      IsPersistableWebUrl(url) && store_->IsBookmarked(NormalizeBookmarkUrl(url));
+  SendEvent(BuildBookmarkSyncEvent(tab_id, url, bookmarked));
 }
 
 void OtfHandler::SendEvent(const std::string& event_json) {
@@ -779,6 +1064,10 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view) {
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
+    const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
+    if (store_ && IsPersistableWebUrl(url)) {
+      store_->UpdateHistoryTitle(url, title.ToString());
+    }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
   }
 }
@@ -851,6 +1140,17 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
   if (!frame->IsMain()) return;
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (!view || view->GetID() == kUiBrowserViewId) return;
+
+  if (httpStatusCode >= 200 && httpStatusCode < 400 && store_ && tab_manager_) {
+    const std::string url = frame->GetURL().ToString();
+    const std::string current = tab_manager_->GetUrl(view->GetID());
+    if (IsPersistableWebUrl(url) &&
+        (current.empty() || current.rfind("browser://", 0) != 0)) {
+      store_->RecordVisit(url, tab_manager_->GetTitle(view->GetID()), "link");
+    }
+    SendEvent(BuildBookmarkSyncEvent(
+        view->GetID(), url, store_->IsBookmarked(NormalizeBookmarkUrl(url))));
+  }
 
   SendEvent(BuildTabPropertyEvent(view->GetID(), "load-end", true));
 }
@@ -948,20 +1248,33 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
   const std::string resolved_name = suggested_name.ToString().empty()
                                         ? download_item->GetSuggestedFileName().ToString()
                                         : suggested_name.ToString();
+  const std::string target_path = BuildDownloadPath(resolved_name);
 
-  const uint32_t id = download_item->GetId();
-  DownloadState& state = downloads_[id];
-  state.id = id;
+  const uint32_t runtime_id = download_item->GetId();
+  int record_id = static_cast<int>(runtime_id);
+  if (store_) {
+    const int persisted_id = store_->CreateDownload(download_item->GetURL(),
+                                                     download_item->GetOriginalUrl(),
+                                                     target_path, resolved_name, "", "starting");
+    if (persisted_id > 0) {
+      record_id = persisted_id;
+    }
+  }
+  DownloadState& state = downloads_[record_id];
+  state.id = record_id;
+  state.runtime_id = runtime_id;
   state.url = download_item->GetURL();
   state.original_url = download_item->GetOriginalUrl();
   state.suggested_name = resolved_name;
-  state.full_path = BuildDownloadPath(state.suggested_name);
+  state.full_path = target_path;
+  state.mime_type.clear();
   state.status = "starting";
   state.can_cancel = true;
   state.can_pause = true;
   state.can_resume = false;
   state.can_open = false;
   state.can_show_in_folder = false;
+  runtime_download_ids_[runtime_id] = record_id;
   callback->Continue(state.full_path, false);
   NotifyDownloadsChanged();
   NotifyDownloadBadge();
@@ -976,15 +1289,31 @@ void OtfHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
     return;
   }
 
-  const uint32_t id = download_item->GetId();
-  DownloadState& state = downloads_[id];
-  state.id = id;
+  const uint32_t runtime_id = download_item->GetId();
+  int record_id = static_cast<int>(runtime_id);
+  auto runtime_it = runtime_download_ids_.find(runtime_id);
+  if (runtime_it != runtime_download_ids_.end()) {
+    record_id = runtime_it->second;
+  } else {
+    const int matched_id = FindDownloadRecordId(
+        downloads_, download_item->GetURL().ToString(),
+        download_item->GetFullPath().ToString());
+    if (matched_id > 0) {
+      record_id = matched_id;
+    } else {
+      return;
+    }
+  }
+  DownloadState& state = downloads_[record_id];
+  state.id = record_id;
+  state.runtime_id = runtime_id;
   state.url = download_item->GetURL();
   state.original_url = download_item->GetOriginalUrl();
   state.suggested_name = DownloadDisplayName(
       download_item->GetSuggestedFileName().ToString(),
       download_item->GetFullPath().ToString(),
       download_item->GetURL().ToString());
+  state.mime_type = download_item->GetMimeType().ToString();
   state.full_path = download_item->GetFullPath();
   state.percent = download_item->GetPercentComplete();
   state.received_bytes = download_item->GetReceivedBytes();
@@ -1010,13 +1339,37 @@ void OtfHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
   state.can_open = state.is_complete && !state.full_path.empty();
   state.can_show_in_folder = !state.full_path.empty();
   state.status = DownloadStatusLabel(state);
+  if (state.is_complete || state.is_canceled || state.is_interrupted) {
+    state.is_in_progress = false;
+    state.can_cancel = false;
+    state.can_pause = false;
+    state.can_resume = false;
+    if (state.ended_at == 0) {
+      state.ended_at = static_cast<int64_t>(std::time(nullptr));
+    }
+  }
 
   if (callback) {
-    download_callbacks_[id] = callback;
+    download_callbacks_[record_id] = callback;
   }
 
   if (!state.is_in_progress) {
-    download_callbacks_.erase(id);
+    download_callbacks_.erase(record_id);
+  }
+
+  if (store_ && state.id > 0) {
+    PersistedDownload item;
+    item.id = state.id;
+    item.url = state.url;
+    item.original_url = state.original_url;
+    item.target_path = state.full_path;
+    item.filename = state.suggested_name;
+    item.mime_type = state.mime_type;
+    item.total_bytes = state.total_bytes;
+    item.received_bytes = state.received_bytes;
+    item.status = state.status;
+    item.ended_at = state.ended_at;
+    store_->UpdateDownload(item);
   }
 
   NotifyDownloadsChanged();
@@ -1264,6 +1617,22 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     }
     return true;
   }
+  if (M(Mod::kCtrl, Key::kD)) {
+    if (store_ && tab_manager_) {
+      const std::string url = NormalizeBookmarkUrl(tab_manager_->GetUrl(cur));
+      if (IsPersistableWebUrl(url)) {
+        bool bookmarked = false;
+        if (store_->IsBookmarked(url)) {
+          store_->RemoveBookmarkByUrl(url);
+        } else {
+          store_->AddBookmark(url, tab_manager_->GetTitle(cur));
+          bookmarked = true;
+        }
+        SendEvent(BuildBookmarkStateEvent(cur, url, bookmarked));
+      }
+    }
+    return true;
+  }
   if (M(Mod::kCtrl, Key::kG)) {
     if (tab_manager_) {
       std::string text = tab_manager_->GetFindText(cur);
@@ -1290,6 +1659,12 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   // ── Focus bar (frontend-only action) ──────────────────────
   if (M(Mod::kCtrl, Key::kL) || M(Mod::kNone, Key::kF6)) {
     SendShortcut(this, Shortcut::kFocusBar); return true;
+  }
+  if (M(Mod::kCtrl, Key::kJ)) {
+    if (app->downloads_overlay_) {
+      app->ShowDownloadsOverlay();
+    }
+    return true;
   }
 
   // ── Tabs (C++ action + frontend notification) ─────────────
