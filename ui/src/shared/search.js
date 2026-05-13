@@ -41,6 +41,14 @@ export function resolveUrl(input, searchEngine) {
   // Explicit scheme URLs (http://, https://, ftp://, etc.)
   if (explicitSchemePattern.test(trimmed)) return trimmed;
 
+  if (!trimmed.includes(' ') && localhostPattern.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+
+  if (!trimmed.includes(' ') && ipv4Pattern.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+
   if (!trimmed.includes(' ') && looksLikeDirectUrl(trimmed)) {
     return `https://${trimmed}`;
   }

@@ -10,8 +10,8 @@ test('resolveUrl preserves explicit schemes', () => {
 
 test('resolveUrl adds https for direct hosts', () => {
   assert.equal(resolveUrl('example.com', 'google'), 'https://example.com');
-  assert.equal(resolveUrl('localhost:3000/path', 'google'), 'https://localhost:3000/path');
-  assert.equal(resolveUrl('127.0.0.1:8080', 'google'), 'https://127.0.0.1:8080');
+  assert.equal(resolveUrl('localhost:3000/path', 'google'), 'http://localhost:3000/path');
+  assert.equal(resolveUrl('127.0.0.1:8080', 'google'), 'http://127.0.0.1:8080');
 });
 
 test('resolveUrl trims input and falls back to search', () => {
