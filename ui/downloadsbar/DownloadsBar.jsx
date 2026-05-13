@@ -186,10 +186,17 @@ const DownloadsBar = () => {
         window.cefQuery({ request: 'hide-downloadsbar' });
       }
     };
+    const onBlur = () => {
+      if (window.cefQuery) {
+        window.cefQuery({ request: 'hide-downloadsbar' });
+      }
+    };
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('blur', onBlur);
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('blur', onBlur);
       if (sub && typeof sub.cancel === 'function') sub.cancel();
     };
   }, []);
@@ -211,9 +218,6 @@ const DownloadsBar = () => {
     <div style={S.panel}>
       <div style={S.header}>
         <div style={{ fontSize: 13, fontWeight: 800 }}>Downloads</div>
-        <div style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>
-          Latest 5
-        </div>
       </div>
       <div style={S.list}>
         {latestDownloads.length === 0 ? (

@@ -170,7 +170,12 @@ export default function History() {
                             </button>
                             <span className="text-[10px] text-slate-600 shrink-0 tabular-nums">{formatTime(item.lastVisitAt)}</span>
                           </div>
-                          <div className="truncate text-xs text-slate-500 mt-0.5">{item.url}</div>
+                          <button 
+                            onClick={() => navigateTo(item.url)}
+                            className="truncate text-xs text-slate-500 mt-0.5 hover:text-orange-400 transition-colors block text-left"
+                          >
+                            {item.url}
+                          </button>
                         </div>
                         <button
                           onClick={() => deleteItem(item.id)}

@@ -92,6 +92,7 @@ void TestStorePersistence() {
   assert(store.IsReady());
 
   assert(store.RecordVisit("https://example.com", "Example", "link"));
+  assert(store.RecordVisit("http://localhost:3000/downloads.html", "Downloads", "link"));
   assert(store.UpdateHistoryTitle("https://example.com", "Example Title"));
   const auto history = store.GetHistory();
   assert(history.size() == 1);

@@ -24,6 +24,25 @@ const AppMenu = () => {
     }
   };
 
+  React.useEffect(() => {
+    const onBlur = () => {
+      if (window.cefQuery) {
+        window.cefQuery({ request: 'hide-appmenu' });
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && window.cefQuery) {
+        window.cefQuery({ request: 'hide-appmenu' });
+      }
+    };
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
   return (
     <div className="w-full h-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl p-5 flex flex-col overflow-hidden relative">
       <div className="grid grid-cols-3 gap-4 relative z-10">

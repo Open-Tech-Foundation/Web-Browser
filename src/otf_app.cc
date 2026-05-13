@@ -480,6 +480,9 @@ void OtfApp::ShowZoomBarOverlay() {
             .AddInt("zoomPercent", tab_manager_.GetZoomPercent(current_tab_id_))
             .Build());
   }
+  if (zoombar_overlay_->GetContentsView()) {
+    zoombar_overlay_->GetContentsView()->RequestFocus();
+  }
 }
 
 void OtfApp::HideZoomBarOverlay() {
@@ -515,6 +518,9 @@ void OtfApp::ShowDownloadsOverlay() {
     handler->downloads_subscription_->Success(
         JsonObjectBuilder().AddString("key", "downloads-refresh").Build());
   }
+  if (downloads_overlay_->GetContentsView()) {
+    downloads_overlay_->GetContentsView()->RequestFocus();
+  }
 }
 
 void OtfApp::HideDownloadsOverlay() {
@@ -545,6 +551,9 @@ void OtfApp::ShowAppMenuOverlay() {
 
   PositionAppMenuOverlay();
   appmenu_overlay_->SetVisible(true);
+  if (appmenu_overlay_->GetContentsView()) {
+    appmenu_overlay_->GetContentsView()->RequestFocus();
+  }
 }
 
 void OtfApp::HideAppMenuOverlay() {

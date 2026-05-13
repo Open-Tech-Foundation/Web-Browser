@@ -168,7 +168,7 @@ export default function Downloads() {
                     <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
                       <span className="truncate max-w-[300px]">{item.url}</span>
                       <span>•</span>
-                      <span>{formatSize(item.receivedBytes)} / {formatSize(item.totalBytes)}</span>
+                      <span>{item.isComplete ? formatSize(item.totalBytes) : `${formatSize(item.receivedBytes)} / ${formatSize(item.totalBytes)}`}</span>
                       {item.isInProgress && (
                         <>
                           <span>•</span>

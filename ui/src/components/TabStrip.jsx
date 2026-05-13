@@ -59,13 +59,13 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   };
 
   return (
-    <div className="flex items-end h-[24px] bg-slate-200 dark:bg-slate-900/80 overflow-hidden">
+    <div className="flex items-end h-[24px] bg-slate-300/50 dark:bg-[#020617] overflow-hidden">
       {isOverflowing && (
         <button
           onClick={() => scrollTabs(-1)}
           disabled={!canScrollLeft}
           aria-label="Scroll tabs left"
-          className="h-[24px] w-7 flex items-center justify-center shrink-0 border-r border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[24px] w-7 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="m15 18-6-6 6-6" />
@@ -73,7 +73,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
         </button>
       )}
       <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-0.5 flex items-end flex-nowrap">
-        {tabs.map(tab => (
+        {tabs.map((tab, index) => (
           <div 
             key={tab.id}
             onClick={() => onSwitch(tab.id)}
@@ -108,6 +108,11 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
+
+            {/* Tab Separator */}
+            {index < tabs.length - 1 && !tab.active && !tabs[index + 1].active && (
+              <div className="absolute right-[-1.5px] top-1.5 bottom-1.5 w-[1px] bg-slate-500/40 dark:bg-white/20 group-hover:opacity-0 transition-opacity" />
+            )}
           </div>
         ))}
         <button 
