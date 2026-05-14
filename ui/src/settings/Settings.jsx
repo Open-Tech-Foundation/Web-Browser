@@ -371,6 +371,23 @@ const Settings = () => {
                   <div className="flex items-center justify-between mb-8">
                     <h2 className="text-xl font-semibold text-main">Default Search Provider</h2>
                   </div>
+
+                  {!selectedEngine && (
+                    <div className="mb-8 p-6 bg-orange-500/10 border border-orange-500/20 rounded-3xl flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                      <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/20">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="8"/><path d="M11 8v4"/><path d="M11 16h.01"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-main mb-1">No default search engine selected</h3>
+                        <p className="text-xs text-muted leading-relaxed">
+                          Choose a search engine from the list below to enable address bar searches. 
+                          If no engine is selected, you can only navigate to direct URLs.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {engines.map(({ id, name }) => (

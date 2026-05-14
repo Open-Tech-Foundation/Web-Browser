@@ -97,7 +97,7 @@ const SearchHero = ({ tabId }) => {
         <div className="relative flex items-center bg-card/80 backdrop-blur-xl border border-main rounded-2xl
                         group-focus-within:border-orange-500/40 group-focus-within:bg-card shadow-2xl transition-all duration-500">
           <div className="w-6 h-6 ml-5 shrink-0 flex items-center justify-center">
-            <EngineLogo id={engine} name={engine} />
+            {engine ? <EngineLogo id={engine} name={engine} /> : <GenericIcon />}
           </div>
           <input
             ref={inputRef}
@@ -105,7 +105,7 @@ const SearchHero = ({ tabId }) => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Search with ${engine.charAt(0).toUpperCase() + engine.slice(1)} or enter address...`}
+            placeholder={engine ? `Search with ${engine.charAt(0).toUpperCase() + engine.slice(1)} or enter address...` : "Search or enter address..."}
             className="w-full bg-transparent border-none outline-none text-main text-lg
                        placeholder-muted py-5 px-5 font-medium"
             autoFocus
