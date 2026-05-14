@@ -43,6 +43,24 @@ const Switch = ({ label, description, checked, onChange, disabled = false }) => 
   </div>
 );
 
+const Checkbox = ({ label, checked, onChange, disabled = false }) => (
+  <button
+    onClick={() => !disabled && onChange(!checked)}
+    className={`flex items-center gap-4 p-4 rounded-xl border border-main transition-all text-left w-full group ${disabled ? 'cursor-default bg-main/5' : 'hover:border-orange-500/30 hover:bg-main/5'}`}
+  >
+    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${checked ? 'bg-orange-500 border-orange-500' : 'border-muted group-hover:border-main'} ${disabled ? 'opacity-60' : ''}`}>
+      {checked && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      )}
+    </div>
+    <span className={`text-sm font-medium transition-colors ${checked ? 'text-main' : 'text-muted group-hover:text-main'}`}>
+      {label}
+    </span>
+  </button>
+);
+
 const engines = [
   { id: 'baidu', name: 'Baidu' },
   { id: 'bing', name: 'Bing' },
@@ -94,6 +112,22 @@ const Settings = () => {
   const [httpsOnly, setHttpsOnly] = useState(false);
   const [blockInsecure, setBlockInsecure] = useState(true);
   const [appearanceMode, setAppearanceMode] = useState('auto');
+
+  // Reset Section State
+  const [resetItems, setResetItems] = useState({
+    startup: true,
+    searchEngine: true,
+    cookies: true,
+    cache: true,
+    ssl: true,
+    serviceWorkers: true,
+    permissions: true,
+    storage: true,
+    history: false,
+    downloads: false,
+    passwords: false
+  });
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const cached = tabId != null ? searchStateByTab[tabId] : null;
   const [searchQuery, setSearchQuery] = useState(cached ? cached.query : '');
@@ -222,6 +256,16 @@ const Settings = () => {
     setStartupUrlError('');
   };
 
+  const toggleResetItem = (key) => {
+    setResetItems(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleReset = () => {
+    console.log('Resetting with items:', resetItems);
+    setShowResetConfirm(false);
+    // Backend part to be handled by the user
+  };
+
   const menuItems = [
     { id: 'search', label: 'Search Engine', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg> },
     { id: 'startup', label: 'On Startup', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg> },
@@ -229,6 +273,7 @@ const Settings = () => {
     { id: 'privacy', label: 'Privacy', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> },
     { id: 'security', label: 'Security', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> },
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 9h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><path d="M5 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M15 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg> },
+    { id: 'reset', label: 'Reset Settings', icon: <Icons.Reset /> },
     { id: 'about', label: 'About', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> },
   ];
 
@@ -238,7 +283,7 @@ const Settings = () => {
       <aside className="w-72 bg-card/50 backdrop-blur-xl border-r border-main flex flex-col py-8 shrink-0">
         <div className="px-8 pb-10 flex items-center gap-3">
           <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-500/20">
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1-1-1.73l.43.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
           <span className="text-xl font-bold bg-gradient-to-r from-main to-muted bg-clip-text text-transparent">Settings</span>
         </div>
@@ -579,6 +624,49 @@ const Settings = () => {
               </>
             )}
 
+            {activeMenu === 'reset' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Reset Settings</h1>
+                  <p className="text-lg text-muted max-w-2xl">Restore OTF Browser to its original defaults and clear browsing data.</p>
+                </header>
+
+                <div className="space-y-12">
+                  <section>
+                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Default Reset Items</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Checkbox label="Startup behavior & pages" checked={resetItems.startup} onChange={() => toggleResetItem('startup')} disabled />
+                      <Checkbox label="Default search engine" checked={resetItems.searchEngine} onChange={() => toggleResetItem('searchEngine')} disabled />
+                      <Checkbox label="Cookies and other site data" checked={resetItems.cookies} onChange={() => toggleResetItem('cookies')} disabled />
+                      <Checkbox label="Cached images and files" checked={resetItems.cache} onChange={() => toggleResetItem('cache')} disabled />
+                      <Checkbox label="SSL Certificate Exceptions" checked={resetItems.ssl} onChange={() => toggleResetItem('ssl')} disabled />
+                      <Checkbox label="Service Workers" checked={resetItems.serviceWorkers} onChange={() => toggleResetItem('serviceWorkers')} disabled />
+                      <Checkbox label="Site permissions (camera, mic, notifications)" checked={resetItems.permissions} onChange={() => toggleResetItem('permissions')} disabled />
+                      <Checkbox label="Web Storage (Local storage, IndexedDB)" checked={resetItems.storage} onChange={() => toggleResetItem('storage')} disabled />
+                    </div>
+                  </section>
+
+                  <section>
+                    <h2 className="text-sm font-bold text-muted mb-6 uppercase tracking-[0.2em]">Optional Items</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Checkbox label="Browsing history" checked={resetItems.history} onChange={() => toggleResetItem('history')} />
+                      <Checkbox label="Download history" checked={resetItems.downloads} onChange={() => toggleResetItem('downloads')} />
+                      <Checkbox label="Saved passwords" checked={resetItems.passwords} onChange={() => toggleResetItem('passwords')} />
+                    </div>
+                  </section>
+
+                  <div className="pt-6 border-t border-main">
+                    <button
+                      onClick={() => setShowResetConfirm(true)}
+                      className="px-10 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-base font-black transition-all shadow-xl shadow-orange-500/20 active:scale-95"
+                    >
+                      Reset Settings
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             {activeMenu === 'about' && (
               <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-6 duration-700">
                 <header className="mb-12">
@@ -613,6 +701,41 @@ const Settings = () => {
           </div>
         </div>
       </main>
+
+      {/* Confirm Dialog Overlay */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setShowResetConfirm(false)} />
+          <div 
+            className="relative w-full max-w-md border border-main rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300"
+            style={{ backgroundColor: 'var(--bg-card)' }}
+          >
+             <div className="relative z-10">
+               <div className="w-16 h-16 rounded-3xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center mb-8 mx-auto">
+                  <Icons.Reset />
+               </div>
+               <h2 className="text-2xl font-black text-center text-main mb-4 tracking-tight">Reset Browser Settings?</h2>
+               <p className="text-muted text-center text-sm leading-relaxed mb-10">
+                 This will restore your settings to their defaults and clear selected data. This action cannot be undone.
+               </p>
+               <div className="flex flex-col gap-3">
+                 <button 
+                   onClick={handleReset}
+                   className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                 >
+                   Yes, Reset Everything
+                 </button>
+                 <button 
+                   onClick={() => setShowResetConfirm(false)}
+                   className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95"
+                 >
+                   Cancel
+                 </button>
+               </div>
+             </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
