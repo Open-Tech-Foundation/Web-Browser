@@ -273,14 +273,14 @@ const App = () => {
 
   if (state.tabs.length === 0) {
     return (
-      <div className="flex flex-col h-[60px] bg-slate-50 items-center justify-center border-b border-slate-200">
+      <div className="flex flex-col h-[65px] bg-slate-50 items-center justify-center border-b border-slate-200">
         <span className="text-[10px] font-medium text-slate-400 animate-pulse">Initializing Browser Engine...</span>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[60px] max-h-[60px] w-full bg-slate-100 dark:bg-slate-950 border-b border-slate-300 dark:border-slate-800 antialiased overflow-hidden select-none box-border m-0 p-0">
+    <div className="flex flex-col h-[65px] max-h-[65px] w-full bg-slate-100 dark:bg-slate-950 border-b border-slate-300 dark:border-slate-800 antialiased overflow-hidden select-none box-border m-0 p-0">
       <TabStrip
         tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))}
         onSwitch={handleSwitchTab}

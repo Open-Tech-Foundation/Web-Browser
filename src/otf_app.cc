@@ -785,7 +785,7 @@ void OtfApp::OnContextInitialized() {
 
   CefRefPtr<CefBrowserView> ui_view = CefBrowserView::CreateBrowserView(
       handler, ui_url, browser_settings, nullptr, nullptr,
-      new OtfViewDelegate(runtime_style, 60));
+      new OtfViewDelegate(runtime_style, 65));
   ui_view->SetID(kUiBrowserViewId);
 
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(

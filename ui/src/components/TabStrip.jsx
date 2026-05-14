@@ -59,13 +59,13 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   };
 
   return (
-    <div className="flex items-end h-[24px] bg-slate-300/50 dark:bg-[#020617] overflow-hidden">
+    <div className="flex items-end h-[29px] bg-slate-300/50 dark:bg-[#020617] overflow-hidden">
       {isOverflowing && (
         <button
           onClick={() => scrollTabs(-1)}
           disabled={!canScrollLeft}
           aria-label="Scroll tabs left"
-          className="h-[24px] w-7 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[29px] w-7 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="m15 18-6-6 6-6" />
@@ -85,7 +85,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
               }
             }}
             className={`
-              group relative flex items-center h-[24px] px-3 min-w-[140px] max-w-[220px] rounded-t-lg text-[11px] cursor-pointer transition-all duration-150 shrink-0
+              group relative flex items-center h-[29px] px-3 min-w-[140px] max-w-[220px] rounded-t-lg text-[12px] cursor-pointer transition-all duration-150 shrink-0
               ${tab.active 
                 ? 'bg-bar-light dark:bg-bar-dark text-slate-900 dark:text-slate-100 shadow-[0_-1px_3px_rgba(0,0,0,0.1)]' 
                 : 'text-slate-500 hover:bg-white/50 dark:hover:bg-white/5'}
@@ -118,7 +118,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
         <button 
           onClick={() => onNew()}
           className={`
-            h-[24px] w-9 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all
+            h-[29px] w-9 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all
             ${isOverflowing ? 'sticky right-0 z-10 bg-slate-200 dark:bg-slate-900/80 shadow-[-6px_0_10px_rgba(15,23,42,0.08)] dark:shadow-[-6px_0_10px_rgba(0,0,0,0.25)]' : ''}
           `}
           aria-label="New tab"
@@ -133,7 +133,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           onClick={() => scrollTabs(1)}
           disabled={!canScrollRight}
           aria-label="Scroll tabs right"
-          className="h-[24px] w-7 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[29px] w-7 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="m9 18 6-6-6-6" />
