@@ -8,7 +8,14 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
 
   const getDisplayUrl = (value) => {
     if (!value) return '';
-    return value.replace(/^https?:\/\//, '').replace(/^browser:\/\//, 'browser://');
+    const stripped = value
+      .replace(/^https?:\/\//, '')
+      .replace(/^browser:\/\//, 'browser://');
+    try {
+      return decodeURIComponent(stripped);
+    } catch (_) {
+      return stripped;
+    }
   };
 
   useImperativeHandle(ref, () => ({

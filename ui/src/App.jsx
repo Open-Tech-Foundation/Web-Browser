@@ -121,8 +121,6 @@ const App = () => {
               });
               // Tab opened, focus will be handled by the page content (e.g. New Tab page)
             } else if (event.key === 'load-end') {
-              const tab = stateRef.current.tabs.find(t => t.id === event.id);
-              if (tab && !tab.url) addressBarRef.current?.focus();
             } else if (event.key === 'settings-changed') {
               const nextSearchEngine = event.settings?.searchEngine || '';
               setSearchEngine(nextSearchEngine);
@@ -138,10 +136,7 @@ const App = () => {
               dispatch({ type: 'REMOVE_TAB', payload: event.id });
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
-              const tab = stateRef.current.tabs.find(t => t.id === event.id);
-              if (tab && tab.url) {
-                addressBarRef.current?.blur();
-              }
+              addressBarRef.current?.blur();
             } else if (event.key === 'downloads-badge') {
               setDownloadBadge(Number(event.value) || 0);
               setHasDownloads(Number(event.total) > 0);
