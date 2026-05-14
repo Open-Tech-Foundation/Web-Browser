@@ -2033,6 +2033,51 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
   frame->LoadURL(GetDataURI(ss.str(), "text/html"));
 }
 
+bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
+                               CefRefPtr<CefFrame> frame,
+                               int popup_id,
+                               const CefString& target_url,
+                               const CefString& target_frame_name,
+                               cef_window_open_disposition_t target_disposition,
+                               bool user_gesture,
+                               const CefPopupFeatures& popupFeatures,
+                               CefWindowInfo& windowInfo,
+                               CefRefPtr<CefClient>& client,
+                               CefBrowserSettings& settings,
+                               CefRefPtr<CefDictionaryValue>& extra_info,
+                               bool* no_javascript_access) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)browser;
+  (void)frame;
+  (void)popup_id;
+  (void)target_frame_name;
+  (void)user_gesture;
+  (void)popupFeatures;
+  (void)windowInfo;
+  (void)client;
+  (void)settings;
+  (void)extra_info;
+  (void)no_javascript_access;
+
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !tab_manager_) {
+    return false;
+  }
+
+  const std::string popup_url =
+      !target_url.empty() ? target_url.ToString() : "about:blank";
+  const int new_tab_id = app->CreateTab(popup_url);
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "new-tab")
+                .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_tab_id))
+                .Build());
+
+  if (target_disposition != CEF_WOD_NEW_BACKGROUND_TAB) {
+    app->SwitchTab(new_tab_id);
+  }
+  return true;
+}
+
 bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
                                   CefRefPtr<CefDownloadItem> download_item,
                                   const CefString& suggested_name,

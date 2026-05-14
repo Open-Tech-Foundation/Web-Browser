@@ -15,6 +15,8 @@ class OtfApp : public CefApp,
   OtfApp();
 
   // CefApp methods:
+  void OnBeforeCommandLineProcessing(const CefString& process_type,
+                                     CefRefPtr<CefCommandLine> command_line) override;
   void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override;
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
     return this;
