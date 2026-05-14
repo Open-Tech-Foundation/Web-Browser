@@ -32,8 +32,11 @@ std::string GetDownloadsDir();
 std::string SanitizeFilename(const std::string& filename);
 std::string BuildDownloadPath(const std::string& suggested_name);
 std::string GetDefaultSettingsJson();
+std::optional<std::string> GetCurrentSearchEngineId();
 bool IsHistoryEnabled();
 bool IsAllowedSearchEngineId(const std::string& search_engine_id);
+std::string BuildSearchUrl(const std::string& search_engine_id,
+                           const std::string& query);
 bool NormalizeSettingsJson(const std::string& raw_json, std::string* normalized_json);
 std::string LoadSettingsJson();
 bool SaveSettingsJson(const std::string& raw_json, std::string* normalized_json);

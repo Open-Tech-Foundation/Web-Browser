@@ -312,6 +312,33 @@ std::string GetDefaultSettingsJson() {
   return BuildSettingsJson(std::nullopt, false, false, "newtab", {}, false, true, "auto");
 }
 
+std::optional<std::string> GetCurrentSearchEngineId() {
+  CefRefPtr<CefValue> root =
+      CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return std::nullopt;
+  }
+
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey("searchEngine")) {
+    return std::nullopt;
+  }
+
+  const auto search_engine_type = dict->GetType("searchEngine");
+  if (search_engine_type == VTYPE_NULL) {
+    return std::nullopt;
+  }
+  if (search_engine_type != VTYPE_STRING) {
+    return std::nullopt;
+  }
+
+  const std::string value = dict->GetString("searchEngine");
+  if (value.empty() || !IsAllowedSearchEngineId(value)) {
+    return std::nullopt;
+  }
+  return value;
+}
+
 bool IsHistoryEnabled() {
   CefRefPtr<CefValue> root =
       CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
@@ -334,6 +361,36 @@ bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
     }
   }
   return false;
+}
+
+std::string BuildSearchUrl(const std::string& search_engine_id,
+                           const std::string& query) {
+  std::string base_url;
+  if (search_engine_id == "google") {
+    base_url = "https://www.google.com/search?q=";
+  } else if (search_engine_id == "bing") {
+    base_url = "https://www.bing.com/search?q=";
+  } else if (search_engine_id == "yahoo") {
+    base_url = "https://search.yahoo.com/search?p=";
+  } else if (search_engine_id == "duckduckgo") {
+    base_url = "https://duckduckgo.com/?q=";
+  } else if (search_engine_id == "baidu") {
+    base_url = "https://www.baidu.com/s?wd=";
+  } else if (search_engine_id == "yandex") {
+    base_url = "https://yandex.com/search/?text=";
+  } else if (search_engine_id == "ecosia") {
+    base_url = "https://www.ecosia.org/search?q=";
+  } else if (search_engine_id == "naver") {
+    base_url = "https://search.naver.com/search.naver?query=";
+  } else if (search_engine_id == "startpage") {
+    base_url = "https://www.startpage.com/search?q=";
+  }
+
+  if (base_url.empty()) {
+    return "";
+  }
+
+  return base_url + CefURIEncode(query, false).ToString();
 }
 
 bool NormalizeSettingsJson(const std::string& raw_json,

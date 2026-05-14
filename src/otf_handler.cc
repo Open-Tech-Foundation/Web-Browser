@@ -74,6 +74,36 @@ namespace {
 
 OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
+const int MENU_ID_SEARCH_SELECTION = 10002;
+
+std::string TrimWhitespaceCopy(const std::string& value) {
+  size_t start = 0;
+  while (start < value.size() &&
+         std::isspace(static_cast<unsigned char>(value[start]))) {
+    ++start;
+  }
+  size_t end = value.size();
+  while (end > start &&
+         std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+    --end;
+  }
+  return value.substr(start, end - start);
+}
+
+std::string BuildSearchSelectionMenuLabel(const std::string& selection_text) {
+  constexpr size_t kMaxLabelChars = 80;
+  std::string display_text = selection_text;
+  for (char& c : display_text) {
+    if (c == '\r' || c == '\n' || c == '\t') {
+      c = ' ';
+    }
+  }
+  if (display_text.size() > kMaxLabelChars) {
+    display_text = display_text.substr(0, kMaxLabelChars);
+    display_text += "...";
+  }
+  return "Search \"" + display_text + "\"";
+}
 
 std::string GetDevUiUrl() {
   return CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
@@ -2191,6 +2221,24 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
       model->InsertItemAt(1, IDC_CONTENT_CONTEXT_COPYLINKLOCATION, "Copy link address");
     }
   }
+
+  const std::string selection_text = params->GetSelectionText().ToString();
+  const std::string search_text = TrimWhitespaceCopy(selection_text);
+  const std::optional<std::string> search_engine_id = otf::GetCurrentSearchEngineId();
+  if (!search_text.empty() && search_engine_id.has_value()) {
+    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFOR) >= 0) {
+      model->Remove(IDC_CONTENT_CONTEXT_SEARCHWEBFOR);
+    }
+    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB) >= 0) {
+      model->Remove(IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB);
+    }
+    model->InsertItemAt(0, MENU_ID_SEARCH_SELECTION, "Search selected text");
+    const int search_index = model->GetIndexOf(MENU_ID_SEARCH_SELECTION);
+    if (search_index >= 0) {
+      model->SetLabelAt(search_index,
+                        CefString(BuildSearchSelectionMenuLabel(selection_text)));
+    }
+  }
 }
 
 bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
@@ -2213,6 +2261,33 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
                   .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_id))
                   .Build());
 
+    return true;
+  }
+
+  if (command_id == MENU_ID_SEARCH_SELECTION) {
+    OtfApp* app = OtfApp::GetInstance();
+    if (!app || !tab_manager_) {
+      return false;
+    }
+
+    const std::string selection_text = TrimWhitespaceCopy(params->GetSelectionText().ToString());
+    const std::optional<std::string> search_engine_id = otf::GetCurrentSearchEngineId();
+    if (selection_text.empty() || !search_engine_id.has_value()) {
+      return false;
+    }
+
+    const std::string search_url =
+        otf::BuildSearchUrl(*search_engine_id, selection_text);
+    if (search_url.empty()) {
+      return false;
+    }
+
+    int new_id = app->CreateTab(search_url);
+    SendEvent(JsonObjectBuilder()
+                  .AddString("key", "new-tab")
+                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_id))
+                  .Build());
+    app->SwitchTab(new_id);
     return true;
   }
 
