@@ -2,18 +2,20 @@
 
 # OTF Web Browser
 
-**The Modern Lightweight Desktop Browser.**
+**Engineered for Privacy & Security**
 
 *Part of the <img src="https://raw.githubusercontent.com/Open-Tech-Foundation/website/3ed7ac70ec44465eec0f94e5185cb28a9b11ed07/static/img/OTF-Logo.svg" width="24" align="center" /> [Open Tech Foundation](https://github.com/Open-Tech-Foundation) ecosystem.*
 
 [**Report Bug**](https://github.com/Open-Tech-Foundation/Web-Browser/issues)
+
+![OTF Web Browser Screenshot](Screenshot.png)
 
 </div>
 
 > [!WARNING]  
 > **Experimental Project**: This browser is in early development. Features, APIs, and stability are subject to significant changes.
 
-A modern lightweight desktop web browser built on top of Chromium Embedded Framework (CEF).
+> A fast, privacy-focused browser with hardened security, built on top of the Chromium Embedded Framework.
 
 ## 📥 Download
 
@@ -25,7 +27,6 @@ You can download the latest version of OTF Web Browser for your platform from ou
 | **Windows (x64)** | TBD | 🚧 In Progress |
 | **macOS** | TBD | 🚧 In Progress |
 
-![OTF Web Browser Screenshot](Screenshot.png)
 
 - 🎨 **Modern UI**: Built with React and Tailwind CSS for a premium look and feel.
 - ⚡ **High Performance**: Powered by CEF (Chromium) for industry-leading speed and compatibility.
