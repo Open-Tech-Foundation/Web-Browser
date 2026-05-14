@@ -87,8 +87,33 @@ bool IsLoopbackHost(const std::string& host) {
          lower_host == "::1";
 }
 
-std::string BuildSettingsJson(const std::string& search_engine_id) {
-  return JsonObjectBuilder().AddString("searchEngine", search_engine_id).Build();
+std::string BuildSettingsJson(const std::string& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode) {
+  std::string urls_json = "[";
+  for (size_t i = 0; i < startup_urls.size(); ++i) {
+    if (i > 0) urls_json += ",";
+    urls_json += JsonString(startup_urls[i]);
+  }
+  urls_json += "]";
+
+  return JsonObjectBuilder()
+      .AddString("searchEngine", search_engine_id)
+      .AddBool("historyEnabled", history_enabled)
+      .AddBool("downloadsEnabled", downloads_enabled)
+      .AddString("startupBehavior", startup_behavior)
+      .AddRaw("startupUrls", urls_json)
+      .AddBool("httpsOnly", https_only)
+      .AddBool("blockInsecure", block_insecure)
+      .AddString("appearanceMode", appearance_mode)
+      .Build();
+}
+
+bool IsAllowedStartupBehavior(const std::string& startup_behavior) {
+  return startup_behavior == "newtab" || startup_behavior == "continue" ||
+         startup_behavior == "specific";
+}
+
+bool IsAllowedAppearanceMode(const std::string& mode) {
+  return mode == "auto" || mode == "light" || mode == "dark";
 }
 
 }  // namespace
@@ -260,7 +285,7 @@ std::string BuildDownloadPath(const std::string& suggested_name) {
 }
 
 std::string GetDefaultSettingsJson() {
-  return BuildSettingsJson(kDefaultSearchEngine);
+  return BuildSettingsJson(kDefaultSearchEngine, false, false, "newtab", {}, false, true, "auto");
 }
 
 bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
@@ -287,7 +312,9 @@ bool NormalizeSettingsJson(const std::string& raw_json,
   CefDictionaryValue::KeyList keys;
   dict->GetKeys(keys);
   for (const auto& key : keys) {
-    if (key != "searchEngine") {
+    if (key != "searchEngine" && key != "historyEnabled" && key != "downloadsEnabled" && 
+        key != "startupBehavior" && key != "startupUrls" && key != "httpsOnly" && 
+        key != "blockInsecure" && key != "appearanceMode") {
       return false;
     }
   }
@@ -303,8 +330,80 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     }
   }
 
+  bool history_enabled = false;
+  if (dict->HasKey("historyEnabled")) {
+    if (dict->GetType("historyEnabled") != VTYPE_BOOL) {
+      return false;
+    }
+    history_enabled = dict->GetBool("historyEnabled");
+  }
+
+  bool downloads_enabled = false;
+  if (dict->HasKey("downloadsEnabled")) {
+    if (dict->GetType("downloadsEnabled") != VTYPE_BOOL) {
+      return false;
+    }
+    downloads_enabled = dict->GetBool("downloadsEnabled");
+  }
+
+  std::string startup_behavior = "newtab";
+  if (dict->HasKey("startupBehavior")) {
+    if (dict->GetType("startupBehavior") != VTYPE_STRING) {
+      return false;
+    }
+    startup_behavior = dict->GetString("startupBehavior");
+    if (!IsAllowedStartupBehavior(startup_behavior)) {
+      return false;
+    }
+  }
+
+  std::vector<std::string> startup_urls;
+  if (dict->HasKey("startupUrls")) {
+    if (dict->GetType("startupUrls") != VTYPE_LIST) {
+      return false;
+    }
+    CefRefPtr<CefListValue> list = dict->GetList("startupUrls");
+    for (size_t i = 0; i < list->GetSize(); ++i) {
+      if (list->GetType(i) == VTYPE_STRING) {
+        std::string url = list->GetString(i);
+        if (IsAllowedStartupUrl(url)) {
+          startup_urls.push_back(url);
+        }
+      }
+    }
+  }
+
+  bool https_only = false;
+  if (dict->HasKey("httpsOnly")) {
+    if (dict->GetType("httpsOnly") != VTYPE_BOOL) {
+      return false;
+    }
+    https_only = dict->GetBool("httpsOnly");
+  }
+
+  bool block_insecure = true;
+  if (dict->HasKey("blockInsecure")) {
+    if (dict->GetType("blockInsecure") != VTYPE_BOOL) {
+      return false;
+    }
+    block_insecure = dict->GetBool("blockInsecure");
+  }
+
+  std::string appearance_mode = "auto";
+  if (dict->HasKey("appearanceMode")) {
+    if (dict->GetType("appearanceMode") != VTYPE_STRING) {
+      return false;
+    }
+    appearance_mode = dict->GetString("appearanceMode");
+    if (!IsAllowedAppearanceMode(appearance_mode)) {
+      return false;
+    }
+  }
+
   if (normalized_json) {
-    *normalized_json = BuildSettingsJson(search_engine);
+    *normalized_json = BuildSettingsJson(search_engine, history_enabled, downloads_enabled, 
+                                        startup_behavior, startup_urls, https_only, 
+                                        block_insecure, appearance_mode);
   }
   return true;
 }
@@ -396,6 +495,41 @@ bool IsAllowedHttpUrl(const std::string& url) {
 
   const std::string host = CefString(&parts.host).ToString();
   return IsLoopbackHost(host);
+}
+
+bool IsAllowedStartupUrl(const std::string& url) {
+  if (IsAllowedBrowserPageUrl(url)) {
+    return true;
+  }
+  if (!IsPersistableWebUrl(url)) {
+    return false;
+  }
+
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) {
+    return false;
+  }
+
+  return !CefString(&parts.host).ToString().empty();
+}
+
+bool IsInternalBrowserUiUrl(const std::string& url) {
+  if (url.rfind("browser://", 0) == 0) {
+    return true;
+  }
+
+  const char* kInternalUiPages[] = {
+      "/appmenu.html",      "/newtab.html",     "/settings.html",
+      "/findbar.html",      "/downloads.html",  "/downloadsbar.html",
+      "/zoombar.html",      "/history.html",    "/bookmarks.html",
+      "/security.html",     "/insecure_blocked.html", "/pdfviewer.html"};
+  for (const char* suffix : kInternalUiPages) {
+    if (url.find(suffix) != std::string::npos) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 std::string NormalizeBookmarkUrl(const std::string& url) {

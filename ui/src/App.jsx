@@ -57,6 +57,37 @@ const App = () => {
   const stateRef = useRef(state);
   stateRef.current = state;
   const addressBarRef = useRef(null);
+  const [appearanceMode, setAppearanceMode] = React.useState('auto');
+
+  const applyTheme = (mode) => {
+    const root = document.documentElement;
+    if (mode === 'light') {
+      root.classList.remove('dark');
+    } else if (mode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+  };
+
+  useEffect(() => {
+    applyTheme(appearanceMode);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (appearanceMode === 'auto') {
+        applyTheme('auto');
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [appearanceMode]);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -70,6 +101,7 @@ const App = () => {
           try {
             const settings = JSON.parse(response);
             setSearchEngine(settings.searchEngine || '');
+            setAppearanceMode(settings.appearanceMode || 'auto');
           } catch (e) {}
         }
       });
@@ -93,6 +125,7 @@ const App = () => {
               if (tab && !tab.url) addressBarRef.current?.focus();
             } else if (event.key === 'settings-changed') {
               setSearchEngine(event.settings?.searchEngine || '');
+              setAppearanceMode(event.settings?.appearanceMode || 'auto');
             } else if (event.key === 'tab-closed') {
               dispatch({ type: 'REMOVE_TAB', payload: event.id });
             } else if (event.key === 'active-tab-changed') {

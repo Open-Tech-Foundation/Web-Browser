@@ -14,6 +14,7 @@
 #include "include/wrapper/cef_helpers.h"
 #include "include/cef_scheme.h"
 #include "include/cef_parser.h"
+#include "include/cef_values.h"
 #include "include/cef_urlrequest.h"
 #include "include/wrapper/cef_stream_resource_handler.h"
 #include "otf_handler.h"
@@ -67,6 +68,8 @@ class OtfWindowDelegate : public CefWindowDelegate {
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
     }
+
+    app->OpenPendingStartupTabs();
 
     if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
       window->CenterWindow(CefSize(1280, 800));
@@ -556,6 +559,22 @@ void OtfApp::ShowAppMenuOverlay() {
   }
 }
 
+void OtfApp::OpenPendingStartupTabs() {
+  CEF_REQUIRE_UI_THREAD();
+  if (startup_tabs_opened_) {
+    return;
+  }
+  startup_tabs_opened_ = true;
+
+  if (startup_behavior_ != "specific" || startup_urls_.size() < 2) {
+    return;
+  }
+
+  for (size_t i = 1; i < startup_urls_.size(); ++i) {
+    CreateTab(startup_urls_[i]);
+  }
+}
+
 void OtfApp::HideAppMenuOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (appmenu_overlay_) {
@@ -572,15 +591,47 @@ void OtfApp::OnContextInitialized() {
       CefCommandLine::GetGlobalCommandLine();
 
   cef_runtime_style_t runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-  
+
   CefRefPtr<OtfHandler> handler(new OtfHandler(true));
   handler->tab_manager_ = &tab_manager_;
 
   CefBrowserSettings browser_settings;
-  
+
+  startup_behavior_ = "newtab";
+  startup_urls_.clear();
+  startup_tabs_opened_ = false;
+  {
+    CefRefPtr<CefValue> settings_value =
+        CefParseJSON(otf::LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+    if (settings_value && settings_value->GetType() == VTYPE_DICTIONARY) {
+      CefRefPtr<CefDictionaryValue> dict = settings_value->GetDictionary();
+      if (dict) {
+        if (dict->HasKey("startupBehavior") &&
+            dict->GetType("startupBehavior") == VTYPE_STRING) {
+          startup_behavior_ = dict->GetString("startupBehavior");
+        }
+        if (dict->HasKey("startupUrls") &&
+            dict->GetType("startupUrls") == VTYPE_LIST) {
+          CefRefPtr<CefListValue> list = dict->GetList("startupUrls");
+          for (size_t i = 0; list && i < list->GetSize(); ++i) {
+            if (list->GetType(i) == VTYPE_STRING) {
+              const std::string url = list->GetString(i);
+              if (IsAllowedStartupUrl(url)) {
+                startup_urls_.push_back(url);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Dynamic UI Path: Loads from the executable's directory
   std::string ui_url = "file://" + otf::GetExecutableDir() + "/ui/index.html";
   std::string start_url = "browser://newtab";
+  if (startup_behavior_ == "specific" && !startup_urls_.empty()) {
+    start_url = startup_urls_.front();
+  }
 
   if (command_line->HasSwitch("dev-ui-url")) {
     ui_url = command_line->GetSwitchValue("dev-ui-url");

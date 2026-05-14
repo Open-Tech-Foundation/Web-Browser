@@ -40,6 +40,8 @@ std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
                                  const std::string& url);
 bool IsPersistableWebUrl(const std::string& url);
 bool IsAllowedHttpUrl(const std::string& url);
+bool IsAllowedStartupUrl(const std::string& url);
+bool IsInternalBrowserUiUrl(const std::string& url);
 std::string NormalizeBookmarkUrl(const std::string& url);
 
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id);

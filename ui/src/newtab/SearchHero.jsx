@@ -4,7 +4,7 @@ import { resolveUrl } from '../shared/search';
 const stateByTab = {};
 
 const GenericIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-slate-500">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-muted">
     <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
   </svg>
 );
@@ -74,8 +74,8 @@ const SearchHero = ({ tabId }) => {
     <div className="w-full max-w-2xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
       <div className="relative group">
         <div className="absolute -inset-1 bg-gradient-to-r from-orange-600/20 to-amber-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
-        <div className="relative flex items-center bg-[#1e293b]/80 backdrop-blur-xl border border-white/10 rounded-2xl
-                        group-focus-within:border-orange-500/40 group-focus-within:bg-[#1e293b] shadow-2xl transition-all duration-500">
+        <div className="relative flex items-center bg-card/80 backdrop-blur-xl border border-main rounded-2xl
+                        group-focus-within:border-orange-500/40 group-focus-within:bg-card shadow-2xl transition-all duration-500">
           <div className="w-6 h-6 ml-5 shrink-0 flex items-center justify-center">
             <EngineLogo id={engine} name={engine} />
           </div>
@@ -86,12 +86,12 @@ const SearchHero = ({ tabId }) => {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={`Search with ${engine.charAt(0).toUpperCase() + engine.slice(1)} or enter address...`}
-            className="w-full bg-transparent border-none outline-none text-slate-100 text-lg
-                       placeholder-slate-500 py-5 px-5 font-medium"
+            className="w-full bg-transparent border-none outline-none text-main text-lg
+                       placeholder-muted py-5 px-5 font-medium"
             autoFocus
           />
           <div className="mr-5 flex items-center gap-2">
-             <kbd className="hidden sm:inline-flex items-center justify-center px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-mono text-slate-500">
+             <kbd className="hidden sm:inline-flex items-center justify-center px-2 py-1 bg-main/5 border border-main rounded-lg text-[10px] font-mono text-muted">
                Enter
              </kbd>
           </div>

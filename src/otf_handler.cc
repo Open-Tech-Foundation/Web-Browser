@@ -1117,7 +1117,7 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
   if (view) {
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
     const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
-    if (store_ && IsPersistableWebUrl(url)) {
+    if (store_ && IsPersistableWebUrl(url) && !IsInternalBrowserUiUrl(url)) {
       store_->UpdateHistoryTitle(url, title.ToString());
     }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
@@ -1234,7 +1234,7 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
                     .Build());
     }
     const std::string current = tab_manager_->GetUrl(tab_id);
-    if (IsPersistableWebUrl(url) &&
+    if (IsPersistableWebUrl(url) && !IsInternalBrowserUiUrl(url) &&
         (current.empty() || current.rfind("browser://", 0) != 0)) {
       store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link");
     }

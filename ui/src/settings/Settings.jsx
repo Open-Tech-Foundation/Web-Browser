@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as Icons from './Icons';
-import { resolveUrl } from '../shared/search';
+import { resolveUrl, looksLikeDirectUrl } from '../shared/search';
 
 const GenericIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-slate-400">
@@ -20,6 +20,29 @@ const EngineLogo = ({ id, name }) => {
   );
 };
 
+const Switch = ({ label, description, checked, onChange, disabled = false }) => (
+  <div className="flex items-center justify-between p-6 bg-card/50 border border-main rounded-2xl transition-all duration-300 hover:bg-card hover:border-orange-500/30 group">
+    <div className="flex-grow pr-4">
+      <h3 className={`text-base font-semibold transition-colors duration-200 ${checked ? 'text-main' : 'text-muted group-hover:text-main'}`}>
+        {label}
+      </h3>
+      {description && <p className="text-sm text-muted mt-1 leading-relaxed">{description}</p>}
+    </div>
+    <button
+      onClick={() => !disabled && onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:ring-offset-2 ${
+        checked ? 'bg-orange-500 shadow-[0_0_15px_-3px_rgba(249,115,22,0.5)]' : 'bg-slate-700'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition duration-300 ease-in-out ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  </div>
+);
+
 const engines = [
   { id: 'baidu', name: 'Baidu' },
   { id: 'bing', name: 'Bing' },
@@ -32,12 +55,45 @@ const engines = [
   { id: 'yandex', name: 'Yandex' }
 ];
 
+const explicitSchemePattern = /^https?:\/\//i;
+const browserPagePattern = /^browser:\/\/(?:newtab|settings|findbar|history|bookmarks|downloads|security|insecure-blocked)(?:[/?#].*)?$/i;
+const localhostPattern = /^localhost(?::\d{1,5})?(?:[/?#]|$)/i;
+const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)/;
+
+const normalizeStartupUrl = (input) => {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  if (browserPagePattern.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('browser://')) return '';
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (explicitSchemePattern.test(trimmed)) return trimmed;
+  if (!trimmed.includes(' ') && localhostPattern.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  if (!trimmed.includes(' ') && ipv4Pattern.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  if (!trimmed.includes(' ') && looksLikeDirectUrl(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return '';
+};
+
 const searchStateByTab = {};
 
 const Settings = () => {
   const [selectedEngine, setSelectedEngine] = useState('');
   const [activeMenu, setActiveMenu] = useState('search');
   const [tabId, setTabId] = useState(null);
+  const [historyEnabled, setHistoryEnabled] = useState(false);
+  const [downloadsEnabled, setDownloadsEnabled] = useState(false);
+  const [startupBehavior, setStartupBehavior] = useState('newtab');
+  const [startupUrls, setStartupUrls] = useState([]);
+  const [newUrl, setNewUrl] = useState('');
+  const [startupUrlError, setStartupUrlError] = useState('');
+  const [httpsOnly, setHttpsOnly] = useState(false);
+  const [blockInsecure, setBlockInsecure] = useState(true);
+  const [appearanceMode, setAppearanceMode] = useState('auto');
 
   const cached = tabId != null ? searchStateByTab[tabId] : null;
   const [searchQuery, setSearchQuery] = useState(cached ? cached.query : '');
@@ -75,6 +131,13 @@ const Settings = () => {
             const settings = JSON.parse(response);
             setSelectedEngine(settings.searchEngine || '');
             setSearchEngine(settings.searchEngine || '');
+            setHistoryEnabled(settings.historyEnabled || false);
+            setDownloadsEnabled(settings.downloadsEnabled || false);
+            setStartupBehavior(settings.startupBehavior || 'newtab');
+            setStartupUrls(settings.startupUrls || []);
+            setHttpsOnly(settings.httpsOnly || false);
+            setBlockInsecure(settings.blockInsecure !== undefined ? settings.blockInsecure : true);
+            setAppearanceMode(settings.appearanceMode || 'auto');
           } catch (e) {
             console.error('Failed to parse settings:', e);
           }
@@ -83,39 +146,73 @@ const Settings = () => {
     }
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab) setActiveMenu(tab);
+  }, []);
+
   const selectEngine = (id) => {
     setSelectedEngine(id);
+    saveSettings({ searchEngine: id });
+  };
+
+  const saveSettings = (updates) => {
     if (window.cefQuery) {
       window.cefQuery({
-        request: `set-settings:{"searchEngine":"${id}"}`,
+        request: `set-settings:${JSON.stringify({
+          searchEngine: selectedEngine,
+          historyEnabled,
+          downloadsEnabled,
+          startupBehavior,
+          startupUrls,
+          httpsOnly,
+          blockInsecure,
+          appearanceMode,
+          ...updates
+        })}`,
         onSuccess: () => console.log('Settings saved')
       });
     }
   };
 
-  const handleSearchKeyDown = (e) => {
-    if (e.key === 'Enter' && searchQuery.trim()) {
-      window.cefQuery({ request: `navigate-current:${resolveUrl(searchQuery.trim(), searchEngine)}` });
+  const addStartupUrl = () => {
+    const normalizedUrl = normalizeStartupUrl(newUrl);
+    if (!normalizedUrl) {
+      setStartupUrlError('Enter a valid URL like https://example.com or browser://newtab.');
+      return;
     }
+    if (startupUrls.includes(normalizedUrl)) {
+      setStartupUrlError('That page is already listed.');
+      return;
+    }
+
+    const newUrls = [...startupUrls, normalizedUrl];
+    setStartupUrls(newUrls);
+    saveSettings({ startupUrls: newUrls });
+    setNewUrl('');
+    setStartupUrlError('');
   };
 
   const menuItems = [
     { id: 'search', label: 'Search Engine', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg> },
+    { id: 'startup', label: 'On Startup', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg> },
     { id: 'appearance', label: 'Appearance', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg> },
-    { id: 'privacy', label: 'Privacy & Security', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> },
+    { id: 'privacy', label: 'Privacy', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> },
+    { id: 'security', label: 'Security', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> },
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 9h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><path d="M5 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M15 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg> },
     { id: 'about', label: 'About', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> },
   ];
 
   return (
-    <div className="flex h-screen bg-[#020617] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-main text-main font-sans overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-72 bg-[#0f172a]/50 backdrop-blur-xl border-r border-white/5 flex flex-col py-8 shrink-0">
+      <aside className="w-72 bg-card/50 backdrop-blur-xl border-r border-main flex flex-col py-8 shrink-0">
         <div className="px-8 pb-10 flex items-center gap-3">
           <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-500/20">
              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
-          <span className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Settings</span>
+          <span className="text-xl font-bold bg-gradient-to-r from-main to-muted bg-clip-text text-transparent">Settings</span>
         </div>
         
         <nav className="flex-grow px-4 space-y-1">
@@ -125,45 +222,44 @@ const Settings = () => {
               onClick={() => setActiveMenu(item.id)}
               className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-4 transition-all duration-200 text-sm font-medium group ${
                 activeMenu === item.id 
-                  ? 'bg-orange-500/10 text-orange-400 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]' 
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  ? 'bg-orange-500/10 text-orange-500 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]' 
+                  : 'text-muted hover:text-main hover:bg-card/50'
               }`}
             >
-              <span className={`transition-colors duration-200 ${activeMenu === item.id ? 'text-orange-400' : 'text-slate-500 group-hover:text-slate-300'}`}>
+              <span className={`transition-colors duration-200 ${activeMenu === item.id ? 'text-orange-400' : 'text-muted group-hover:text-main'}`}>
                 {item.icon}
               </span>
               {item.label}
             </button>
           ))}
         </nav>
-        
       </aside>
 
       {/* Content Area */}
-      <main className="flex-grow p-12 md:p-20 overflow-y-auto bg-gradient-to-br from-[#020617] to-[#0f172a]">
+      <main className="flex-grow p-12 md:p-20 overflow-y-auto">
         <div className="max-w-5xl mx-auto">
           <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
             {activeMenu === 'search' && (
               <>
                 <header className="mb-12">
-                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-white">Search Engine</h1>
-                  <p className="text-lg text-slate-400 max-w-2xl">Configure the default provider for your address bar searches and how they behave.</p>
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Search Engine</h1>
+                  <p className="text-lg text-muted max-w-2xl">Configure the default provider for your address bar searches and how they behave.</p>
                 </header>
 
                 <section>
                   <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-xl font-semibold text-slate-100">Default Search Provider</h2>
+                    <h2 className="text-xl font-semibold text-main">Default Search Provider</h2>
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {engines.map(({ id, name, Icon }) => (
+                    {engines.map(({ id, name }) => (
                       <button
                         key={id}
                         onClick={() => selectEngine(id)}
                         className={`relative group flex items-center gap-5 p-6 rounded-2xl border transition-all duration-300 text-left ${
                           selectedEngine === id 
                             ? 'bg-orange-500/10 border-orange-500/50 shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]' 
-                            : 'bg-white/5 border-white/5 hover:border-white/20 hover:bg-white/[0.08] hover:-translate-y-1'
+                            : 'bg-card border-main hover:border-orange-500/30 hover:-translate-y-1'
                         }`}
                       >
                         {selectedEngine === id && (
@@ -171,33 +267,159 @@ const Settings = () => {
                             ✓
                           </div>
                         )}
-                        <div className={`w-16 h-12 shrink-0 p-1 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${selectedEngine === id ? 'bg-orange-500/20' : 'bg-white/5'}`}>
+                        <div className={`w-16 h-12 shrink-0 p-1 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${selectedEngine === id ? 'bg-orange-500/20' : 'bg-card/50'}`}>
                           <EngineLogo id={id} name={name} />
                         </div>
                         <div className="flex-grow overflow-hidden">
-                          <span className={`block font-bold text-base truncate transition-colors duration-200 ${selectedEngine === id ? 'text-orange-400' : 'text-slate-200 group-hover:text-white'}`}>
+                          <span className={`block font-bold text-base truncate transition-colors duration-200 ${selectedEngine === id ? 'text-orange-500' : 'text-main group-hover:text-main'}`}>
                             {name}
                           </span>
-                          <span className="text-xs text-slate-500 mt-0.5 block truncate">Default Provider</span>
+                          <span className="text-xs text-muted mt-0.5 block truncate">Default Provider</span>
                         </div>
                       </button>
                     ))}
                   </div>
                 </section>
+              </>
+            )}
 
-                <footer className="mt-20 pt-8 border-t border-white/5">
-                  <p className="text-[11px] text-slate-500 text-center tracking-wide uppercase opacity-60">
-                    Note: The logos used here are for illustration purposes only.
-                  </p>
-                </footer>
+            {activeMenu === 'startup' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">On Startup</h1>
+                  <p className="text-lg text-muted max-w-2xl">Choose what you see when you launch the OTF Browser.</p>
+                </header>
+
+                <div className="grid grid-cols-1 gap-4 max-w-2xl">
+                  {[
+                    ['newtab', 'Open the New Tab page'],
+                    ['continue', 'Continue where you left off'],
+                    ['specific', 'Open a specific page or set of pages'],
+                  ].map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => {
+                        setStartupBehavior(id);
+                        saveSettings({ startupBehavior: id });
+                      }}
+                      className={`w-full flex items-center justify-between p-6 bg-card/50 border rounded-2xl transition-all duration-300 hover:bg-card group ${
+                        startupBehavior === id
+                          ? 'border-orange-500/50 bg-orange-500/5 shadow-[0_0_20px_-10px_rgba(249,115,22,0.3)]'
+                          : 'border-main hover:border-orange-500/30'
+                      }`}
+                    >
+                      <span className={`text-base font-semibold transition-colors duration-200 ${startupBehavior === id ? 'text-main' : 'text-muted group-hover:text-main'}`}>
+                        {label}
+                      </span>
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${startupBehavior === id ? 'border-orange-500 bg-orange-500' : 'border-slate-600'}`}>
+                        {startupBehavior === id && <div className="w-2.5 h-2.5 rounded-full bg-white animate-in zoom-in duration-300" />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {startupBehavior === 'specific' && (
+                  <div className="mt-8 p-8 bg-card border border-main rounded-3xl animate-in slide-in-from-top-4 duration-500">
+                    <h3 className="text-sm font-bold text-muted mb-6 uppercase tracking-wider">Pages to open</h3>
+
+                    <div className="space-y-3 mb-6">
+                      {startupUrls.map((url, index) => (
+                        <div key={index} className="flex items-center gap-3 p-4 bg-main/5 rounded-xl border border-main group hover:border-orange-500/30 transition-all">
+                          <div className="w-8 h-8 rounded-lg bg-card flex items-center justify-center shrink-0">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                          </div>
+                          <span className="flex-grow text-sm text-main truncate font-medium">{url}</span>
+                          <button
+                            onClick={() => {
+                              const newUrls = startupUrls.filter((_, i) => i !== index);
+                              setStartupUrls(newUrls);
+                              saveSettings({ startupUrls: newUrls });
+                            }}
+                            className="p-2 text-muted hover:text-red-400 transition-colors"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        placeholder="Enter URL (e.g., https://google.com)"
+                        value={newUrl}
+                        onChange={(e) => {
+                          setNewUrl(e.target.value);
+                          if (startupUrlError) setStartupUrlError('');
+                        }}
+                        className="flex-grow bg-card border border-main rounded-xl px-4 py-3 text-sm text-main placeholder:text-muted focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20 transition-all"
+                      />
+                      <button
+                        onClick={addStartupUrl}
+                        disabled={!normalizeStartupUrl(newUrl) || startupUrls.includes(normalizeStartupUrl(newUrl))}
+                        className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeMenu === 'appearance' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Appearance</h1>
+                  <p className="text-lg text-muted max-w-2xl">Customize how OTF Browser looks and feels on your device.</p>
+                </header>
+
+                <section>
+                  <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Theme Mode</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    {[
+                      { id: 'auto', label: 'System', icon: <Icons.Monitor />, desc: 'Follow OS theme' },
+                      { id: 'light', label: 'Light', icon: <Icons.Sun />, desc: 'Clean & bright' },
+                      { id: 'dark', label: 'Dark', icon: <Icons.Moon />, desc: 'Easy on eyes' }
+                    ].map(mode => (
+                      <button
+                        key={mode.id}
+                        onClick={() => {
+                          setAppearanceMode(mode.id);
+                          saveSettings({ appearanceMode: mode.id });
+                        }}
+                        className={`relative flex flex-col items-center gap-4 p-8 rounded-3xl border transition-all duration-300 ${
+                          appearanceMode === mode.id
+                            ? 'bg-orange-500/10 border-orange-500/50 shadow-lg shadow-orange-500/5'
+                            : 'bg-card/50 border-main hover:border-orange-500/30 hover:bg-card'
+                        }`}
+                      >
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-2 transition-transform duration-300 ${
+                          appearanceMode === mode.id ? 'bg-orange-500 text-white scale-110 shadow-lg shadow-orange-500/20' : 'bg-card/50 text-muted'
+                        }`}>
+                          {mode.icon}
+                        </div>
+                        <div className="text-center">
+                           <span className={`block font-bold text-lg ${appearanceMode === mode.id ? 'text-orange-500' : 'text-main'}`}>{mode.label}</span>
+                           <span className="text-xs text-muted mt-1 block">{mode.desc}</span>
+                        </div>
+                        {appearanceMode === mode.id && (
+                          <div className="absolute top-4 right-4 w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold animate-in zoom-in duration-300">
+                            ✓
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </section>
               </>
             )}
 
             {activeMenu === 'shortcuts' && (
               <div className="max-w-4xl">
                 <header className="mb-12">
-                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-white">Keyboard Shortcuts</h1>
-                  <p className="text-lg text-slate-400">Master the OTF Browser with these intuitive shortcuts.</p>
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Keyboard Shortcuts</h1>
+                  <p className="text-lg text-muted">Master the OTF Browser with these intuitive shortcuts.</p>
                 </header>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -237,17 +459,17 @@ const Settings = () => {
                   ].map(([section, items]) => (
                     <section key={section} className="mb-4">
                       <h2 className="text-sm font-bold text-orange-500 mb-4 uppercase tracking-[0.2em]">{section}</h2>
-                      <div className="bg-white/5 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-sm">
+                      <div className="bg-card/50 border border-main rounded-2xl overflow-hidden backdrop-blur-sm">
                         <table className="w-full text-sm">
-                          <tbody className="divide-y divide-white/5">
+                          <tbody className="divide-y divide-main">
                             {items.map(([key, desc]) => (
-                              <tr key={key} className="group hover:bg-white/[0.02] transition-colors">
+                              <tr key={key} className="group hover:bg-main/5 transition-colors">
                                 <td className="px-6 py-4 w-48">
-                                  <kbd className="px-2.5 py-1 bg-white/10 border border-white/10 rounded-md text-[11px] font-mono text-slate-300 shadow-sm group-hover:border-orange-500/30 group-hover:text-orange-400 transition-all">
+                                  <kbd className="px-2.5 py-1 bg-main/10 border border-main rounded-md text-[11px] font-mono text-muted shadow-sm group-hover:border-orange-500/30 group-hover:text-orange-500 transition-all">
                                     {key}
                                   </kbd>
                                 </td>
-                                <td className="px-6 py-4 text-slate-400 group-hover:text-slate-200 transition-colors">{desc}</td>
+                                <td className="px-6 py-4 text-muted group-hover:text-main transition-colors">{desc}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -259,66 +481,104 @@ const Settings = () => {
               </div>
             )}
 
-            {(activeMenu === 'appearance' || activeMenu === 'privacy') && (
-              <div className="flex flex-col items-center justify-center py-24 text-center">
-                 <div className="w-24 h-24 bg-orange-500/10 rounded-3xl flex items-center justify-center mb-8 border border-orange-500/20 shadow-2xl shadow-orange-500/5">
-                    <svg className="text-orange-500" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                 </div>
-                 <h3 className="text-2xl font-bold text-white mb-2">Section Coming Soon</h3>
-                 <p className="text-slate-400 max-w-sm">We're working hard to bring you more customization and privacy controls.</p>
-              </div>
+            {activeMenu === 'privacy' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Privacy</h1>
+                  <p className="text-lg text-muted max-w-2xl">Manage your browsing data and how websites see you.</p>
+                </header>
+
+                <div className="space-y-10">
+                  <section>
+                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Browsing Activity</h2>
+                    <div className="grid grid-cols-1 gap-4">
+                      <Switch
+                        label="Web browsing history"
+                        description="Save the websites you visit to your history."
+                        checked={historyEnabled}
+                        onChange={(val) => {
+                          setHistoryEnabled(val);
+                          saveSettings({ historyEnabled: val });
+                        }}
+                      />
+                      <Switch
+                        label="Download History"
+                        description="Keep a record of all files you have downloaded."
+                        checked={downloadsEnabled}
+                        onChange={(val) => {
+                          setDownloadsEnabled(val);
+                          saveSettings({ downloadsEnabled: val });
+                        }}
+                      />
+                    </div>
+                  </section>
+                </div>
+              </>
+            )}
+
+            {activeMenu === 'security' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Security</h1>
+                  <p className="text-lg text-muted max-w-2xl">Control your security level and protection mechanisms.</p>
+                </header>
+
+                <div className="space-y-10">
+                  <section>
+                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Safe Navigation</h2>
+                    <div className="grid grid-cols-1 gap-4">
+                      {[
+                        { title: 'HTTPS-Only Mode', desc: "Upgrade all navigations to HTTPS and warn you before loading sites that don't support it." },
+                        { title: 'Block Insecure Content', desc: "Prevent pages from loading insecure elements (scripts, images) over HTTP when the main page is secure." },
+                        { title: 'Enhanced Safe Browsing', desc: "Proactively protects you against dangerous websites, downloads, and extensions." }
+                      ].map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-8 bg-card/50 border border-main rounded-3xl relative overflow-hidden group">
+                          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                          <div className="flex-1 pr-8 relative z-10">
+                            <h3 className="text-lg font-bold text-main mb-2">{item.title}</h3>
+                            <p className="text-muted text-sm leading-relaxed">{item.desc}</p>
+                          </div>
+                          <div className="shrink-0 w-12 h-6 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/40 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)] relative z-10">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </>
             )}
 
             {activeMenu === 'about' && (
               <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-6 duration-700">
                 <header className="mb-12">
-                  <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-white">OTF Browser</h1>
-                  <p className="text-sm font-medium text-white/80 mb-6 tracking-wide">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-main">OTF Browser</h1>
+                  <p className="text-sm font-medium text-main/80 mb-6 tracking-wide">
                     Part of the <span className="text-orange-500 font-bold">Open Tech Foundation</span> ecosystem
                   </p>
-                  <p className="text-lg text-slate-400">A high-performance, privacy-focused browser built on top of the Chromium Embedded Framework.</p>
+                  <p className="text-lg text-muted">A high-performance, privacy-focused browser built on top of the Chromium Embedded Framework.</p>
                 </header>
 
                 <div className="space-y-6">
-                  <section className="bg-white/5 border border-white/5 rounded-3xl p-8 backdrop-blur-sm">
+                  <section className="bg-card/50 border border-main rounded-3xl p-8 backdrop-blur-sm">
                     <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Version Information</h2>
                     <div className="grid grid-cols-1 gap-4">
-                      <div className="py-4 border-b border-white/5">
-                        <div className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Browser Version</div>
-                        <div className="text-slate-200 font-mono text-sm">1.0.0 (Official Build)</div>
+                      <div className="py-4 border-b border-main">
+                        <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Browser Version</div>
+                        <div className="text-main font-mono text-sm">1.0.0 (Official Build)</div>
                       </div>
-                      <div className="py-4 border-b border-white/5">
-                        <div className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Chromium Version</div>
-                        <div className="text-slate-200 font-mono text-sm">147.0.7727.118</div>
+                      <div className="py-4 border-b border-main">
+                        <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Chromium Version</div>
+                        <div className="text-main font-mono text-sm">147.0.7727.118</div>
                       </div>
                       <div className="py-4">
-                        <div className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">CEF Version</div>
-                        <div className="text-slate-200 font-mono text-sm break-all leading-relaxed">147.0.10+gd58e84d+chromium-147.0.7727.118</div>
+                        <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">CEF Version</div>
+                        <div className="text-main font-mono text-sm break-all leading-relaxed">147.0.10+gd58e84d+chromium-147.0.7727.118</div>
                       </div>
                     </div>
                   </section>
-
-                  <section className="bg-white/5 border border-white/5 rounded-3xl p-8 backdrop-blur-sm">
-                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Legal & Open Source</h2>
-                    <p className="text-slate-400 text-sm leading-relaxed mb-6">
-                      OTF Browser is made possible by the Chromium open source project and other open source software.
-                    </p>
-                    <div className="flex flex-wrap gap-4">
-                      <button 
-                        onClick={() => window.cefQuery?.({ request: 'navigate-current:https://github.com/Open-Tech-Foundation/Web-Browser' })}
-                        className="px-4 py-2 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 text-orange-400 rounded-xl text-xs font-semibold transition-all flex items-center gap-2"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-                        GitHub Repository
-                      </button>
-                      <button className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-xs font-semibold transition-all">Terms of Service</button>
-                      <button className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-xs font-semibold transition-all">Privacy Policy</button>
-                    </div>
-                  </section>
-                </div>
-
-                <div className="mt-12 text-center">
-                  <p className="text-slate-600 text-xs">© 2026 Open Tech Foundation. All rights reserved.</p>
                 </div>
               </div>
             )}

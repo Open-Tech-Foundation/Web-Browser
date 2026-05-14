@@ -48,6 +48,7 @@ class OtfApp : public CefApp,
   void CreateDownloadsOverlay();
   void CreateAppMenuOverlay();
   void FocusCurrentTabContent();
+  void OpenPendingStartupTabs();
   void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
   void PositionFindBarOverlay();
   void PositionZoomBarOverlay();
@@ -71,6 +72,9 @@ class OtfApp : public CefApp,
  private:
   TabManager tab_manager_;
   int current_tab_id_ = -1;
+  std::string startup_behavior_ = "newtab";
+  std::vector<std::string> startup_urls_;
+  bool startup_tabs_opened_ = false;
   CefRefPtr<CefMessageRouterRendererSide> renderer_side_router_;
 
   IMPLEMENT_REFCOUNTING(OtfApp);
