@@ -4,18 +4,18 @@ import { resolveUrl, looksLikeDirectUrl } from '../shared/search';
 
 const GenericIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-slate-400">
-    <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+    <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
   </svg>
 );
 
 const EngineLogo = ({ id, name }) => {
   const [error, setError] = useState(false);
   return error ? <GenericIcon /> : (
-    <img 
-      src={`/assets/logos/${id}.svg`} 
-      alt={name} 
-      className="w-full h-full object-contain" 
-      onError={() => setError(true)} 
+    <img
+      src={`/assets/logos/${id}.svg`}
+      alt={name}
+      className="w-full h-full object-contain"
+      onError={() => setError(true)}
     />
   );
 };
@@ -30,14 +30,12 @@ const Switch = ({ label, description, checked, onChange, disabled = false }) => 
     </div>
     <button
       onClick={() => !disabled && onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:ring-offset-2 ${
-        checked ? 'bg-orange-500 shadow-[0_0_15px_-3px_rgba(249,115,22,0.5)]' : 'bg-slate-700'
-      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:ring-offset-2 ${checked ? 'bg-orange-500 shadow-[0_0_15px_-3px_rgba(249,115,22,0.5)]' : 'bg-slate-700'
+        } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
     >
       <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition duration-300 ease-in-out ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
+        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition duration-300 ease-in-out ${checked ? 'translate-x-5' : 'translate-x-0'
+          }`}
       />
     </button>
   </div>
@@ -51,7 +49,7 @@ const Checkbox = ({ label, checked, onChange, disabled = false }) => (
     <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${checked ? 'bg-orange-500 border-orange-500' : 'border-muted group-hover:border-main'} ${disabled ? 'opacity-60' : ''}`}>
       {checked && (
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
+          <polyline points="20 6 9 17 4 12" />
         </svg>
       )}
     </div>
@@ -278,7 +276,7 @@ const Settings = () => {
         try {
           try {
             localStorage.removeItem('otf_last_engine');
-          } catch (storageError) {}
+          } catch (storageError) { }
           setSelectedEngine('');
           setSearchEngine('');
           setStartupBehavior('newtab');
@@ -320,7 +318,7 @@ const Settings = () => {
     { id: 'appearance', label: 'Appearance', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg> },
     { id: 'privacy', label: 'Privacy', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> },
     { id: 'security', label: 'Security', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> },
-    { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 9h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><path d="M5 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M15 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg> },
+    { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 9h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" /><path d="M5 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M15 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /></svg> },
     { id: 'reset', label: 'Reset Settings', icon: <Icons.Reset /> },
     { id: 'about', label: 'About', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> },
   ];
@@ -331,21 +329,20 @@ const Settings = () => {
       <aside className="w-72 bg-card/50 backdrop-blur-xl border-r border-main flex flex-col py-8 shrink-0">
         <div className="px-8 pb-10 flex items-center gap-3">
           <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center shadow-lg shadow-orange-500/20">
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1-1-1.73l.43.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1-1-1.73l.43.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
           </div>
           <span className="text-xl font-bold bg-gradient-to-r from-main to-muted bg-clip-text text-transparent">Settings</span>
         </div>
-        
+
         <nav className="flex-grow px-4 space-y-1">
           {menuItems.map(item => (
-            <button 
+            <button
               key={item.id}
               onClick={() => setActiveMenu(item.id)}
-              className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-4 transition-all duration-200 text-sm font-medium group ${
-                activeMenu === item.id 
-                  ? 'bg-orange-500/10 text-orange-500 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]' 
-                  : 'text-muted hover:text-main hover:bg-card/50'
-              }`}
+              className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-4 transition-all duration-300 text-sm font-medium group cursor-pointer ${activeMenu === item.id
+                  ? 'bg-orange-500/10 text-orange-500 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]'
+                  : 'text-muted hover:text-main hover:bg-card/50 hover:translate-x-1'
+                }`}
             >
               <span className={`transition-colors duration-200 ${activeMenu === item.id ? 'text-orange-400' : 'text-muted group-hover:text-main'}`}>
                 {item.icon}
@@ -376,29 +373,28 @@ const Settings = () => {
                     <div className="mb-8 p-6 bg-orange-500/10 border border-orange-500/20 rounded-3xl flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
                       <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/20">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="8"/><path d="M11 8v4"/><path d="M11 16h.01"/>
+                          <path d="m21 21-4.3-4.3" /><circle cx="11" cy="11" r="8" /><path d="M11 8v4" /><path d="M11 16h.01" />
                         </svg>
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-main mb-1">No default search engine selected</h3>
                         <p className="text-xs text-muted leading-relaxed">
-                          Choose a search engine from the list below to enable address bar searches. 
+                          Choose a search engine from the list below to enable address bar searches.
                           If no engine is selected, you can only navigate to direct URLs.
                         </p>
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {engines.map(({ id, name }) => (
                       <button
                         key={id}
                         onClick={() => selectEngine(id)}
-                        className={`relative group flex items-center gap-5 p-6 rounded-2xl border transition-all duration-300 text-left ${
-                          selectedEngine === id 
-                            ? 'bg-orange-500/10 border-orange-500/50 shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]' 
+                        className={`relative group flex items-center gap-5 p-6 rounded-2xl border transition-all duration-300 text-left ${selectedEngine === id
+                            ? 'bg-orange-500/10 border-orange-500/50 shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]'
                             : 'bg-card border-main hover:border-orange-500/30 hover:-translate-y-1'
-                        }`}
+                          }`}
                       >
                         {selectedEngine === id && (
                           <div className="absolute top-4 right-4 w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-lg shadow-orange-500/40 z-10 animate-in zoom-in duration-300">
@@ -440,11 +436,10 @@ const Settings = () => {
                         setStartupBehavior(id);
                         saveSettings({ startupBehavior: id });
                       }}
-                      className={`w-full flex items-center justify-between p-6 bg-card/50 border rounded-2xl transition-all duration-300 hover:bg-card group ${
-                        startupBehavior === id
+                      className={`w-full flex items-center justify-between p-6 bg-card/50 border rounded-2xl transition-all duration-300 hover:bg-card group ${startupBehavior === id
                           ? 'border-orange-500/50 bg-orange-500/5 shadow-[0_0_20px_-10px_rgba(249,115,22,0.3)]'
                           : 'border-main hover:border-orange-500/30'
-                      }`}
+                        }`}
                     >
                       <span className={`text-base font-semibold transition-colors duration-200 ${startupBehavior === id ? 'text-main' : 'text-muted group-hover:text-main'}`}>
                         {label}
@@ -526,20 +521,18 @@ const Settings = () => {
                           setAppearanceMode(mode.id);
                           saveSettings({ appearanceMode: mode.id });
                         }}
-                        className={`relative flex flex-col items-center gap-4 p-8 rounded-3xl border transition-all duration-300 ${
-                          appearanceMode === mode.id
+                        className={`relative flex flex-col items-center gap-4 p-8 rounded-3xl border transition-all duration-300 ${appearanceMode === mode.id
                             ? 'bg-orange-500/10 border-orange-500/50 shadow-lg shadow-orange-500/5'
                             : 'bg-card/50 border-main hover:border-orange-500/30 hover:bg-card'
-                        }`}
+                          }`}
                       >
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-2 transition-transform duration-300 ${
-                          appearanceMode === mode.id ? 'bg-orange-500 text-white scale-110 shadow-lg shadow-orange-500/20' : 'bg-card/50 text-muted'
-                        }`}>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-2 transition-transform duration-300 ${appearanceMode === mode.id ? 'bg-orange-500 text-white scale-110 shadow-lg shadow-orange-500/20' : 'bg-card/50 text-muted'
+                          }`}>
                           {mode.icon}
                         </div>
                         <div className="text-center">
-                           <span className={`block font-bold text-lg ${appearanceMode === mode.id ? 'text-orange-500' : 'text-main'}`}>{mode.label}</span>
-                           <span className="text-xs text-muted mt-1 block">{mode.desc}</span>
+                          <span className={`block font-bold text-lg ${appearanceMode === mode.id ? 'text-orange-500' : 'text-main'}`}>{mode.label}</span>
+                          <span className="text-xs text-muted mt-1 block">{mode.desc}</span>
                         </div>
                         {appearanceMode === mode.id && (
                           <div className="absolute top-4 right-4 w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold animate-in zoom-in duration-300">
@@ -559,7 +552,7 @@ const Settings = () => {
                   <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Keyboard Shortcuts</h1>
                   <p className="text-lg text-muted">Master the OTF Browser with these intuitive shortcuts.</p>
                 </header>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   {[
                     ['Navigation', [
@@ -678,7 +671,7 @@ const Settings = () => {
                           </div>
                           <div className="shrink-0 w-12 h-6 rounded-full bg-green-500/10 flex items-center justify-center border border-green-500/40 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)] relative z-10">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12"/>
+                              <polyline points="20 6 9 17 4 12" />
                             </svg>
                           </div>
                         </div>
@@ -745,7 +738,7 @@ const Settings = () => {
                   <p className="text-sm font-medium text-main/80 mb-6 tracking-wide">
                     Part of the <span className="text-orange-500 font-bold">Open Tech Foundation</span> ecosystem
                   </p>
-                  <p className="text-lg text-muted">A high-performance, privacy-focused browser built on top of the Chromium Embedded Framework.</p>
+                  <p className="text-lg text-muted">A fast, privacy-focused browser with hardened security, built on top of the Chromium Embedded Framework.</p>
                 </header>
 
                 <div className="space-y-6">
@@ -777,63 +770,63 @@ const Settings = () => {
       {showResetConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setShowResetConfirm(false)} />
-          <div 
+          <div
             className="relative w-full max-w-md border border-main rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300"
             style={{ backgroundColor: 'var(--bg-card)' }}
           >
-              <div className="relative z-10">
-                <div className="w-16 h-16 rounded-3xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center mb-8 mx-auto">
-                  <Icons.Reset />
-                </div>
-                <h2 className="text-2xl font-black text-center text-main mb-4 tracking-tight">
-                  {resetStatus ? 'Reset Complete' : 'Reset Browser Settings?'}
-                </h2>
-                {!resetStatus ? (
-                  <>
-                    <p className="text-muted text-center text-sm leading-relaxed mb-10">
-                      This will restore your settings to their defaults and clear selected data. This action cannot be undone.
-                    </p>
-                    <div className="flex flex-col gap-3">
-                      <button 
-                        onClick={handleReset}
-                        disabled={resetBusy}
-                        className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
-                      >
-                        {resetBusy ? 'Resetting...' : 'Yes, Reset Everything'}
-                      </button>
-                      <button 
-                        onClick={() => setShowResetConfirm(false)}
-                        disabled={resetBusy}
-                        className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className={`text-center text-sm leading-relaxed mb-8 ${resetStatus.startsWith('Reset failed') || resetStatus.startsWith('Restart failed') ? 'text-red-200' : 'text-muted'}`}>
-                      {resetStatus}
-                    </p>
-                    <div className="flex flex-col gap-3">
-                      <button 
-                        onClick={handleRestart}
-                        disabled={restartBusy || resetStatus.startsWith('Reset failed')}
-                        className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
-                      >
-                        {restartBusy ? 'Restarting...' : 'Restart Browser'}
-                      </button>
-                      <button 
-                        onClick={() => setShowResetConfirm(false)}
-                        disabled={restartBusy}
-                        className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </>
-                )}
-             </div>
+            <div className="relative z-10">
+              <div className="w-16 h-16 rounded-3xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center mb-8 mx-auto">
+                <Icons.Reset />
+              </div>
+              <h2 className="text-2xl font-black text-center text-main mb-4 tracking-tight">
+                {resetStatus ? 'Reset Complete' : 'Reset Browser Settings?'}
+              </h2>
+              {!resetStatus ? (
+                <>
+                  <p className="text-muted text-center text-sm leading-relaxed mb-10">
+                    This will restore your settings to their defaults and clear selected data. This action cannot be undone.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={handleReset}
+                      disabled={resetBusy}
+                      className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                    >
+                      {resetBusy ? 'Resetting...' : 'Yes, Reset Everything'}
+                    </button>
+                    <button
+                      onClick={() => setShowResetConfirm(false)}
+                      disabled={resetBusy}
+                      className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className={`text-center text-sm leading-relaxed mb-8 ${resetStatus.startsWith('Reset failed') || resetStatus.startsWith('Restart failed') ? 'text-red-200' : 'text-muted'}`}>
+                    {resetStatus}
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={handleRestart}
+                      disabled={restartBusy || resetStatus.startsWith('Reset failed')}
+                      className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                    >
+                      {restartBusy ? 'Restarting...' : 'Restart Browser'}
+                    </button>
+                    <button
+                      onClick={() => setShowResetConfirm(false)}
+                      disabled={restartBusy}
+                      className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
