@@ -104,7 +104,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
-              className="ml-2 w-4 h-4 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-slate-300 dark:hover:bg-white/20 transition-all"
+              className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
