@@ -53,6 +53,7 @@ class TabManager {
     title_map_.erase(tab_id);
     find_text_map_.erase(tab_id);
     find_case_map_.erase(tab_id);
+    history_suppressed_url_map_.erase(tab_id);
   }
 
   void SetUrl(int tab_id, const std::string& url) {
@@ -193,6 +194,20 @@ class TabManager {
     return "";
   }
 
+  void SetHistorySuppressedUrl(int tab_id, const std::string& url) {
+    if (url.empty()) {
+      history_suppressed_url_map_.erase(tab_id);
+    } else {
+      history_suppressed_url_map_[tab_id] = url;
+    }
+  }
+
+  std::string GetHistorySuppressedUrl(int tab_id) {
+    auto it = history_suppressed_url_map_.find(tab_id);
+    if (it != history_suppressed_url_map_.end()) return it->second;
+    return "";
+  }
+
  private:
   std::map<int, CefRefPtr<CefBrowserView>> view_map_;
   std::map<int, CefRefPtr<CefBrowser>> browser_map_;
@@ -207,6 +222,7 @@ class TabManager {
   std::map<int, int> zoom_percent_map_;
   std::map<int, bool> ssl_error_map_;
   std::map<int, std::string> ssl_error_url_map_;
+  std::map<int, std::string> history_suppressed_url_map_;
   int next_tab_id_;
 };
 

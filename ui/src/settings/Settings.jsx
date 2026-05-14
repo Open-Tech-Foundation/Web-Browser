@@ -123,11 +123,15 @@ const Settings = () => {
     serviceWorkers: true,
     permissions: true,
     storage: true,
+    bookmarks: false,
     history: false,
     downloads: false,
     passwords: false
   });
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetStatus, setResetStatus] = useState('');
+  const [restartBusy, setRestartBusy] = useState(false);
 
   const cached = tabId != null ? searchStateByTab[tabId] : null;
   const [searchQuery, setSearchQuery] = useState(cached ? cached.query : '');
@@ -223,7 +227,7 @@ const Settings = () => {
     if (window.cefQuery) {
       window.cefQuery({
         request: `set-settings:${JSON.stringify({
-          searchEngine: selectedEngine,
+          searchEngine: selectedEngine || null,
           historyEnabled,
           downloadsEnabled,
           startupBehavior,
@@ -261,9 +265,53 @@ const Settings = () => {
   };
 
   const handleReset = () => {
-    console.log('Resetting with items:', resetItems);
-    setShowResetConfirm(false);
-    // Backend part to be handled by the user
+    if (!window.cefQuery || resetBusy) {
+      return;
+    }
+
+    setResetBusy(true);
+    setResetStatus('');
+    setRestartBusy(false);
+    window.cefQuery({
+      request: `reset-browser-data:${JSON.stringify(resetItems)}`,
+      onSuccess: (response) => {
+        try {
+          try {
+            localStorage.removeItem('otf_last_engine');
+          } catch (storageError) {}
+          setSelectedEngine('');
+          setSearchEngine('');
+          setStartupBehavior('newtab');
+          setStartupUrls([]);
+          setNewUrl('');
+          setStartupUrlError('');
+          JSON.parse(response);
+          setResetStatus('Reset complete.');
+        } catch (e) {
+          setResetStatus('Reset complete.');
+        }
+        setResetBusy(false);
+      },
+      onFailure: (code, msg) => {
+        setResetBusy(false);
+        setResetStatus(`Reset failed: ${msg || code}`);
+      }
+    });
+  };
+
+  const handleRestart = () => {
+    if (!window.cefQuery || restartBusy) {
+      return;
+    }
+
+    setRestartBusy(true);
+    window.cefQuery({
+      request: 'restart-browser',
+      onFailure: (code, msg) => {
+        setRestartBusy(false);
+        setResetStatus(`Restart failed: ${msg || code}`);
+      }
+    });
   };
 
   const menuItems = [
@@ -650,6 +698,7 @@ const Settings = () => {
                     <h2 className="text-sm font-bold text-muted mb-6 uppercase tracking-[0.2em]">Optional Items</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Checkbox label="Browsing history" checked={resetItems.history} onChange={() => toggleResetItem('history')} />
+                      <Checkbox label="Bookmarks" checked={resetItems.bookmarks} onChange={() => toggleResetItem('bookmarks')} />
                       <Checkbox label="Download history" checked={resetItems.downloads} onChange={() => toggleResetItem('downloads')} />
                       <Checkbox label="Saved passwords" checked={resetItems.passwords} onChange={() => toggleResetItem('passwords')} />
                     </div>
@@ -657,8 +706,13 @@ const Settings = () => {
 
                   <div className="pt-6 border-t border-main">
                     <button
-                      onClick={() => setShowResetConfirm(true)}
-                      className="px-10 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-base font-black transition-all shadow-xl shadow-orange-500/20 active:scale-95"
+                      onClick={() => {
+                        setResetStatus('');
+                        setRestartBusy(false);
+                        setShowResetConfirm(true);
+                      }}
+                      disabled={resetBusy}
+                      className="px-10 py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-base font-black transition-all shadow-xl shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
                     >
                       Reset Settings
                     </button>
@@ -710,28 +764,58 @@ const Settings = () => {
             className="relative w-full max-w-md border border-main rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300"
             style={{ backgroundColor: 'var(--bg-card)' }}
           >
-             <div className="relative z-10">
-               <div className="w-16 h-16 rounded-3xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center mb-8 mx-auto">
+              <div className="relative z-10">
+                <div className="w-16 h-16 rounded-3xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center mb-8 mx-auto">
                   <Icons.Reset />
-               </div>
-               <h2 className="text-2xl font-black text-center text-main mb-4 tracking-tight">Reset Browser Settings?</h2>
-               <p className="text-muted text-center text-sm leading-relaxed mb-10">
-                 This will restore your settings to their defaults and clear selected data. This action cannot be undone.
-               </p>
-               <div className="flex flex-col gap-3">
-                 <button 
-                   onClick={handleReset}
-                   className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95"
-                 >
-                   Yes, Reset Everything
-                 </button>
-                 <button 
-                   onClick={() => setShowResetConfirm(false)}
-                   className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95"
-                 >
-                   Cancel
-                 </button>
-               </div>
+                </div>
+                <h2 className="text-2xl font-black text-center text-main mb-4 tracking-tight">
+                  {resetStatus ? 'Reset Complete' : 'Reset Browser Settings?'}
+                </h2>
+                {!resetStatus ? (
+                  <>
+                    <p className="text-muted text-center text-sm leading-relaxed mb-10">
+                      This will restore your settings to their defaults and clear selected data. This action cannot be undone.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={handleReset}
+                        disabled={resetBusy}
+                        className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                      >
+                        {resetBusy ? 'Resetting...' : 'Yes, Reset Everything'}
+                      </button>
+                      <button 
+                        onClick={() => setShowResetConfirm(false)}
+                        disabled={resetBusy}
+                        className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className={`text-center text-sm leading-relaxed mb-8 ${resetStatus.startsWith('Reset failed') || resetStatus.startsWith('Restart failed') ? 'text-red-200' : 'text-muted'}`}>
+                      {resetStatus}
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={handleRestart}
+                        disabled={restartBusy || resetStatus.startsWith('Reset failed')}
+                        className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                      >
+                        {restartBusy ? 'Restarting...' : 'Restart Browser'}
+                      </button>
+                      <button 
+                        onClick={() => setShowResetConfirm(false)}
+                        disabled={restartBusy}
+                        className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </>
+                )}
              </div>
           </div>
         </div>

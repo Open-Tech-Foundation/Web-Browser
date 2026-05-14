@@ -124,8 +124,16 @@ const App = () => {
               const tab = stateRef.current.tabs.find(t => t.id === event.id);
               if (tab && !tab.url) addressBarRef.current?.focus();
             } else if (event.key === 'settings-changed') {
-              setSearchEngine(event.settings?.searchEngine || '');
+              const nextSearchEngine = event.settings?.searchEngine || '';
+              setSearchEngine(nextSearchEngine);
               setAppearanceMode(event.settings?.appearanceMode || 'auto');
+              window.dispatchEvent(
+                new CustomEvent('otf-settings-changed', {
+                  detail: {
+                    searchEngine: nextSearchEngine,
+                  },
+                })
+              );
             } else if (event.key === 'tab-closed') {
               dispatch({ type: 'REMOVE_TAB', payload: event.id });
             } else if (event.key === 'active-tab-changed') {

@@ -20,8 +20,11 @@
 
 #include "include/base/cef_callback.h"
 #include "include/cef_app.h"
+#include "include/cef_cookie.h"
 #include "include/cef_parser.h"
+#include "include/cef_request_context.h"
 #include "include/cef_ssl_info.h"
+#include "include/cef_values.h"
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_closure_task.h"
@@ -152,6 +155,82 @@ std::string BuildTabPropertyEvent(int tab_id,
       .AddString("key", key)
       .AddBool("value", value)
       .Build();
+}
+
+std::string QuoteForRestartShell(const std::string& value) {
+  std::string out = "'";
+  for (char c : value) {
+    if (c == '\'') {
+      out += "'\\''";
+    } else {
+      out += c;
+    }
+  }
+  out += "'";
+  return out;
+}
+
+bool RestartBrowserProcess() {
+  CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
+  if (!command_line) {
+    return false;
+  }
+
+  const std::string executable_path = otf::GetExecutablePath();
+  if (executable_path.empty()) {
+    return false;
+  }
+
+  CefCommandLine::ArgumentList arguments;
+  command_line->GetArguments(arguments);
+
+#if defined(_WIN32)
+  auto quote_windows = [](const std::string& value) {
+    std::string out = "\"";
+    for (char c : value) {
+      if (c == '"') {
+        out += "\\\"";
+      } else {
+        out += c;
+      }
+    }
+    out += "\"";
+    return out;
+  };
+
+  std::string command_line_str = quote_windows(executable_path);
+  for (const auto& arg : arguments) {
+    command_line_str += " ";
+    command_line_str += quote_windows(arg.ToString());
+  }
+
+  STARTUPINFOA startup_info;
+  ZeroMemory(&startup_info, sizeof(startup_info));
+  startup_info.cb = sizeof(startup_info);
+  PROCESS_INFORMATION process_info;
+  ZeroMemory(&process_info, sizeof(process_info));
+  std::vector<char> mutable_command_line(command_line_str.begin(),
+                                         command_line_str.end());
+  mutable_command_line.push_back('\0');
+  const BOOL started = CreateProcessA(
+      nullptr, mutable_command_line.data(), nullptr, nullptr, FALSE,
+      CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &startup_info, &process_info);
+  if (!started) {
+    return false;
+  }
+  CloseHandle(process_info.hThread);
+  CloseHandle(process_info.hProcess);
+  return true;
+#else
+  std::string command = QuoteForRestartShell(executable_path);
+  for (const auto& arg : arguments) {
+    command += " ";
+    command += QuoteForRestartShell(arg.ToString());
+  }
+  command += " >/dev/null 2>&1 &";
+  const int result = std::system(command.c_str());
+  return result == 0;
+#endif
 }
 
 int ToRoundedZoomPercent(double zoom_level) {
@@ -358,6 +437,250 @@ bool ParseFindbarFindRequest(const std::string& raw_json,
   return request->tab_id >= 0;
 }
 
+struct ResetRequest {
+  bool startup = true;
+  bool search_engine = true;
+  bool cookies = true;
+  bool cache = true;
+  bool ssl = true;
+  bool service_workers = true;
+  bool permissions = true;
+  bool storage = true;
+  bool bookmarks = false;
+  bool history = false;
+  bool downloads = false;
+  bool passwords = false;
+};
+
+struct ResetResult {
+  std::vector<std::string> completed;
+  std::vector<std::string> pending_restart;
+  std::vector<std::string> unsupported;
+  std::vector<std::string> failed;
+};
+
+bool ParseResetRequest(const std::string& raw_json, ResetRequest* request) {
+  if (!request) {
+    return false;
+  }
+
+  CefRefPtr<CefValue> root =
+      CefParseJSON(raw_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return false;
+  }
+
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict) {
+    return false;
+  }
+
+  const char* keys[] = {"startup",      "searchEngine", "cookies",
+                        "cache",        "ssl",          "serviceWorkers",
+                        "permissions",  "storage",      "bookmarks",
+                        "history",      "downloads",    "passwords"};
+  for (const auto* key : keys) {
+    if (!dict->HasKey(key)) {
+      continue;
+    }
+    if (dict->GetType(key) != VTYPE_BOOL) {
+      return false;
+    }
+  }
+
+  request->startup = dict->HasKey("startup") ? dict->GetBool("startup") : true;
+  request->search_engine =
+      dict->HasKey("searchEngine") ? dict->GetBool("searchEngine") : true;
+  request->cookies = dict->HasKey("cookies") ? dict->GetBool("cookies") : true;
+  request->cache = dict->HasKey("cache") ? dict->GetBool("cache") : true;
+  request->ssl = dict->HasKey("ssl") ? dict->GetBool("ssl") : true;
+  request->service_workers =
+      dict->HasKey("serviceWorkers") ? dict->GetBool("serviceWorkers") : true;
+  request->permissions =
+      dict->HasKey("permissions") ? dict->GetBool("permissions") : true;
+  request->storage = dict->HasKey("storage") ? dict->GetBool("storage") : true;
+  request->bookmarks =
+      dict->HasKey("bookmarks") ? dict->GetBool("bookmarks") : false;
+  request->history = dict->HasKey("history") ? dict->GetBool("history") : false;
+  request->downloads =
+      dict->HasKey("downloads") ? dict->GetBool("downloads") : false;
+  request->passwords =
+      dict->HasKey("passwords") ? dict->GetBool("passwords") : false;
+  return true;
+}
+
+class ResetCompletionState
+    : public CefBaseRefCounted {
+ public:
+  explicit ResetCompletionState(
+      CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback)
+      : callback_(callback) {}
+
+  void AddPending(const std::string& name) {
+    (void)name;
+    ++pending_ops_;
+  }
+
+  void MarkCompleted(const std::string& name) {
+    completed_.push_back(name);
+  }
+
+  void MarkPendingRestart(const std::string& name) {
+    pending_restart_.push_back(name);
+  }
+
+  void MarkUnsupported(const std::string& name) {
+    unsupported_.push_back(name);
+  }
+
+  void MarkFailed(const std::string& name) {
+    failed_.push_back(name);
+  }
+
+  void FinishOp() {
+    if (pending_ops_ > 0) {
+      --pending_ops_;
+    }
+    MaybeFinalize();
+  }
+
+  void MaybeFinalize() {
+    if (finished_ || pending_ops_ > 0 || !callback_) {
+      return;
+    }
+    finished_ = true;
+    JsonObjectBuilder builder;
+    builder.AddBool("ok", failed_.empty());
+
+    std::string completed_json = "[";
+    for (size_t i = 0; i < completed_.size(); ++i) {
+      if (i > 0) completed_json += ",";
+      completed_json += JsonString(completed_[i]);
+    }
+    completed_json += "]";
+
+    std::string pending_json = "[";
+    for (size_t i = 0; i < pending_restart_.size(); ++i) {
+      if (i > 0) pending_json += ",";
+      pending_json += JsonString(pending_restart_[i]);
+    }
+    pending_json += "]";
+
+    std::string unsupported_json = "[";
+    for (size_t i = 0; i < unsupported_.size(); ++i) {
+      if (i > 0) unsupported_json += ",";
+      unsupported_json += JsonString(unsupported_[i]);
+    }
+    unsupported_json += "]";
+
+    std::string failed_json = "[";
+    for (size_t i = 0; i < failed_.size(); ++i) {
+      if (i > 0) failed_json += ",";
+      failed_json += JsonString(failed_[i]);
+    }
+    failed_json += "]";
+
+    builder.AddRaw("completed", completed_json)
+        .AddRaw("pendingRestart", pending_json)
+        .AddRaw("unsupported", unsupported_json)
+        .AddRaw("failed", failed_json);
+    builder.AddBool("requiresRestart", !pending_restart_.empty());
+    callback_->Success(builder.Build());
+  }
+
+  IMPLEMENT_REFCOUNTING(ResetCompletionState);
+
+ private:
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback_;
+  int pending_ops_ = 0;
+  bool finished_ = false;
+  std::vector<std::string> completed_;
+  std::vector<std::string> pending_restart_;
+  std::vector<std::string> unsupported_;
+  std::vector<std::string> failed_;
+};
+
+class ResetAsyncCallback : public CefCompletionCallback,
+                           public CefDeleteCookiesCallback {
+ public:
+  ResetAsyncCallback(CefRefPtr<ResetCompletionState> state, std::string name)
+      : state_(state), name_(std::move(name)) {}
+
+  void OnComplete() override {
+    if (state_) {
+      state_->MarkCompleted(name_);
+      state_->FinishOp();
+    }
+  }
+
+  void OnComplete(int num_deleted) override {
+    (void)num_deleted;
+    if (state_) {
+      state_->MarkCompleted(name_);
+      state_->FinishOp();
+    }
+  }
+
+ private:
+  CefRefPtr<ResetCompletionState> state_;
+  std::string name_;
+
+  IMPLEMENT_REFCOUNTING(ResetAsyncCallback);
+};
+
+std::string BuildResetSettingsJson(const std::string& current_settings_json) {
+  bool history_enabled = false;
+  bool downloads_enabled = false;
+  bool https_only = false;
+  bool block_insecure = true;
+  std::string appearance_mode = "auto";
+  auto is_allowed_appearance_mode = [](const std::string& mode) {
+    return mode == "auto" || mode == "light" || mode == "dark";
+  };
+
+  CefRefPtr<CefValue> root =
+      CefParseJSON(current_settings_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (root && root->GetType() == VTYPE_DICTIONARY) {
+    CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+    if (dict) {
+      if (dict->HasKey("historyEnabled") &&
+          dict->GetType("historyEnabled") == VTYPE_BOOL) {
+        history_enabled = dict->GetBool("historyEnabled");
+      }
+      if (dict->HasKey("downloadsEnabled") &&
+          dict->GetType("downloadsEnabled") == VTYPE_BOOL) {
+        downloads_enabled = dict->GetBool("downloadsEnabled");
+      }
+      if (dict->HasKey("httpsOnly") &&
+          dict->GetType("httpsOnly") == VTYPE_BOOL) {
+        https_only = dict->GetBool("httpsOnly");
+      }
+      if (dict->HasKey("blockInsecure") &&
+          dict->GetType("blockInsecure") == VTYPE_BOOL) {
+        block_insecure = dict->GetBool("blockInsecure");
+      }
+      if (dict->HasKey("appearanceMode") &&
+          dict->GetType("appearanceMode") == VTYPE_STRING) {
+        appearance_mode = dict->GetString("appearanceMode");
+        if (!is_allowed_appearance_mode(appearance_mode)) {
+          appearance_mode = "auto";
+        }
+      }
+    }
+  }
+
+  JsonObjectBuilder builder;
+  return builder.AddNull("searchEngine")
+      .AddBool("historyEnabled", history_enabled)
+      .AddBool("downloadsEnabled", downloads_enabled)
+      .AddString("startupBehavior", "newtab")
+      .AddRaw("startupUrls", "[]")
+      .AddBool("httpsOnly", https_only)
+      .AddBool("blockInsecure", block_insecure)
+      .AddString("appearanceMode", appearance_mode)
+      .Build();
+}
+
 std::string BuildHistoryJson(const std::vector<HistoryEntry>& items) {
   std::ostringstream out;
   out << "[";
@@ -517,6 +840,146 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       } else {
         callback->Failure(1, "Invalid settings payload");
       }
+      return true;
+    }
+
+    if (msg.find("reset-browser-data:") == 0) {
+      ResetRequest request;
+      if (!ParseResetRequest(msg.substr(19), &request)) {
+        callback->Failure(1, "Invalid reset payload");
+        return true;
+      }
+
+      CefRefPtr<ResetCompletionState> state =
+          new ResetCompletionState(callback);
+
+      const std::string current_settings = otf::LoadSettingsJson();
+      const std::string reset_settings = BuildResetSettingsJson(current_settings);
+      std::string normalized_settings;
+      if (otf::SaveSettingsJson(reset_settings, &normalized_settings)) {
+        state->MarkCompleted("settings");
+        handler->SendEvent(JsonObjectBuilder()
+                               .AddString("key", "settings-changed")
+                               .AddRaw("settings", normalized_settings)
+                               .Build());
+      } else {
+        state->MarkFailed("settings");
+      }
+
+      if (request.history) {
+        if (handler->store_ && handler->store_->ClearHistory()) {
+          state->MarkCompleted("history");
+          if (handler->tab_manager_) {
+            for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
+              const std::string url = handler->tab_manager_->GetUrl(tab_id);
+              if (IsPersistableWebUrl(url) && !IsInternalBrowserUiUrl(url)) {
+                handler->tab_manager_->SetHistorySuppressedUrl(tab_id, url);
+              }
+            }
+          }
+        } else {
+          state->MarkFailed("history");
+        }
+      }
+
+      if (request.bookmarks) {
+        if (handler->store_ && handler->store_->ClearBookmarks()) {
+          state->MarkCompleted("bookmarks");
+          if (handler->tab_manager_) {
+            for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
+              handler->NotifyBookmarkStateForTab(tab_id);
+            }
+          } else {
+            handler->SendEvent(JsonObjectBuilder()
+                                   .AddString("key", "bookmarks-changed")
+                                   .AddBool("bookmarked", false)
+                                   .Build());
+          }
+        } else {
+          state->MarkFailed("bookmarks");
+        }
+      }
+
+      if (request.downloads) {
+        if (handler->store_ && handler->store_->ClearDownloads()) {
+          for (const auto& entry : handler->download_callbacks_) {
+            if (entry.second) {
+              entry.second->Cancel();
+            }
+          }
+          handler->downloads_.clear();
+          handler->download_callbacks_.clear();
+          handler->runtime_download_ids_.clear();
+          handler->NotifyDownloadsChanged();
+          handler->NotifyDownloadBadge();
+          state->MarkCompleted("downloads");
+        } else {
+          state->MarkFailed("downloads");
+        }
+      }
+
+      if (request.cookies) {
+        CefRefPtr<CefCookieManager> cookie_manager =
+            CefCookieManager::GetGlobalManager(nullptr);
+        if (cookie_manager) {
+          state->AddPending("cookies");
+          cookie_manager->DeleteCookies("", "", new ResetAsyncCallback(state, "cookies"));
+        } else {
+          state->MarkFailed("cookies");
+        }
+      }
+
+      CefRefPtr<CefRequestContext> request_context =
+          CefRequestContext::GetGlobalContext();
+      if (request.cache && request_context) {
+#if CEF_API_ADDED(14400)
+        state->AddPending("cache");
+        request_context->ClearHttpCache(new ResetAsyncCallback(state, "cache"));
+#else
+        state->MarkUnsupported("cache");
+#endif
+      } else if (request.cache) {
+        state->MarkFailed("cache");
+      }
+
+      if (request.ssl && request_context) {
+        state->AddPending("ssl-exceptions");
+        request_context->ClearCertificateExceptions(
+            new ResetAsyncCallback(state, "ssl-exceptions"));
+        state->AddPending("http-auth");
+        request_context->ClearHttpAuthCredentials(
+            new ResetAsyncCallback(state, "http-auth"));
+        state->AddPending("connections");
+        request_context->CloseAllConnections(
+            new ResetAsyncCallback(state, "connections"));
+      } else if (request.ssl) {
+        state->MarkFailed("ssl");
+      }
+
+      if (request.service_workers) {
+        state->MarkUnsupported("serviceWorkers");
+      }
+      if (request.permissions) {
+        state->MarkUnsupported("permissions");
+      }
+      if (request.storage) {
+        state->MarkUnsupported("storage");
+      }
+      if (request.passwords) {
+        state->MarkUnsupported("passwords");
+      }
+
+      state->MaybeFinalize();
+      return true;
+    }
+
+    if (msg == "restart-browser") {
+      if (!RestartBrowserProcess()) {
+        callback->Failure(1, "Unable to restart browser");
+        return true;
+      }
+      callback->Success("");
+      handler->CloseAllBrowsers(false);
       return true;
     }
 
@@ -1117,7 +1580,8 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
   if (view) {
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
     const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
-    if (store_ && IsPersistableWebUrl(url) && !IsInternalBrowserUiUrl(url)) {
+    if (store_ && otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
+        !IsInternalBrowserUiUrl(url)) {
       store_->UpdateHistoryTitle(url, title.ToString());
     }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
@@ -1142,6 +1606,14 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
 
       if (url_str.find("browser://") == 0) {
         return;
+      }
+
+      if (tab_manager_) {
+        const std::string suppressed_url =
+            tab_manager_->GetHistorySuppressedUrl(view->GetID());
+        if (!suppressed_url.empty() && url_str != suppressed_url) {
+          tab_manager_->SetHistorySuppressedUrl(view->GetID(), "");
+        }
       }
 
       if (tab_manager_ && tab_manager_->HasSslError(view->GetID()) &&
@@ -1234,8 +1706,12 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
                     .Build());
     }
     const std::string current = tab_manager_->GetUrl(tab_id);
-    if (IsPersistableWebUrl(url) && !IsInternalBrowserUiUrl(url) &&
-        (current.empty() || current.rfind("browser://", 0) != 0)) {
+    const std::string suppressed_url =
+        tab_manager_->GetHistorySuppressedUrl(tab_id);
+    if (otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
+        !IsInternalBrowserUiUrl(url) && (current.empty() ||
+        current.rfind("browser://", 0) != 0) &&
+        (suppressed_url.empty() || suppressed_url != url)) {
       store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link");
     }
     SendEvent(BuildBookmarkSyncEvent(

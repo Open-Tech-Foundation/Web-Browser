@@ -271,6 +271,14 @@ bool OtfStore::ClearHistory() {
   return Exec("DELETE FROM visits;") && Exec("DELETE FROM history;");
 }
 
+bool OtfStore::ClearBookmarks() {
+  return Exec("DELETE FROM bookmarks;");
+}
+
+bool OtfStore::ClearDownloads() {
+  return Exec("DELETE FROM downloads;");
+}
+
 int OtfStore::CreateDownload(const std::string& url,
                              const std::string& original_url,
                              const std::string& target_path,

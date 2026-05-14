@@ -55,6 +55,7 @@ class OtfStore {
   std::vector<HistoryEntry> GetHistory(int limit = 200) const;
   bool DeleteHistoryItem(int id);
   bool ClearHistory();
+  bool ClearBookmarks();
 
   int CreateDownload(const std::string& url,
                      const std::string& original_url,
@@ -64,6 +65,7 @@ class OtfStore {
                      const std::string& status);
   bool UpdateDownload(const PersistedDownload& download);
   std::vector<PersistedDownload> GetDownloads(int limit = 200) const;
+  bool ClearDownloads();
   bool DeleteFinishedDownloads();
 
   bool AddBookmark(const std::string& url, const std::string& title);

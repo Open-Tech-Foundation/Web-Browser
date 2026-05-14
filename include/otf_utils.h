@@ -2,6 +2,7 @@
 #define OTF_BROWSER_UTILS_H_
 
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@ class JsonObjectBuilder {
   JsonObjectBuilder& AddInt(const std::string& key, int value);
   JsonObjectBuilder& AddBool(const std::string& key, bool value);
   JsonObjectBuilder& AddRaw(const std::string& key, const std::string& raw_json);
+  JsonObjectBuilder& AddNull(const std::string& key);
   std::string Build() const;
 
  private:
@@ -23,12 +25,14 @@ class JsonObjectBuilder {
 };
 
 std::string GetExecutableDir();
+std::string GetExecutablePath();
 std::string GetHomeDir();
 std::string GetSettingsFilePath();
 std::string GetDownloadsDir();
 std::string SanitizeFilename(const std::string& filename);
 std::string BuildDownloadPath(const std::string& suggested_name);
 std::string GetDefaultSettingsJson();
+bool IsHistoryEnabled();
 bool IsAllowedSearchEngineId(const std::string& search_engine_id);
 bool NormalizeSettingsJson(const std::string& raw_json, std::string* normalized_json);
 std::string LoadSettingsJson();

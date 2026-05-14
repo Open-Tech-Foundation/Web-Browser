@@ -31,6 +31,23 @@ const SearchHero = ({ tabId }) => {
   const inputRef = useRef(null);
 
   useEffect(() => {
+    const handleSettingsChanged = (event) => {
+      const nextEngine = event.detail?.searchEngine || '';
+      setEngine(nextEngine);
+      try {
+        if (nextEngine) {
+          localStorage.setItem('otf_last_engine', nextEngine);
+        } else {
+          localStorage.removeItem('otf_last_engine');
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('otf-settings-changed', handleSettingsChanged);
+    return () => window.removeEventListener('otf-settings-changed', handleSettingsChanged);
+  }, []);
+
+  useEffect(() => {
     if (tabId != null) {
       stateByTab[tabId] = { query, engine };
     }
@@ -56,6 +73,9 @@ const SearchHero = ({ tabId }) => {
             if (s.searchEngine) {
                setEngine(s.searchEngine);
                localStorage.setItem('otf_last_engine', s.searchEngine);
+            } else {
+               localStorage.removeItem('otf_last_engine');
+               setEngine('');
             }
           } catch (e) {}
         }

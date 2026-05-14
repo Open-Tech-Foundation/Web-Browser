@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <libgen.h>
 #include <limits.h>
 #include <pwd.h>
@@ -27,7 +28,6 @@ namespace otf {
 namespace {
 
 constexpr const char* kBrowserSchemePrefix = "browser://";
-constexpr const char* kDefaultSearchEngine = "";
 const char* kAllowedSearchEngines[] = {
     "",         "google",   "bing",     "yahoo",   "duckduckgo",
     "baidu",    "yandex",   "ecosia",   "naver",   "startpage"};
@@ -87,7 +87,7 @@ bool IsLoopbackHost(const std::string& host) {
          lower_host == "::1";
 }
 
-std::string BuildSettingsJson(const std::string& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode) {
+std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode) {
   std::string urls_json = "[";
   for (size_t i = 0; i < startup_urls.size(); ++i) {
     if (i > 0) urls_json += ",";
@@ -95,8 +95,14 @@ std::string BuildSettingsJson(const std::string& search_engine_id, bool history_
   }
   urls_json += "]";
 
-  return JsonObjectBuilder()
-      .AddString("searchEngine", search_engine_id)
+  JsonObjectBuilder builder;
+  if (search_engine_id.has_value()) {
+    builder.AddString("searchEngine", *search_engine_id);
+  } else {
+    builder.AddNull("searchEngine");
+  }
+
+  return builder
       .AddBool("historyEnabled", history_enabled)
       .AddBool("downloadsEnabled", downloads_enabled)
       .AddString("startupBehavior", startup_behavior)
@@ -170,6 +176,11 @@ JsonObjectBuilder& JsonObjectBuilder::AddRaw(const std::string& key,
   return *this;
 }
 
+JsonObjectBuilder& JsonObjectBuilder::AddNull(const std::string& key) {
+  fields_.push_back(JsonString(key) + ":null");
+  return *this;
+}
+
 std::string JsonObjectBuilder::Build() const {
   std::ostringstream out;
   out << "{";
@@ -188,6 +199,19 @@ std::string GetExecutableDir() {
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
   if (count != -1) {
     return std::string(dirname(result));
+  }
+  return "";
+}
+
+std::string GetExecutablePath() {
+  char result[PATH_MAX];
+  ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
+  if (count != -1) {
+    return std::string(result, static_cast<size_t>(count));
+  }
+  const std::string dir = GetExecutableDir();
+  if (!dir.empty()) {
+    return dir + "/otf-browser";
   }
   return "";
 }
@@ -285,7 +309,22 @@ std::string BuildDownloadPath(const std::string& suggested_name) {
 }
 
 std::string GetDefaultSettingsJson() {
-  return BuildSettingsJson(kDefaultSearchEngine, false, false, "newtab", {}, false, true, "auto");
+  return BuildSettingsJson(std::nullopt, false, false, "newtab", {}, false, true, "auto");
+}
+
+bool IsHistoryEnabled() {
+  CefRefPtr<CefValue> root =
+      CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return false;
+  }
+
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey("historyEnabled") ||
+      dict->GetType("historyEnabled") != VTYPE_BOOL) {
+    return false;
+  }
+  return dict->GetBool("historyEnabled");
 }
 
 bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
@@ -319,13 +358,22 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     }
   }
 
-  std::string search_engine = kDefaultSearchEngine;
+  std::optional<std::string> search_engine;
   if (dict->HasKey("searchEngine")) {
-    if (dict->GetType("searchEngine") != VTYPE_STRING) {
-      return false;
-    }
-    search_engine = dict->GetString("searchEngine");
-    if (!IsAllowedSearchEngineId(search_engine)) {
+    const auto search_engine_type = dict->GetType("searchEngine");
+    if (search_engine_type == VTYPE_NULL) {
+      search_engine.reset();
+    } else if (search_engine_type == VTYPE_STRING) {
+      const std::string value = dict->GetString("searchEngine");
+      if (value.empty()) {
+        search_engine.reset();
+      } else {
+        if (!IsAllowedSearchEngineId(value)) {
+          return false;
+        }
+        search_engine = value;
+      }
+    } else {
       return false;
     }
   }
@@ -401,8 +449,9 @@ bool NormalizeSettingsJson(const std::string& raw_json,
   }
 
   if (normalized_json) {
-    *normalized_json = BuildSettingsJson(search_engine, history_enabled, downloads_enabled, 
-                                        startup_behavior, startup_urls, https_only, 
+    *normalized_json = BuildSettingsJson(search_engine, history_enabled,
+                                        downloads_enabled, startup_behavior,
+                                        startup_urls, https_only,
                                         block_insecure, appearance_mode);
   }
   return true;
