@@ -63,6 +63,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateFindBarOverlay();
     app->CreateZoomBarOverlay();
     app->CreateDownloadsOverlay();
+    app->CreateCertificateOverlay();
     app->CreateAppMenuOverlay();
 
     if (content_view_) {
@@ -83,6 +84,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionFindBarOverlay();
       app->PositionZoomBarOverlay();
       app->PositionDownloadsOverlay();
+      app->PositionCertificateOverlay();
       app->PositionAppMenuOverlay();
     }
   }
@@ -252,6 +254,11 @@ void OtfApp::SwitchTab(int tab_id) {
     content_panel_->InvalidateLayout();
     window_->Layout();
     current_tab_id_ = tab_id;
+
+    if (certificate_overlay_ && certificate_overlay_->IsVisible()) {
+      DestroyCertificateOverlay();
+    }
+
     if (handler) {
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "active-tab-changed")
@@ -371,6 +378,25 @@ void OtfApp::CreateDownloadsOverlay() {
   downloads_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionDownloadsOverlay();
+}
+
+void OtfApp::CreateCertificateOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/certificate.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/certificate.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 420));
+  view->SetID(kCertificateBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  certificate_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionCertificateOverlay();
 }
 
 void OtfApp::CreateAppMenuOverlay() {
@@ -510,6 +536,21 @@ void OtfApp::PositionDownloadsOverlay() {
       CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
 }
 
+void OtfApp::PositionCertificateOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !certificate_overlay_) return;
+
+  constexpr int kOverlayWidth = 420;
+  constexpr int kOverlayHeight = 420;
+  constexpr int kOverlayTop = 60;
+  constexpr int kOverlayRightMargin = 18;
+
+  CefRect bounds = window_->GetBounds();
+  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
+  certificate_overlay_->SetBounds(
+      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+}
+
 void OtfApp::ShowDownloadsOverlay() {
   CEF_REQUIRE_UI_THREAD();
   OtfHandler* handler = OtfHandler::GetInstance();
@@ -530,6 +571,55 @@ void OtfApp::HideDownloadsOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (downloads_overlay_) {
     downloads_overlay_->SetVisible(false);
+  }
+}
+
+void OtfApp::ShowCertificateOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler) return;
+
+  if (!certificate_overlay_) {
+    CreateCertificateOverlay();
+  }
+  if (!certificate_overlay_) return;
+
+  PositionCertificateOverlay();
+  RefreshCertificateOverlay();
+  certificate_overlay_->SetVisible(true);
+  if (certificate_overlay_->GetContentsView()) {
+    certificate_overlay_->GetContentsView()->RequestFocus();
+  }
+  if (handler->certificate_browser_) {
+    handler->certificate_browser_->GetHost()->SetFocus(true);
+  }
+}
+
+void OtfApp::HideCertificateOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  DestroyCertificateOverlay();
+  FocusCurrentTabContent();
+}
+
+void OtfApp::RefreshCertificateOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !handler->certificate_subscription_ || current_tab_id_ < 0) {
+    return;
+  }
+
+  handler->certificate_subscription_->Success(
+      JsonObjectBuilder()
+          .AddString("key", "certificate-restore")
+          .AddInt("tabId", current_tab_id_)
+          .Build());
+}
+
+void OtfApp::DestroyCertificateOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (certificate_overlay_) {
+    certificate_overlay_->Destroy();
+    certificate_overlay_ = nullptr;
   }
 }
 

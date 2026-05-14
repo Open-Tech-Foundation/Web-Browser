@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import SecurityIconButton from './SecurityIconButton';
 
-const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError }, ref) => {
+const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate }, ref) => {
   const [url, setUrl] = useState(initialUrl);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef(null);
@@ -13,6 +14,9 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   useImperativeHandle(ref, () => ({
     focus: () => {
       inputRef.current?.focus();
+    },
+    blur: () => {
+      inputRef.current?.blur();
     }
   }));
 
@@ -48,32 +52,25 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
                               url?.startsWith('data:text/html');
   const isSecure = (url?.startsWith('https://') || isLocalHttp) && !sslError;
   const isInsecure = Boolean(sslError || isBlockedHttp || isInsecureBlockPage);
+  const showSecurityIcon = isSecure || isInsecure;
   const visibleIsBookmarked = Boolean(isBookmarked);
   const displayUrl = isFocused ? url : getDisplayUrl(url);
 
   return (
     <div className="flex flex-1 items-center h-8 bg-input-light dark:bg-input-dark rounded-lg px-3 border border-transparent focus-within:border-brand-orange transition-all duration-200 mx-2 group relative">
-      {/* Security Icon */}
-      {((isSecure || isInsecure) && !isFocused) && (
-        <div className={`mr-2 animate-in fade-in zoom-in duration-300 ${isInsecure ? 'text-red-500' : 'text-green-500'}`}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            {isInsecure ? (
-              <>
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </>
-            ) : (
-              <polyline points="9 12 11 14 15 10" />
-            )}
-          </svg>
-        </div>
+      {showSecurityIcon && (
+        <SecurityIconButton
+          insecure={isInsecure}
+          onClick={onShowCertificate}
+        />
       )}
-      
+
       <input
         ref={inputRef}
         type="text"
-        className="flex-1 bg-transparent border-none outline-none text-slate-900 dark:text-slate-100 text-[13px] font-medium placeholder-slate-400 min-w-0"
+        className={`flex-1 bg-transparent border-none outline-none text-slate-900 dark:text-slate-100 text-[13px] font-medium placeholder-slate-400 min-w-0 relative z-10 ${
+          showSecurityIcon ? 'pl-8' : ''
+        }`}
         value={displayUrl}
         onFocus={handleFocus}
         onBlur={handleBlur}
@@ -85,7 +82,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
       {url && !url.startsWith('browser://') && (
         <button
           onClick={onToggleBookmark}
-          className={`ml-2 p-1 rounded-md transition-all active:scale-90 ${
+          className={`ml-2 p-1 rounded-md transition-all active:scale-90 relative z-10 ${
             visibleIsBookmarked ? 'text-[#D4AF37]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
           }`}
           title={visibleIsBookmarked ? 'Remove bookmark' : 'Bookmark this page'}

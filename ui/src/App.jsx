@@ -138,6 +138,10 @@ const App = () => {
               dispatch({ type: 'REMOVE_TAB', payload: event.id });
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
+              const tab = stateRef.current.tabs.find(t => t.id === event.id);
+              if (tab && tab.url) {
+                addressBarRef.current?.blur();
+              }
             } else if (event.key === 'downloads-badge') {
               setDownloadBadge(Number(event.value) || 0);
               setHasDownloads(Number(event.total) > 0);
@@ -263,6 +267,12 @@ const App = () => {
     });
   };
 
+  const handleShowCertificate = () => {
+    window.cefQuery({
+      request: 'toggle-certificate'
+    });
+  };
+
   const currentActiveTab = state.tabs.find(t => t.id === state.activeTabId);
   const downloadButtonClass = downloadBadge > 0 ? 'animate-download-pulse text-brand-orange' : '';
 
@@ -308,6 +318,7 @@ const App = () => {
             isBookmarked={Boolean(currentActiveTab?.bookmarked)}
             onToggleBookmark={handleToggleBookmark}
             sslError={currentActiveTab?.sslError}
+            onShowCertificate={handleShowCertificate}
           />
           <div className="flex items-center ml-1 gap-1">
             <NavButton

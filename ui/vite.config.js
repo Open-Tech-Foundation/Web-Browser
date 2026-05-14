@@ -21,7 +21,8 @@ export default defineConfig({
         downloads: resolve(__dirname, 'downloads.html'),
         appmenu: resolve(__dirname, 'appmenu.html'),
         security: resolve(__dirname, 'security.html'),
-        'insecure-blocked': resolve(__dirname, 'insecure-blocked.html')
+        'insecure-blocked': resolve(__dirname, 'insecure-blocked.html'),
+        certificate: resolve(__dirname, 'certificate.html')
       }
     }
   }

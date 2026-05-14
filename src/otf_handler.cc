@@ -7,10 +7,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <sstream>
 #include <string>
 #include <fstream>
+#include <vector>
 #include "otf_utils.h"
 
 #if defined(_WIN32)
@@ -25,6 +27,7 @@
 #include "include/cef_request_context.h"
 #include "include/cef_ssl_info.h"
 #include "include/cef_values.h"
+#include "include/internal/cef_time.h"
 #include "include/views/cef_browser_view.h"
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_closure_task.h"
@@ -745,6 +748,115 @@ std::string BuildBookmarkSyncEvent(int tab_id,
       .Build();
 }
 
+std::string BuildStringArrayJson(const std::vector<CefString>& values) {
+  std::string json = "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      json += ",";
+    }
+    json += JsonString(values[i].ToString());
+  }
+  json += "]";
+  return json;
+}
+
+std::string BuildCertPrincipalJson(CefRefPtr<CefX509CertPrincipal> principal) {
+  JsonObjectBuilder builder;
+  std::vector<CefString> organizations;
+  if (principal) {
+    principal->GetOrganizationNames(organizations);
+  }
+
+  if (!principal) {
+    return builder.AddString("displayName", "")
+        .AddString("commonName", "")
+        .AddRaw("organization", BuildStringArrayJson(organizations))
+        .Build();
+  }
+
+  return builder.AddString("displayName", principal->GetDisplayName().ToString())
+      .AddString("commonName", principal->GetCommonName().ToString())
+      .AddRaw("organization", BuildStringArrayJson(organizations))
+      .Build();
+}
+
+std::string BuildCertificateValidityJson(CefRefPtr<CefX509Certificate> cert) {
+  time_t not_before = 0;
+  time_t not_after = 0;
+  if (cert) {
+    cef_time_t valid_start{};
+    cef_time_t valid_expiry{};
+    if (cef_time_from_basetime(cert->GetValidStart(), &valid_start)) {
+      cef_time_to_timet(&valid_start, &not_before);
+    }
+    if (cef_time_from_basetime(cert->GetValidExpiry(), &valid_expiry)) {
+      cef_time_to_timet(&valid_expiry, &not_after);
+    }
+  }
+  return JsonObjectBuilder()
+      .AddRaw("notBefore", std::to_string(static_cast<int64_t>(not_before)))
+      .AddRaw("notAfter", std::to_string(static_cast<int64_t>(not_after)))
+      .Build();
+}
+
+std::string BuildCurrentCertificateJson(CefRefPtr<CefBrowser> browser,
+                                       OtfHandler* handler,
+                                       int tab_id,
+                                       bool* ok,
+                                       std::string* reason) {
+  if (ok) {
+    *ok = false;
+  }
+
+  if (!browser || tab_id < 0) {
+    if (reason) {
+      *reason = "No active tab";
+    }
+    return JsonObjectBuilder().AddBool("ok", false)
+        .AddBool("hasCertificateError", false)
+        .AddString("reason", reason ? *reason : "No active tab")
+        .Build();
+  }
+
+  CefRefPtr<CefNavigationEntry> entry =
+      browser->GetHost() ? browser->GetHost()->GetVisibleNavigationEntry()
+                         : nullptr;
+  CefRefPtr<CefSSLStatus> ssl_status = entry ? entry->GetSSLStatus() : nullptr;
+  CefRefPtr<CefX509Certificate> certificate =
+      ssl_status ? ssl_status->GetX509Certificate() : nullptr;
+  const std::string tab_url =
+      handler && handler->tab_manager_ ? handler->tab_manager_->GetUrl(tab_id) : "";
+  const std::string entry_url = entry ? entry->GetURL().ToString() : "";
+  const std::string url = !tab_url.empty() ? tab_url : entry_url;
+  if (!certificate) {
+    if (reason) {
+      *reason = "No certificate available for current tab";
+    }
+    return JsonObjectBuilder().AddBool("ok", false)
+        .AddBool("hasCertificateError", ssl_status &&
+                                        CefIsCertStatusError(ssl_status->GetCertStatus()))
+        .AddString("reason", reason ? *reason : "No certificate available for current tab")
+        .Build();
+  }
+
+  if (ok) {
+    *ok = true;
+  }
+  if (reason) {
+    reason->clear();
+  }
+
+  return JsonObjectBuilder()
+      .AddBool("ok", true)
+      .AddBool("hasCertificateError",
+               ssl_status && CefIsCertStatusError(ssl_status->GetCertStatus()))
+      .AddString("url", url)
+      .AddRaw("issuedTo", BuildCertPrincipalJson(certificate->GetSubject()))
+      .AddRaw("issuedBy", BuildCertPrincipalJson(certificate->GetIssuer()))
+      .AddRaw("validity", BuildCertificateValidityJson(certificate))
+      .Build();
+}
+
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
  public:
@@ -790,6 +902,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "certificate-subscribe") {
+      handler->certificate_subscription_ = callback;
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        handler->certificate_subscription_->Success(
+            JsonObjectBuilder()
+                .AddString("key", "certificate-restore")
+                .AddInt("tabId", app->GetCurrentTabId())
+                .Build());
+      }
+      return true;
+    }
+
     if (msg == "get-tabs") {
       std::stringstream ss;
       ss << "[";
@@ -826,6 +951,31 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "get-settings") {
       callback->Success(otf::LoadSettingsJson());
+      return true;
+    }
+
+    if (msg == "get-current-certificate") {
+      OtfApp* app = OtfApp::GetInstance();
+      const int tab_id = app ? app->GetCurrentTabId() : -1;
+      CefRefPtr<CefBrowser> tab_browser =
+          handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id) : nullptr;
+      callback->Success(
+          BuildCurrentCertificateJson(tab_browser, handler, tab_id, nullptr, nullptr));
+      return true;
+    }
+
+    if (msg.find("get-certificate-by-tab-id:") == 0) {
+      const std::string tab_id_str = msg.substr(26);
+      char* parse_end = nullptr;
+      errno = 0;
+      long parsed_tab_id = std::strtol(tab_id_str.c_str(), &parse_end, 10);
+      int tab_id = (errno == 0 && parse_end != tab_id_str.c_str() && *parse_end == '\0')
+                       ? static_cast<int>(parsed_tab_id)
+                       : -1;
+      CefRefPtr<CefBrowser> tab_browser =
+          handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id) : nullptr;
+      callback->Success(
+          BuildCurrentCertificateJson(tab_browser, handler, tab_id, nullptr, nullptr));
       return true;
     }
 
@@ -1255,6 +1405,22 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         app->HideDownloadsOverlay();
+      }
+      callback->Success("");
+    } else if (msg == "toggle-certificate") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
+          app->HideCertificateOverlay();
+        } else {
+          app->ShowCertificateOverlay();
+        }
+      }
+      callback->Success("");
+    } else if (msg == "hide-certificate") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideCertificateOverlay();
       }
       callback->Success("");
     } else if (msg == "open-downloads-page") {
@@ -1739,9 +1905,19 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
       ui_browser_ = browser;
     } else if (browser_view->GetID() == kFindBarBrowserViewId ||
                browser_view->GetID() == kZoomBarBrowserViewId ||
-               browser_view->GetID() == kDownloadsBrowserViewId) {
+               browser_view->GetID() == kDownloadsBrowserViewId ||
+               browser_view->GetID() == kCertificateBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
+      } else if (browser_view->GetID() == kCertificateBrowserViewId) {
+        certificate_browser_ = browser;
+        OtfApp* app = OtfApp::GetInstance();
+        if (app) {
+          app->RefreshCertificateOverlay();
+          if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
+            browser->GetHost()->SetFocus(true);
+          }
+        }
       }
     } else if (tab_manager_) {
       int tab_id = browser_view->GetID();
@@ -1777,6 +1953,12 @@ void OtfHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
       browser_list_.erase(bit);
       break;
     }
+  }
+
+  CefRefPtr<CefBrowserView> browser_view = CefBrowserView::GetForBrowser(browser);
+  if (browser_view && browser_view->GetID() == kCertificateBrowserViewId) {
+    certificate_browser_ = nullptr;
+    certificate_subscription_ = nullptr;
   }
 
   if (browser_list_.empty()) {
@@ -2202,6 +2384,10 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     if (app->zoombar_overlay_ && app->zoombar_overlay_->IsVisible()) {
       app->HideZoomBarOverlay();
       app->FocusCurrentTabContent();
+      return true;
+    }
+    if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
+      app->HideCertificateOverlay();
       return true;
     }
     if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {

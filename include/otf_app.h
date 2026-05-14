@@ -46,6 +46,7 @@ class OtfApp : public CefApp,
   void CreateFindBarOverlay();
   void CreateZoomBarOverlay();
   void CreateDownloadsOverlay();
+  void CreateCertificateOverlay();
   void CreateAppMenuOverlay();
   void FocusCurrentTabContent();
   void OpenPendingStartupTabs();
@@ -53,11 +54,16 @@ class OtfApp : public CefApp,
   void PositionFindBarOverlay();
   void PositionZoomBarOverlay();
   void PositionDownloadsOverlay();
+  void PositionCertificateOverlay();
+  void RefreshCertificateOverlay();
+  void DestroyCertificateOverlay();
   void PositionAppMenuOverlay();
   void ShowZoomBarOverlay();
   void HideZoomBarOverlay();
   void ShowDownloadsOverlay();
   void HideDownloadsOverlay();
+  void ShowCertificateOverlay();
+  void HideCertificateOverlay();
   void ShowAppMenuOverlay();
   void HideAppMenuOverlay();
 
@@ -67,6 +73,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> findbar_overlay_;
   CefRefPtr<CefOverlayController> zoombar_overlay_;
   CefRefPtr<CefOverlayController> downloads_overlay_;
+  CefRefPtr<CefOverlayController> certificate_overlay_;
   CefRefPtr<CefOverlayController> appmenu_overlay_;
 
  private:

@@ -138,6 +138,7 @@ class OtfHandler : public CefClient,
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
   CefRefPtr<CefBrowser> findbar_browser_;
+  CefRefPtr<CefBrowser> certificate_browser_;
   std::string last_closed_url_;
 
   void SendEvent(const std::string& event_json);
@@ -146,6 +147,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> findbar_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> zoombar_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> downloads_subscription_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> certificate_subscription_;
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation
