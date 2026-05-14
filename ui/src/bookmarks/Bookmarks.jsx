@@ -3,6 +3,49 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 export default function Bookmarks() {
   const [items, setItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [appearanceMode, setAppearanceMode] = useState('auto');
+
+  const applyTheme = (mode) => {
+    const root = document.documentElement;
+    if (mode === 'light') {
+      root.classList.remove('dark');
+    } else if (mode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+  };
+
+  useEffect(() => {
+    applyTheme(appearanceMode);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (appearanceMode === 'auto') applyTheme('auto');
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: "get-settings",
+        onSuccess: (response) => {
+          try {
+            const settings = JSON.parse(response);
+            setAppearanceMode(settings.appearanceMode || 'auto');
+          } catch (e) {}
+        }
+      });
+    }
+  }, []);
 
   const load = useCallback(() => {
     window.cefQuery?.({
@@ -44,28 +87,26 @@ export default function Bookmarks() {
   return (
     <div className="flex h-screen bg-main text-main overflow-hidden font-sans selection:bg-orange-500/30">
       {/* Sidebar */}
-      <aside className="w-72 bg-card/50 backdrop-blur-xl border-r border-main flex flex-col">
-        <div className="p-8">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
-              </svg>
-            </div>
-            <h1 className="text-xl font-bold tracking-tight">Bookmarks</h1>
+      <aside className="w-72 bg-card/50 backdrop-blur-xl border-r border-main flex flex-col py-8 shrink-0">
+        <div className="px-8 pb-10 flex items-center gap-3">
+          <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
+            </svg>
           </div>
-          
-          <nav className="space-y-1">
-            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-500/10 text-orange-500 font-bold text-sm transition-all border border-orange-500/20">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
-              All Bookmarks
-            </button>
-            <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-main/5 text-muted font-medium text-sm transition-all" onClick={() => window.cefQuery?.({ request: 'navigate-current:browser://history' })}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              History
-            </button>
-          </nav>
+          <h1 className="text-xl font-bold tracking-tight">Bookmarks</h1>
         </div>
+        
+        <nav className="flex-grow px-4 space-y-1">
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-500/10 text-orange-500 font-bold text-sm transition-all border border-orange-500/20 text-left">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+            All Bookmarks
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-main/5 text-muted font-medium text-sm transition-all text-left" onClick={() => window.cefQuery?.({ request: 'navigate-current:browser://history' })}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            History
+          </button>
+        </nav>
 
         <div className="mt-auto p-8">
            <div className="p-4 rounded-2xl bg-main/5 border border-main text-[10px] text-muted uppercase tracking-widest font-bold leading-relaxed">

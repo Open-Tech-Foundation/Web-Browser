@@ -5,6 +5,49 @@ import QuickLinks from './QuickLinks';
 const NewTab = () => {
   const [tabId, setTabId] = useState(null);
   const [time, setTime] = useState(new Date());
+  const [appearanceMode, setAppearanceMode] = useState('auto');
+
+  const applyTheme = (mode) => {
+    const root = document.documentElement;
+    if (mode === 'light') {
+      root.classList.remove('dark');
+    } else if (mode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+  };
+
+  useEffect(() => {
+    applyTheme(appearanceMode);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (appearanceMode === 'auto') applyTheme('auto');
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: "get-settings",
+        onSuccess: (response) => {
+          try {
+            const settings = JSON.parse(response);
+            setAppearanceMode(settings.appearanceMode || 'auto');
+          } catch (e) {}
+        }
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 60000);

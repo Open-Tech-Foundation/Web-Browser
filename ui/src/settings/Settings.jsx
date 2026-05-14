@@ -99,6 +99,34 @@ const Settings = () => {
   const [searchQuery, setSearchQuery] = useState(cached ? cached.query : '');
   const [searchEngine, setSearchEngine] = useState(cached ? cached.engine : '');
 
+  const applyTheme = (mode) => {
+    const root = document.documentElement;
+    if (mode === 'light') {
+      root.classList.remove('dark');
+    } else if (mode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+  };
+
+  useEffect(() => {
+    applyTheme(appearanceMode);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (appearanceMode === 'auto') applyTheme('auto');
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [appearanceMode]);
+
   useEffect(() => {
     if (tabId != null) {
       searchStateByTab[tabId] = { query: searchQuery, engine: searchEngine };

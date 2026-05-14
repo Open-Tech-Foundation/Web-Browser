@@ -23,6 +23,49 @@ export default function History() {
   const [items, setItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [appearanceMode, setAppearanceMode] = useState('auto');
+
+  const applyTheme = (mode) => {
+    const root = document.documentElement;
+    if (mode === 'light') {
+      root.classList.remove('dark');
+    } else if (mode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    }
+  };
+
+  useEffect(() => {
+    applyTheme(appearanceMode);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (appearanceMode === 'auto') applyTheme('auto');
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [appearanceMode]);
+
+  useEffect(() => {
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: "get-settings",
+        onSuccess: (response) => {
+          try {
+            const settings = JSON.parse(response);
+            setAppearanceMode(settings.appearanceMode || 'auto');
+          } catch (e) {}
+        }
+      });
+    }
+  }, []);
 
   const load = useCallback(() => {
     window.cefQuery?.({
