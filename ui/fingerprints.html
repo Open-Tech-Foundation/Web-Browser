@@ -202,10 +202,45 @@
       </article>
 
       <article class="card wide" id="worker-card">
-        <h2>Worker Bootstrap</h2>
+        <h2>Classic Worker</h2>
         <span class="status warn">Running</span>
         <dl></dl>
         <pre id="worker-log"></pre>
+      </article>
+
+      <article class="card wide" id="iframe-card">
+        <h2>Iframes</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="iframe-log"></pre>
+      </article>
+
+      <article class="card wide" id="module-worker-card">
+        <h2>Module Worker</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="module-worker-log"></pre>
+      </article>
+
+      <article class="card wide" id="shared-worker-card">
+        <h2>Shared Worker</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="shared-worker-log"></pre>
+      </article>
+
+      <article class="card wide" id="nested-worker-card">
+        <h2>Nested Worker</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="nested-worker-log"></pre>
+      </article>
+
+      <article class="card wide" id="worklet-card">
+        <h2>Worklets & Service Workers</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="worklet-log"></pre>
       </article>
     </section>
   </main>
@@ -253,9 +288,89 @@
     const functionLooksWrapped = (fn) =>
       typeof fn === 'function' && !/\[native code\]/.test(Function.prototype.toString.call(fn));
 
+    const summarizeProbe = (probe) => {
+      const blockedExtensions = probe.webgl?.extensionsBlocked ?? 'unknown';
+      const computeBlocked = probe.webgpu?.computeBlocked ?? 'unavailable';
+      return [
+        ['policy marker', String(Boolean(probe.marker))],
+        ['canvas wrapped', String(Boolean(probe.canvasWrapped))],
+        ['webgl vendor', String(probe.webgl?.vendor ?? 'unavailable')],
+        ['webgl renderer', String(probe.webgl?.renderer ?? 'unavailable')],
+        ['webgl extensions blocked', String(blockedExtensions)],
+        ['webgpu compute blocked', String(computeBlocked)]
+      ];
+    };
+
+    const probeCurrentContext = async () => {
+      const result = {
+        marker: Boolean(globalThis.__otfPagePolicyInjected),
+        canvasWrapped: functionLooksWrapped(globalThis.CanvasRenderingContext2D?.prototype?.getImageData),
+        workerWrapped: functionLooksWrapped(globalThis.Worker),
+        sharedWorkerWrapped: functionLooksWrapped(globalThis.SharedWorker)
+      };
+
+      try {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (gl) {
+          const extensions = gl.getSupportedExtensions() || [];
+          result.webgl = {
+            available: true,
+            vendor: gl.getParameter(37445),
+            renderer: gl.getParameter(37446),
+            maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+            anisotropy: gl.getExtension('EXT_texture_filter_anisotropic') ||
+              gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') ||
+              gl.getExtension('MOZ_EXT_texture_filter_anisotropic'),
+            debugShaders: gl.getExtension('WEBGL_debug_shaders'),
+            timerQuery: gl.getExtension('EXT_disjoint_timer_query') ||
+              gl.getExtension('EXT_disjoint_timer_query_webgl2'),
+            parallelCompile: gl.getExtension('KHR_parallel_shader_compile'),
+            extensionsBlocked: !extensions.some((name) =>
+              /debug|timer_query|texture_filter_anisotropic|parallel_shader_compile/i.test(name)
+            )
+          };
+        } else {
+          result.webgl = { available: false };
+        }
+      } catch (error) {
+        result.webgl = { error: error.message };
+      }
+
+      if (navigator.gpu) {
+        try {
+          const adapter = await navigator.gpu.requestAdapter();
+          const device = adapter && await adapter.requestDevice();
+          if (!device) {
+            result.webgpu = { available: true, computeBlocked: 'no-device' };
+          } else {
+            const shader = device.createShaderModule({
+              code: '@compute @workgroup_size(1) fn main() {}'
+            });
+            device.createComputePipeline({
+              layout: 'auto',
+              compute: { module: shader, entryPoint: 'main' }
+            });
+            result.webgpu = { available: true, computeBlocked: false };
+          }
+        } catch (error) {
+          result.webgpu = {
+            available: true,
+            computeBlocked: /compute pipelines are disabled/i.test(error.message),
+            error: `${error.name}: ${error.message}`
+          };
+        }
+      } else {
+        result.webgpu = { available: false };
+      }
+
+      return result;
+    };
+
     const runInjectionTest = () => {
       setCard('policy-card', globalThis.__otfPagePolicyInjected ? 'ok' : 'fail',
         globalThis.__otfPagePolicyInjected ? 'Policy injected' : 'Policy missing', [
+          ['user agent', navigator.userAgent],
           ['global marker', String(Boolean(globalThis.__otfPagePolicyInjected))],
           ['canvas getImageData wrapped', String(functionLooksWrapped(globalThis.CanvasRenderingContext2D?.prototype?.getImageData))],
           ['canvas toDataURL wrapped', String(functionLooksWrapped(globalThis.HTMLCanvasElement?.prototype?.toDataURL))],
@@ -376,8 +491,12 @@
         return;
       }
       const source = `
+        const functionLooksWrapped = (fn) =>
+          typeof fn === 'function' && !/\\[native code\\]/.test(Function.prototype.toString.call(fn));
         postMessage({
           marker: Boolean(globalThis.__otfPagePolicyInjected),
+          workerWrapped: functionLooksWrapped(globalThis.Worker),
+          sharedWorkerWrapped: functionLooksWrapped(globalThis.SharedWorker),
           gpuDevice: typeof globalThis.GPUDevice,
           webgl: typeof globalThis.WebGLRenderingContext
         });
@@ -399,6 +518,8 @@
         setCard('worker-card', result.marker ? 'ok' : 'fail',
           result.marker ? 'Worker policy injected' : 'Worker policy missing', [
             ['worker marker', String(result.marker)],
+            ['nested Worker wrapped', String(result.workerWrapped)],
+            ['SharedWorker wrapped', String(result.sharedWorkerWrapped)],
             ['GPUDevice in worker', String(result.gpuDevice)],
             ['WebGL in worker', String(result.webgl)]
           ]);
@@ -410,6 +531,229 @@
       }
     };
 
+    const runIframeTest = async () => {
+      const log = document.getElementById('iframe-log');
+      const source = `
+        <!doctype html><script>
+          const functionLooksWrapped = (fn) =>
+            typeof fn === 'function' && !/\\[native code\\]/.test(Function.prototype.toString.call(fn));
+          (${probeCurrentContext.toString()})()
+            .then((result) => parent.postMessage({ kind: 'fingerprint-iframe', result }, '*'))
+            .catch((error) => parent.postMessage({ kind: 'fingerprint-iframe', error: error.message }, '*'));
+        <\/script>
+      `;
+      const frame = document.createElement('iframe');
+      frame.style.display = 'none';
+      frame.srcdoc = source;
+      document.body.appendChild(frame);
+      try {
+        const message = await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('iframe timeout')), 8000);
+          const listener = (event) => {
+            if (event.source !== frame.contentWindow || event.data?.kind !== 'fingerprint-iframe') return;
+            clearTimeout(timer);
+            window.removeEventListener('message', listener);
+            resolve(event.data);
+          };
+          window.addEventListener('message', listener);
+        });
+        const result = message.result || { error: message.error };
+        log.textContent = JSON.stringify(result, null, 2);
+        setCard('iframe-card', result.marker ? 'ok' : 'fail',
+          result.marker ? 'Iframe policy injected' : 'Iframe policy missing',
+          summarizeProbe(result));
+      } catch (error) {
+        log.textContent = error.stack || String(error);
+        setCard('iframe-card', 'fail', 'Iframe failed', [['error', error.message]]);
+      } finally {
+        frame.remove();
+      }
+    };
+
+    const workerProbeSource = `
+      const functionLooksWrapped = (fn) =>
+        typeof fn === 'function' && !/\\[native code\\]/.test(Function.prototype.toString.call(fn));
+      postMessage({
+        marker: Boolean(globalThis.__otfPagePolicyInjected),
+        workerWrapped: functionLooksWrapped(globalThis.Worker),
+        sharedWorkerWrapped: functionLooksWrapped(globalThis.SharedWorker),
+        gpuDevice: typeof globalThis.GPUDevice,
+        offscreenCanvas: typeof globalThis.OffscreenCanvas,
+        webgl: typeof globalThis.WebGLRenderingContext
+      });
+    `;
+
+    const runModuleWorkerTest = async () => {
+      const log = document.getElementById('module-worker-log');
+      if (!globalThis.Worker) {
+        setCard('module-worker-card', 'warn', 'Worker unavailable', [['Worker', 'false']]);
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([workerProbeSource], { type: 'application/javascript' }));
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const worker = new Worker(url, { type: 'module' });
+          worker.onmessage = (event) => {
+            worker.terminate();
+            resolve(event.data);
+          };
+          worker.onerror = (event) => {
+            worker.terminate();
+            reject(new Error(event.message || 'module worker error'));
+          };
+        });
+        log.textContent = JSON.stringify(result, null, 2);
+        setCard('module-worker-card', result.marker ? 'ok' : 'fail',
+          result.marker ? 'Module worker policy injected' : 'Module worker policy missing', [
+            ['worker marker', String(result.marker)],
+            ['nested Worker wrapped', String(result.workerWrapped)],
+            ['SharedWorker wrapped', String(result.sharedWorkerWrapped)],
+            ['GPUDevice in worker', String(result.gpuDevice)],
+            ['OffscreenCanvas', String(result.offscreenCanvas)]
+          ]);
+      } catch (error) {
+        log.textContent = error.stack || String(error);
+        setCard('module-worker-card', 'fail', 'Module worker failed', [['error', error.message]]);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    const runSharedWorkerTest = async () => {
+      const log = document.getElementById('shared-worker-log');
+      if (!globalThis.SharedWorker) {
+        setCard('shared-worker-card', 'warn', 'SharedWorker unavailable', [['SharedWorker', 'false']]);
+        return;
+      }
+      const source = `
+        onconnect = (event) => {
+          const port = event.ports[0];
+          const functionLooksWrapped = (fn) =>
+            typeof fn === 'function' && !/\\[native code\\]/.test(Function.prototype.toString.call(fn));
+          port.postMessage({
+            marker: Boolean(globalThis.__otfPagePolicyInjected),
+            workerWrapped: functionLooksWrapped(globalThis.Worker),
+            sharedWorkerWrapped: functionLooksWrapped(globalThis.SharedWorker),
+            gpuDevice: typeof globalThis.GPUDevice,
+            webgl: typeof globalThis.WebGLRenderingContext
+          });
+        };
+      `;
+      const url = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }));
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const worker = new SharedWorker(url);
+          worker.port.onmessage = (event) => resolve(event.data);
+          worker.port.onmessageerror = () => reject(new Error('shared worker message error'));
+          worker.port.start();
+          setTimeout(() => reject(new Error('shared worker timeout')), 8000);
+        });
+        log.textContent = JSON.stringify(result, null, 2);
+        setCard('shared-worker-card', result.marker ? 'ok' : 'fail',
+          result.marker ? 'Shared worker policy injected' : 'Shared worker policy missing', [
+            ['worker marker', String(result.marker)],
+            ['nested Worker wrapped', String(result.workerWrapped)],
+            ['SharedWorker wrapped', String(result.sharedWorkerWrapped)],
+            ['GPUDevice in worker', String(result.gpuDevice)]
+          ]);
+      } catch (error) {
+        log.textContent = error.stack || String(error);
+        setCard('shared-worker-card', 'fail', 'Shared worker failed', [['error', error.message]]);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    const runNestedWorkerTest = async () => {
+      const log = document.getElementById('nested-worker-log');
+      if (!globalThis.Worker) {
+        setCard('nested-worker-card', 'warn', 'Worker unavailable', [['Worker', 'false']]);
+        return;
+      }
+      const nestedSource = `
+        postMessage({
+          marker: Boolean(globalThis.__otfPagePolicyInjected),
+          workerWrapped: typeof globalThis.Worker === 'function' &&
+            !/\\[native code\\]/.test(Function.prototype.toString.call(globalThis.Worker)),
+          gpuDevice: typeof globalThis.GPUDevice
+        });
+      `;
+      const parentSource = `
+        const nestedUrl = URL.createObjectURL(new Blob([${JSON.stringify(nestedSource)}], { type: 'application/javascript' }));
+        const worker = new Worker(nestedUrl);
+        worker.onmessage = (event) => {
+          URL.revokeObjectURL(nestedUrl);
+          postMessage({
+            parentMarker: Boolean(globalThis.__otfPagePolicyInjected),
+            nested: event.data
+          });
+        };
+        worker.onerror = (event) => {
+          URL.revokeObjectURL(nestedUrl);
+          postMessage({ parentMarker: Boolean(globalThis.__otfPagePolicyInjected), error: event.message });
+        };
+      `;
+      const url = URL.createObjectURL(new Blob([parentSource], { type: 'application/javascript' }));
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const worker = new Worker(url);
+          worker.onmessage = (event) => {
+            worker.terminate();
+            resolve(event.data);
+          };
+          worker.onerror = (event) => {
+            worker.terminate();
+            reject(new Error(event.message || 'nested worker error'));
+          };
+        });
+        log.textContent = JSON.stringify(result, null, 2);
+        const ok = result.parentMarker && result.nested?.marker;
+        setCard('nested-worker-card', ok ? 'ok' : 'fail',
+          ok ? 'Nested worker policy injected' : 'Nested worker gap', [
+            ['parent marker', String(result.parentMarker)],
+            ['nested marker', String(Boolean(result.nested?.marker))],
+            ['nested Worker wrapped', String(Boolean(result.nested?.workerWrapped))],
+            ['nested GPUDevice', String(result.nested?.gpuDevice ?? 'unknown')],
+            ['error', result.error || 'none']
+          ]);
+      } catch (error) {
+        log.textContent = error.stack || String(error);
+        setCard('nested-worker-card', 'fail', 'Nested worker failed', [['error', error.message]]);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    const runWorkletTest = async () => {
+      const log = document.getElementById('worklet-log');
+      const audioContext = globalThis.AudioContext || globalThis.webkitAudioContext;
+      let hasAudioWorklet = false;
+      try {
+        if (audioContext) {
+          const context = new audioContext();
+          hasAudioWorklet = Boolean(context.audioWorklet);
+          context.close?.();
+        }
+      } catch (_) {}
+      const rows = [
+        ['serviceWorker API', String(Boolean(navigator.serviceWorker))],
+        ['audioWorklet API', String(hasAudioWorklet)],
+        ['paintWorklet API', String(Boolean(globalThis.CSS?.paintWorklet))],
+        ['layoutWorklet API', String(Boolean(globalThis.CSS?.layoutWorklet))],
+        ['animationWorklet API', String(Boolean(globalThis.animationWorklet))]
+      ];
+      const report = {
+        note: 'This page reports capability presence only. These execution worlds are not covered by the current JS constructor wrapper.',
+        serviceWorker: Boolean(navigator.serviceWorker),
+        audioWorklet: hasAudioWorklet,
+        paintWorklet: Boolean(globalThis.CSS?.paintWorklet),
+        layoutWorklet: Boolean(globalThis.CSS?.layoutWorklet),
+        animationWorklet: Boolean(globalThis.animationWorklet)
+      };
+      log.textContent = JSON.stringify(report, null, 2);
+      setCard('worklet-card', 'warn', 'Coverage report only', rows);
+    };
+
     document.getElementById('reload').addEventListener('click', () => location.reload());
 
     runInjectionTest();
@@ -417,6 +761,11 @@
     runWebGLTest();
     runWebGPUTest();
     runWorkerTest();
+    runIframeTest();
+    runModuleWorkerTest();
+    runSharedWorkerTest();
+    runNestedWorkerTest();
+    runWorkletTest();
   </script>
 </body>
 </html>

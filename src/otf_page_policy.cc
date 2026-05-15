@@ -163,23 +163,93 @@ std::string BuildPagePolicyScript() {
   installCanvasPolicy();
 
   // WebGL: normalize common high-entropy fingerprint values.
+  const makeRange = (first, second) => {
+    try {
+      return new Int32Array([first, second]);
+    } catch (_) {
+      return [first, second];
+    }
+  };
+
+  const webGLParameterProfile = new Map([
+    [7936, 'WebKit'],
+    [7937, 'WebKit WebGL'],
+    [3386, makeRange(8192, 8192)],
+    [3379, 8192],
+    [34076, 8192],
+    [34024, 8192],
+    [33901, makeRange(1, 64)],
+    [33902, makeRange(1, 1)],
+    [34921, 16],
+    [36347, 256],
+    [35660, 16],
+    [36348, 16],
+    [36349, 256],
+    [34930, 16],
+    [35661, 32],
+    [35658, 1024],
+    [35657, 1024],
+    [35371, 12],
+    [35373, 12],
+    [35374, 24],
+    [35375, 36],
+    [35376, 16384],
+    [35377, 65536],
+    [35379, 65536],
+    [35380, 256],
+    [35659, 64],
+    [37154, 64],
+    [37157, 64],
+    [35978, 64],
+    [35979, 4],
+    [35968, 4],
+    [35076, -8],
+    [35077, 7],
+    [34852, 4],
+    [36063, 4],
+    [36183, 4],
+    [32883, 2048],
+    [35071, 256],
+    [34045, 2]
+  ]);
+
+  const blockedWebGLExtensions = new Set([
+    'ext_disjoint_timer_query',
+    'ext_disjoint_timer_query_webgl2',
+    'ext_texture_filter_anisotropic',
+    'webkit_ext_texture_filter_anisotropic',
+    'moz_ext_texture_filter_anisotropic',
+    'khr_parallel_shader_compile',
+    'webgl_debug_renderer_info',
+    'webgl_debug_shaders'
+  ]);
+
   const installWebGLPolicyFor = (ctor) => {
     if (!ctor || !ctor.prototype || ctor.prototype.__otfWebGLPolicy) return;
+    const isWebGL2 = ctor === globalThis.WebGL2RenderingContext;
     const originalGetParameter = ctor.prototype.getParameter;
     const originalGetExtension = ctor.prototype.getExtension;
     const originalGetSupportedExtensions = ctor.prototype.getSupportedExtensions;
+    const originalGetShaderPrecisionFormat = ctor.prototype.getShaderPrecisionFormat;
     const originalReadPixels = ctor.prototype.readPixels;
 
     if (typeof originalGetParameter === 'function') {
       defineMethod(ctor.prototype, 'getParameter', function(parameter) {
+        if (parameter === 7938) return isWebGL2 ? 'WebGL 2.0' : 'WebGL 1.0';
+        if (parameter === 35724) {
+          return isWebGL2 ? 'WebGL GLSL ES 3.00' : 'WebGL GLSL ES 1.0';
+        }
         if (parameter === 37445) return 'OTF Browser';
         if (parameter === 37446) return 'OTF WebGL';
+        if (webGLParameterProfile.has(parameter)) {
+          return webGLParameterProfile.get(parameter);
+        }
         return originalGetParameter.call(this, parameter);
       });
     }
     if (typeof originalGetExtension === 'function') {
       defineMethod(ctor.prototype, 'getExtension', function(name) {
-        if (String(name).toLowerCase() === 'webgl_debug_renderer_info') {
+        if (blockedWebGLExtensions.has(String(name).toLowerCase())) {
           return null;
         }
         return originalGetExtension.call(this, name);
@@ -189,8 +259,23 @@ std::string BuildPagePolicyScript() {
       defineMethod(ctor.prototype, 'getSupportedExtensions', function() {
         const extensions = originalGetSupportedExtensions.call(this) || [];
         return extensions.filter((name) =>
-          String(name).toLowerCase() !== 'webgl_debug_renderer_info'
+          !blockedWebGLExtensions.has(String(name).toLowerCase())
         );
+      });
+    }
+    if (typeof originalGetShaderPrecisionFormat === 'function') {
+      defineMethod(ctor.prototype, 'getShaderPrecisionFormat', function(...args) {
+        const result = originalGetShaderPrecisionFormat.apply(this, args);
+        if (!result) return result;
+        try {
+          return {
+            rangeMin: 127,
+            rangeMax: 127,
+            precision: 23
+          };
+        } catch (_) {
+          return result;
+        }
       });
     }
     if (typeof originalReadPixels === 'function') {
@@ -271,21 +356,57 @@ std::string BuildPagePolicyScript() {
           });
         } catch (_) {}
       };
+      const makeRange = (first, second) => {
+        try { return new Int32Array([first, second]); }
+        catch (_) { return [first, second]; }
+      };
+      const webGLParameterProfile = new Map([
+        [7936, 'WebKit'], [7937, 'WebKit WebGL'], [3386, makeRange(8192, 8192)],
+        [3379, 8192], [34076, 8192], [34024, 8192],
+        [33901, makeRange(1, 64)], [33902, makeRange(1, 1)],
+        [34921, 16], [36347, 256], [35660, 16], [36348, 16],
+        [36349, 256], [34930, 16], [35661, 32], [35658, 1024],
+        [35657, 1024], [35371, 12], [35373, 12], [35374, 24],
+        [35375, 36], [35376, 16384], [35377, 65536], [35379, 65536],
+        [35380, 256], [35659, 64], [37154, 64], [37157, 64],
+        [35978, 64], [35979, 4], [35968, 4], [35076, -8],
+        [35077, 7], [34852, 4], [36063, 4], [36183, 4],
+        [32883, 2048], [35071, 256], [34045, 2]
+      ]);
+      const blockedWebGLExtensions = new Set([
+        'ext_disjoint_timer_query',
+        'ext_disjoint_timer_query_webgl2',
+        'ext_texture_filter_anisotropic',
+        'webkit_ext_texture_filter_anisotropic',
+        'moz_ext_texture_filter_anisotropic',
+        'khr_parallel_shader_compile',
+        'webgl_debug_renderer_info',
+        'webgl_debug_shaders'
+      ]);
       const installWebGLPolicyFor = (ctor) => {
         if (!ctor || !ctor.prototype || ctor.prototype.__otfWebGLPolicy) return;
+        const isWebGL2 = ctor === globalThis.WebGL2RenderingContext;
         const originalGetParameter = ctor.prototype.getParameter;
         const originalGetExtension = ctor.prototype.getExtension;
         const originalGetSupportedExtensions = ctor.prototype.getSupportedExtensions;
+        const originalGetShaderPrecisionFormat = ctor.prototype.getShaderPrecisionFormat;
         if (typeof originalGetParameter === 'function') {
           defineWebGLMethod(ctor.prototype, 'getParameter', function(parameter) {
+            if (parameter === 7938) return isWebGL2 ? 'WebGL 2.0' : 'WebGL 1.0';
+            if (parameter === 35724) {
+              return isWebGL2 ? 'WebGL GLSL ES 3.00' : 'WebGL GLSL ES 1.0';
+            }
             if (parameter === 37445) return 'OTF Browser';
             if (parameter === 37446) return 'OTF WebGL';
+            if (webGLParameterProfile.has(parameter)) {
+              return webGLParameterProfile.get(parameter);
+            }
             return originalGetParameter.call(this, parameter);
           });
         }
         if (typeof originalGetExtension === 'function') {
           defineWebGLMethod(ctor.prototype, 'getExtension', function(name) {
-            if (String(name).toLowerCase() === 'webgl_debug_renderer_info') {
+            if (blockedWebGLExtensions.has(String(name).toLowerCase())) {
               return null;
             }
             return originalGetExtension.call(this, name);
@@ -295,8 +416,14 @@ std::string BuildPagePolicyScript() {
           defineWebGLMethod(ctor.prototype, 'getSupportedExtensions', function() {
             const extensions = originalGetSupportedExtensions.call(this) || [];
             return extensions.filter((name) =>
-              String(name).toLowerCase() !== 'webgl_debug_renderer_info'
+              !blockedWebGLExtensions.has(String(name).toLowerCase())
             );
+          });
+        }
+        if (typeof originalGetShaderPrecisionFormat === 'function') {
+          defineWebGLMethod(ctor.prototype, 'getShaderPrecisionFormat', function(...args) {
+            const result = originalGetShaderPrecisionFormat.apply(this, args);
+            return result ? { rangeMin: 127, rangeMax: 127, precision: 23 } : result;
           });
         }
         Object.defineProperty(ctor.prototype, '__otfWebGLPolicy', {

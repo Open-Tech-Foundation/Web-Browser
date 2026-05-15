@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const QuickLink = ({ name, url, onRemove }) => {
+const QuickLink = ({ name, url, faviconUrl, onRemove }) => {
   const handleClick = () => {
     if (window.cefQuery) {
       window.cefQuery({ request: `navigate-current:${url}` });
@@ -14,10 +14,14 @@ const QuickLink = ({ name, url, onRemove }) => {
         className="flex flex-col items-center gap-3 transition-all duration-300 hover:-translate-y-1"
       >
         <div className="w-16 h-16 bg-card border border-main rounded-2xl flex items-center justify-center transition-all duration-300 
-                      group-hover:bg-card group-hover:border-orange-500/30 group-hover:shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)] backdrop-blur-sm">
-          <div className="w-8 h-8 bg-main/5 rounded-lg flex items-center justify-center text-sm font-bold text-muted group-hover:text-orange-400 transition-colors">
-            {name[0].toUpperCase()}
-          </div>
+                      group-hover:bg-card group-hover:border-orange-500/30 group-hover:shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)] backdrop-blur-sm overflow-hidden">
+          {faviconUrl ? (
+            <img src={faviconUrl} alt="" className="w-8 h-8 object-contain" />
+          ) : (
+            <div className="w-8 h-8 bg-main/5 rounded-lg flex items-center justify-center text-sm font-bold text-muted group-hover:text-orange-400 transition-colors">
+              {name[0].toUpperCase()}
+            </div>
+          )}
         </div>
         <span className="text-xs font-medium text-muted group-hover:text-main transition-colors truncate w-20 text-center">{name}</span>
       </button>
@@ -96,6 +100,7 @@ const QuickLinks = () => {
             key={link.id} 
             name={link.title || 'Link'} 
             url={link.url} 
+            faviconUrl={link.faviconUrl}
             onRemove={() => handleRemove(link.id)} 
           />
         ))}
