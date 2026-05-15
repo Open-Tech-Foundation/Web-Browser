@@ -3,6 +3,8 @@
 #include "otf_keyboard_shortcuts.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -34,6 +36,13 @@
 #include "include/wrapper/cef_helpers.h"
 #include "include/cef_command_ids.h"
 
+static bool HasCommand(const char* command) {
+  std::string check = "command -v ";
+  check += command;
+  check += " >/dev/null 2>&1";
+  return std::system(check.c_str()) == 0;
+}
+
 // Cross-platform clipboard write — CEF Alloy provides no clipboard API,
 // so we use platform-native calls.
 static void WriteToClipboard(const std::string& text) {
@@ -58,9 +67,14 @@ static void WriteToClipboard(const std::string& text) {
     pclose(pipe);
   }
 #else  // Linux (X11 / Wayland)
-  FILE* pipe = popen("wl-copy", "w"); // Try Wayland first
-  if (!pipe) pipe = popen("xclip -selection clipboard", "w");
-  if (!pipe) pipe = popen("xsel --clipboard --input", "w");
+  FILE* pipe = nullptr;
+  if (HasCommand("wl-copy")) {
+    pipe = popen("wl-copy", "w");
+  } else if (HasCommand("xclip")) {
+    pipe = popen("xclip -selection clipboard", "w");
+  } else if (HasCommand("xsel")) {
+    pipe = popen("xsel --clipboard --input", "w");
+  }
   if (pipe) {
     fputs(text.c_str(), pipe);
     pclose(pipe);
@@ -75,6 +89,12 @@ namespace {
 OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
 const int MENU_ID_SEARCH_SELECTION = 10002;
+constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
+    IDC_VIEW_SOURCE,
+    IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
+    IDC_CONTENT_CONTEXT_OPENLINKNEWTAB,
+    IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,
+};
 
 std::string TrimWhitespaceCopy(const std::string& value) {
   size_t start = 0;
@@ -103,6 +123,89 @@ std::string BuildSearchSelectionMenuLabel(const std::string& selection_text) {
     display_text += "...";
   }
   return "Search \"" + display_text + "\"";
+}
+
+std::string NormalizeMenuLabel(std::string label) {
+  std::string normalized;
+  normalized.reserve(label.size());
+  bool previous_space = false;
+  for (char c : label) {
+    if (c == '&') {
+      continue;
+    }
+    if (std::isspace(static_cast<unsigned char>(c))) {
+      if (!previous_space) {
+        normalized.push_back(' ');
+        previous_space = true;
+      }
+      continue;
+    }
+    normalized.push_back(
+        static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    previous_space = false;
+  }
+  return TrimWhitespaceCopy(normalized);
+}
+
+bool IsSourceViewMenuItem(int command_id, const std::string& label) {
+  if (std::find(kBlockedContextMenuCommandIds.begin(),
+                kBlockedContextMenuCommandIds.end(),
+                command_id) != kBlockedContextMenuCommandIds.end()) {
+    return true;
+  }
+
+  const std::string normalized_label = NormalizeMenuLabel(label);
+  return normalized_label.find("view") != std::string::npos &&
+         normalized_label.find("source") != std::string::npos;
+}
+
+bool IsBlockedContextMenuCommand(int command_id) {
+  return std::find(kBlockedContextMenuCommandIds.begin(),
+                   kBlockedContextMenuCommandIds.end(),
+                   command_id) != kBlockedContextMenuCommandIds.end();
+}
+
+void RemoveCommandEverywhere(CefRefPtr<CefMenuModel> model, int command_id) {
+  if (!model) {
+    return;
+  }
+
+  for (int index = static_cast<int>(model->GetCount()) - 1; index >= 0; --index) {
+    CefRefPtr<CefMenuModel> sub_menu = model->GetSubMenuAt(static_cast<size_t>(index));
+    if (sub_menu) {
+      RemoveCommandEverywhere(sub_menu, command_id);
+    }
+    if (model->GetCommandIdAt(static_cast<size_t>(index)) == command_id) {
+      model->RemoveAt(static_cast<size_t>(index));
+    }
+  }
+}
+
+void RemoveLabeledSourceItemsEverywhere(CefRefPtr<CefMenuModel> model) {
+  if (!model) {
+    return;
+  }
+
+  for (int index = static_cast<int>(model->GetCount()) - 1; index >= 0; --index) {
+    CefRefPtr<CefMenuModel> sub_menu = model->GetSubMenuAt(static_cast<size_t>(index));
+    if (sub_menu) {
+      RemoveLabeledSourceItemsEverywhere(sub_menu);
+    }
+
+    const std::string label =
+        model->GetLabelAt(static_cast<size_t>(index)).ToString();
+    const int command_id = model->GetCommandIdAt(static_cast<size_t>(index));
+    if (IsSourceViewMenuItem(command_id, label)) {
+      model->RemoveAt(static_cast<size_t>(index));
+    }
+  }
+}
+
+void SanitizeContextMenu(CefRefPtr<CefMenuModel> model) {
+  for (int command_id : kBlockedContextMenuCommandIds) {
+    RemoveCommandEverywhere(model, command_id);
+  }
+  RemoveLabeledSourceItemsEverywhere(model);
 }
 
 std::string GetDevUiUrl() {
@@ -2250,12 +2353,10 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
                                      CefRefPtr<CefContextMenuParams> params,
                                      CefRefPtr<CefMenuModel> model) {
   CEF_REQUIRE_UI_THREAD();
+
+  SanitizeContextMenu(model);
   
   if (!params->GetLinkUrl().empty()) {
-    // Remove Chromium's default items that don't fit our tabbed architecture
-    model->Remove(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB);
-    model->Remove(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW);
-    
     // Insert our custom background-tab opener at the top
     model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
     
@@ -2286,12 +2387,31 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   }
 }
 
+bool OtfHandler::RunContextMenu(CefRefPtr<CefBrowser> browser,
+                                CefRefPtr<CefFrame> frame,
+                                CefRefPtr<CefContextMenuParams> params,
+                                CefRefPtr<CefMenuModel> model,
+                                CefRefPtr<CefRunContextMenuCallback> callback) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)browser;
+  (void)frame;
+  (void)params;
+  (void)callback;
+
+  SanitizeContextMenu(model);
+  return false;
+}
+
 bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
                                       CefRefPtr<CefFrame> frame,
                                       CefRefPtr<CefContextMenuParams> params,
                                       int command_id,
                                       EventFlags event_flags) {
   CEF_REQUIRE_UI_THREAD();
+
+  if (IsBlockedContextMenuCommand(command_id)) {
+    return true;
+  }
   
   if (command_id == MENU_ID_OPEN_IN_NEW_TAB) {
     std::string url = params->GetLinkUrl().ToString();
