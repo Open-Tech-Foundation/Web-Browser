@@ -268,6 +268,125 @@ std::string BuildPagePolicyScript() {
   };
   installHardwarePolicy();
 
+  // Fonts: reduce local font probing to a small common anonymity set.
+  const allowedFontNames = [
+    'arial',
+    'helvetica',
+    'times new roman',
+    'courier new',
+    'serif',
+    'sans-serif',
+    'monospace'
+  ];
+  const extractPrimaryFontFamily = (font) => {
+    const value = String(font || '');
+    const familyMatch = value.match(/(?:\d+(?:\.\d+)?(?:px|pt|em|rem|%)?(?:\/[^\s]+)?\s+)(.+)$/i);
+    const familyList = familyMatch ? familyMatch[1] : value;
+    const firstFamily = familyList.split(',')[0] || '';
+    return firstFamily.trim().replace(/^["']|["']$/g, '').toLowerCase();
+  };
+  const fontUsesAllowedFamily = (font) => {
+    const primaryFamily = extractPrimaryFontFamily(font);
+    return allowedFontNames.includes(primaryFamily);
+  };
+  const normalizeFontForMeasurement = (font) => {
+    const value = String(font || '10px sans-serif');
+    if (fontUsesAllowedFamily(value)) return value;
+    const replaced = value.replace(/((?:\d+(?:\.\d+)?(?:px|pt|em|rem|%)?(?:\/[^\s]+)?\s+))(.+)$/i, '$1Arial');
+    return replaced === value ? '10px Arial' : replaced;
+  };
+  const installFontPolicy = () => {
+    try {
+      const FontFaceSetCtor = globalThis.FontFaceSet;
+      if (FontFaceSetCtor && FontFaceSetCtor.prototype &&
+          !FontFaceSetCtor.prototype.__otfFontPolicy) {
+        const originalCheck = FontFaceSetCtor.prototype.check;
+        const originalLoad = FontFaceSetCtor.prototype.load;
+        const originalForEach = FontFaceSetCtor.prototype.forEach;
+        const emptyFontIterator = function() {
+          return [][Symbol.iterator]();
+        };
+        if (typeof originalCheck === 'function') {
+          defineMethod(FontFaceSetCtor.prototype, 'check', function(font, ...args) {
+            return fontUsesAllowedFamily(font) && originalCheck.call(this, font, ...args);
+          });
+        }
+        if (typeof originalLoad === 'function') {
+          defineMethod(FontFaceSetCtor.prototype, 'load', function(font, ...args) {
+            if (!fontUsesAllowedFamily(font)) {
+              return Promise.resolve([]);
+            }
+            return originalLoad.call(this, font, ...args);
+          });
+        }
+        if (typeof originalForEach === 'function') {
+          defineMethod(FontFaceSetCtor.prototype, 'forEach', function(callback, thisArg) {
+            if (typeof callback !== 'function') return undefined;
+            return originalForEach.call(this, (fontFace, key, set) => {
+              try {
+                const family = fontFace && fontFace.family;
+                if (fontUsesAllowedFamily(family)) {
+                  callback.call(thisArg, fontFace, key, set);
+                }
+              } catch (_) {}
+            });
+          });
+        }
+        defineMethod(FontFaceSetCtor.prototype, 'entries', emptyFontIterator);
+        defineMethod(FontFaceSetCtor.prototype, 'keys', emptyFontIterator);
+        defineMethod(FontFaceSetCtor.prototype, 'values', emptyFontIterator);
+        if (typeof Symbol !== 'undefined' && Symbol.iterator) {
+          defineMethod(FontFaceSetCtor.prototype, Symbol.iterator, emptyFontIterator);
+        }
+        defineGetter(FontFaceSetCtor.prototype, 'size', 4);
+        Object.defineProperty(FontFaceSetCtor.prototype, '__otfFontPolicy', {
+          value: true,
+          configurable: false,
+          enumerable: false
+        });
+      }
+      const fontSet = globalThis.document && globalThis.document.fonts;
+      if (fontSet && !fontSet.__otfFontPolicy) {
+        defineMethod(fontSet, 'check', function(font, ...args) {
+          return fontUsesAllowedFamily(font);
+        });
+        defineMethod(fontSet, 'load', function(font, ...args) {
+          if (!fontUsesAllowedFamily(font)) {
+            return Promise.resolve([]);
+          }
+          const load = FontFaceSetCtor && FontFaceSetCtor.prototype &&
+              FontFaceSetCtor.prototype.load;
+          return typeof load === 'function' ? load.call(this, font, ...args) : Promise.resolve([]);
+        });
+        const emptyFontIterator = function() {
+          return [][Symbol.iterator]();
+        };
+        defineMethod(fontSet, 'forEach', function() {});
+        defineMethod(fontSet, 'entries', emptyFontIterator);
+        defineMethod(fontSet, 'keys', emptyFontIterator);
+        defineMethod(fontSet, 'values', emptyFontIterator);
+        if (typeof Symbol !== 'undefined' && Symbol.iterator) {
+          defineMethod(fontSet, Symbol.iterator, emptyFontIterator);
+        }
+        defineGetter(fontSet, 'size', 4);
+        Object.defineProperty(fontSet, '__otfFontPolicy', {
+          value: true,
+          configurable: false,
+          enumerable: false
+        });
+      }
+      Object.defineProperty(globalThis, '__otfFontProfile', {
+        value: Object.freeze({
+          allowedFonts: ['Arial', 'Helvetica', 'Times New Roman', 'Courier New']
+        }),
+        configurable: false,
+        enumerable: false,
+        writable: false
+      });
+    } catch (_) {}
+  };
+  installFontPolicy();
+
   // WebGPU: block compute pipelines while leaving graphics pipelines intact.
   const installWebGPUComputePolicy = () => {
     const GPUDeviceCtor = globalThis.GPUDevice;
@@ -326,9 +445,24 @@ std::string BuildPagePolicyScript() {
     if (Canvas2D && Canvas2D.prototype && !Canvas2D.prototype.__otfCanvasPolicy) {
       originalGetImageData = Canvas2D.prototype.getImageData;
       originalPutImageData = Canvas2D.prototype.putImageData;
+      const originalMeasureText = Canvas2D.prototype.measureText;
       if (typeof originalGetImageData === 'function') {
         defineMethod(Canvas2D.prototype, 'getImageData', function(...args) {
           return perturbImageData(originalGetImageData.apply(this, args));
+        });
+      }
+      if (typeof originalMeasureText === 'function') {
+        defineMethod(Canvas2D.prototype, 'measureText', function(...args) {
+          const currentFont = this.font;
+          if (fontUsesAllowedFamily(currentFont)) {
+            return originalMeasureText.apply(this, args);
+          }
+          try {
+            this.font = normalizeFontForMeasurement(currentFont);
+            return originalMeasureText.apply(this, args);
+          } finally {
+            try { this.font = currentFont; } catch (_) {}
+          }
         });
       }
       Object.defineProperty(Canvas2D.prototype, '__otfCanvasPolicy', {
@@ -613,6 +747,76 @@ std::string BuildPagePolicyScript() {
         } catch (_) {}
       };
       installHardwarePolicy();
+      const allowedFontNames = [
+        'arial',
+        'helvetica',
+        'times new roman',
+        'courier new',
+        'serif',
+        'sans-serif',
+        'monospace'
+      ];
+      const extractPrimaryFontFamily = (font) => {
+        const value = String(font || '');
+        const familyMatch = value.match(/(?:\d+(?:\.\d+)?(?:px|pt|em|rem|%)?(?:\/[^\s]+)?\s+)(.+)$/i);
+        const familyList = familyMatch ? familyMatch[1] : value;
+        const firstFamily = familyList.split(',')[0] || '';
+        return firstFamily.trim().replace(/^["']|["']$/g, '').toLowerCase();
+      };
+      const fontUsesAllowedFamily = (font) => {
+        const primaryFamily = extractPrimaryFontFamily(font);
+        return allowedFontNames.includes(primaryFamily);
+      };
+      const normalizeFontForMeasurement = (font) => {
+        const value = String(font || '10px sans-serif');
+        if (fontUsesAllowedFamily(value)) return value;
+        const replaced = value.replace(/((?:\d+(?:\.\d+)?(?:px|pt|em|rem|%)?(?:\/[^\s]+)?\s+))(.+)$/i, '$1Arial');
+        return replaced === value ? '10px Arial' : replaced;
+      };
+      const installFontPolicy = () => {
+        try {
+          const FontFaceSetCtor = globalThis.FontFaceSet;
+          if (FontFaceSetCtor && FontFaceSetCtor.prototype &&
+              !FontFaceSetCtor.prototype.__otfFontPolicy) {
+            const originalCheck = FontFaceSetCtor.prototype.check;
+            const originalLoad = FontFaceSetCtor.prototype.load;
+            const emptyFontIterator = function() {
+              return [][Symbol.iterator]();
+            };
+            if (typeof originalCheck === 'function') {
+              defineMethod(FontFaceSetCtor.prototype, 'check', function(font, ...args) {
+                return fontUsesAllowedFamily(font) && originalCheck.call(this, font, ...args);
+              });
+            }
+            if (typeof originalLoad === 'function') {
+              defineMethod(FontFaceSetCtor.prototype, 'load', function(font, ...args) {
+                if (!fontUsesAllowedFamily(font)) {
+                  return Promise.resolve([]);
+                }
+                return originalLoad.call(this, font, ...args);
+              });
+            }
+            defineMethod(FontFaceSetCtor.prototype, 'entries', emptyFontIterator);
+            defineMethod(FontFaceSetCtor.prototype, 'keys', emptyFontIterator);
+            defineMethod(FontFaceSetCtor.prototype, 'values', emptyFontIterator);
+            if (typeof Symbol !== 'undefined' && Symbol.iterator) {
+              defineMethod(FontFaceSetCtor.prototype, Symbol.iterator, emptyFontIterator);
+            }
+            defineGetter(FontFaceSetCtor.prototype, 'size', 4);
+            Object.defineProperty(FontFaceSetCtor.prototype, '__otfFontPolicy', {
+              value: true,
+              configurable: false
+            });
+          }
+          Object.defineProperty(globalThis, '__otfFontProfile', {
+            value: Object.freeze({
+              allowedFonts: ['Arial', 'Helvetica', 'Times New Roman', 'Courier New']
+            }),
+            configurable: false
+          });
+        } catch (_) {}
+      };
+      installFontPolicy();
       const installWebGPUComputePolicy = () => {
         const GPUDeviceCtor = globalThis.GPUDevice;
         if (!GPUDeviceCtor || !GPUDeviceCtor.prototype) return false;

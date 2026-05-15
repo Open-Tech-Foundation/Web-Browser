@@ -214,7 +214,7 @@ const featureRows = [
   { feature: "Security settings", status: "Complete", notes: "Security controls surfaced in settings." },
   { feature: "Privacy settings", status: "Complete", notes: "History/download defaults and reset behavior." },
   { feature: "Certificate viewer", status: "Complete", notes: "Current-tab SSL certificate API and viewer support." },
-  { feature: "Fingerprint viewer", status: "Complete", notes: "browser://fingerprints reports policy coverage and exposed values." },
+  { feature: "Fingerprint viewer", status: "Complete", notes: "The website fingerprint test reports policy coverage and exposed values." },
   { feature: "HTTP insecure blocking", status: "Complete", notes: "HTTP block page and red security state." },
   { feature: "Reset browser data", status: "Complete", notes: ["Settings", "History", "Bookmarks", "SSL exceptions", "HTTP auth", "Connections", "Cache", "Cookies"] },
   { feature: "Target blank handling", status: "Complete", notes: "Opens target=_blank navigations in a new tab." },
@@ -232,7 +232,7 @@ const securityHighlights = [
   { title: "WebGL normalized", desc: "Reduces vendor, renderer, extension, and capability variance that can become a stable device hash." },
   { title: "Canvas protected", desc: "Protects readback/export paths that fingerprint scripts use to compare subtle rendering differences." },
   { title: "Dangerous schemes blocked", desc: "Prevents web navigation into internal engine pages, local files, script URLs, data URLs, and disabled extension surfaces." },
-  { title: "Diagnostics included", desc: "browser://fingerprints makes the browser policy visible and testable." },
+  { title: "Diagnostics included", desc: "The website fingerprint test makes browser behavior visible and testable." },
 ];
 
 function renderCellContent(value) {
@@ -414,7 +414,7 @@ export default function HomePage() {
               ))}
             </div>
             <p className="mt-8 text-[10px] uppercase tracking-widest font-bold text-center" style="color: var(--muted);">
-              Diagnostics available at browser://fingerprints
+              Diagnostics available on the website fingerprint test
             </p>
           </div>
         </div>

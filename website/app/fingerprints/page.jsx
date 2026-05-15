@@ -176,6 +176,74 @@ export default function FingerprintsPage() {
         ]);
     };
 
+    const runFontTest = () => {
+      const allowedFonts = ['Arial', 'Helvetica', 'Times New Roman', 'Courier New'];
+      const probeFonts = ['Calibri', 'Segoe UI', 'Roboto', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'SF Pro Display'];
+      const profile = globalThis.__otfFontProfile;
+      const fontSet = document.fonts;
+      const fontCheckAvailable = !!(fontSet && typeof fontSet.check === 'function');
+      const checkFont = (name) => {
+        try {
+          return fontCheckAvailable && fontSet.check(`12px "${name}"`);
+        } catch {
+          return false;
+        }
+      };
+      const allowedDetected = allowedFonts.filter(checkFont);
+      const extraDetected = probeFonts.filter(checkFont);
+      const fontSetSize = fontSet && typeof fontSet.size === 'number' ? fontSet.size : 'unavailable';
+      let enumeratedFonts = [];
+      try {
+        if (fontSet && typeof fontSet.forEach === 'function') {
+          fontSet.forEach((fontFace) => {
+            if (fontFace && fontFace.family) {
+              enumeratedFonts.push(fontFace.family);
+            }
+          });
+        }
+      } catch {}
+      enumeratedFonts = [...new Set(enumeratedFonts)];
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      let canvasNormalized = false;
+      let arialWidth = 'unavailable';
+      let rareWidth = 'unavailable';
+      if (ctx && typeof ctx.measureText === 'function') {
+        ctx.font = '72px Arial';
+        arialWidth = ctx.measureText('mmmmmmmmmm').width;
+        ctx.font = '72px "Calibri"';
+        rareWidth = ctx.measureText('mmmmmmmmmm').width;
+        canvasNormalized = Math.abs(arialWidth - rareWidth) < 0.01;
+      }
+
+      const limitedApi =
+        fontCheckAvailable &&
+        extraDetected.length === 0 &&
+        allowedDetected.length <= allowedFonts.length &&
+        enumeratedFonts.length <= allowedFonts.length;
+      const status = limitedApi && canvasNormalized
+        ? 'ok'
+        : limitedApi
+          ? 'warn'
+          : 'fail';
+      setReportItem('font-surface', status,
+        status === 'ok' ? 'Font probing limited' : status === 'warn' ? 'Font API limited; canvas uncertain' : 'Additional fonts exposed',
+        `Allowed detected: ${allowedDetected.length}, extra detected: ${extraDetected.length}`);
+      setCard('font-card', status,
+        status === 'ok' ? 'Limited font surface' : status === 'warn' ? 'Partially limited' : 'Extra fonts exposed', [
+          ['document.fonts.check', fontCheckAvailable ? 'available' : 'unavailable'],
+          ['font set size', String(fontSetSize)],
+          ['allowed fonts detected', allowedDetected.join(', ') || 'none'],
+          ['extra probe fonts detected', extraDetected.join(', ') || 'none'],
+          ['enumerated fonts', enumeratedFonts.join(', ') || 'none'],
+          ['canvas Arial width', String(arialWidth)],
+          ['canvas Calibri width', String(rareWidth)],
+          ['canvas measurement normalized', String(canvasNormalized)],
+          ['browser profile', profile ? JSON.stringify(profile) : 'none']
+        ]);
+    };
+
     const drawCanvas = () => {
       const canvas = document.getElementById('canvas');
       if (!canvas) return;
@@ -339,6 +407,7 @@ export default function FingerprintsPage() {
     runInjectionTest();
     runScreenTest();
     runHardwareTest();
+    runFontTest();
     runCanvasTest();
     runWebGLTest();
     runWebGPUTest();
@@ -674,6 +743,7 @@ export default function FingerprintsPage() {
             {[
               ['screen-dimensions', 'Screen dimensions'],
               ['hardware-profile', 'CPU and memory'],
+              ['font-surface', 'Font surface'],
               ['canvas-fingerprint', 'Canvas fingerprint'],
               ['webgl-profile', 'WebGL identity'],
               ['webgl-debug', 'WebGL debug renderer'],
@@ -703,6 +773,12 @@ export default function FingerprintsPage() {
 
           <article className="card" id="hardware-card">
             <h2>CPU & Memory</h2>
+            <span className="status warn">Running</span>
+            <dl></dl>
+          </article>
+
+          <article className="card" id="font-card">
+            <h2>Fonts</h2>
             <span className="status warn">Running</span>
             <dl></dl>
           </article>
