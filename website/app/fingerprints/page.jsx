@@ -153,6 +153,29 @@ export default function FingerprintsPage() {
         ]);
     };
 
+    const runHardwareTest = () => {
+      const cores = Number(navigator.hardwareConcurrency || 0);
+      const memory = Number(navigator.deviceMemory || 0);
+      const profile = globalThis.__otfHardwareProfile;
+      const normalized = cores === 4 && memory === 4;
+      const valid =
+        Number.isFinite(cores) &&
+        Number.isFinite(memory) &&
+        cores > 0 &&
+        memory > 0;
+      const status = normalized ? 'ok' : valid ? 'warn' : 'fail';
+      setReportItem('hardware-profile', status,
+        normalized ? 'Common hardware profile' : valid ? 'Raw hardware profile' : 'Invalid hardware values',
+        `CPU cores: ${cores || 'unavailable'}, memory: ${memory || 'unavailable'} GB`);
+      setCard('hardware-card', status,
+        normalized ? 'Common profile' : valid ? 'Raw profile' : 'Invalid values', [
+          ['hardware concurrency', cores ? String(cores) : 'unavailable'],
+          ['device memory', memory ? `${memory} GB` : 'unavailable'],
+          ['common profile', String(normalized)],
+          ['browser profile', profile ? JSON.stringify(profile) : 'none']
+        ]);
+    };
+
     const drawCanvas = () => {
       const canvas = document.getElementById('canvas');
       if (!canvas) return;
@@ -315,6 +338,7 @@ export default function FingerprintsPage() {
 
     runInjectionTest();
     runScreenTest();
+    runHardwareTest();
     runCanvasTest();
     runWebGLTest();
     runWebGPUTest();
@@ -649,6 +673,7 @@ export default function FingerprintsPage() {
           <div className="report">
             {[
               ['screen-dimensions', 'Screen dimensions'],
+              ['hardware-profile', 'CPU and memory'],
               ['canvas-fingerprint', 'Canvas fingerprint'],
               ['webgl-profile', 'WebGL identity'],
               ['webgl-debug', 'WebGL debug renderer'],
@@ -672,6 +697,12 @@ export default function FingerprintsPage() {
         <section className="grid">
           <article className="card" id="screen-card">
             <h2>Screen</h2>
+            <span className="status warn">Running</span>
+            <dl></dl>
+          </article>
+
+          <article className="card" id="hardware-card">
+            <h2>CPU & Memory</h2>
             <span className="status warn">Running</span>
             <dl></dl>
           </article>

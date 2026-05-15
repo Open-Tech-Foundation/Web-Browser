@@ -241,6 +241,33 @@ std::string BuildPagePolicyScript() {
   };
   installScreenPolicy();
 
+  // Hardware: normalize CPU and memory signals to a common desktop profile.
+  const installHardwarePolicy = () => {
+    try {
+      const NavigatorCtor = globalThis.Navigator;
+      if (NavigatorCtor && NavigatorCtor.prototype &&
+          !NavigatorCtor.prototype.__otfHardwarePolicy) {
+        defineGetter(NavigatorCtor.prototype, 'hardwareConcurrency', 4);
+        defineGetter(NavigatorCtor.prototype, 'deviceMemory', 4);
+        Object.defineProperty(NavigatorCtor.prototype, '__otfHardwarePolicy', {
+          value: true,
+          configurable: false,
+          enumerable: false
+        });
+      }
+      Object.defineProperty(globalThis, '__otfHardwareProfile', {
+        value: Object.freeze({
+          hardwareConcurrency: 4,
+          deviceMemory: 4
+        }),
+        configurable: false,
+        enumerable: false,
+        writable: false
+      });
+    } catch (_) {}
+  };
+  installHardwarePolicy();
+
   // WebGPU: block compute pipelines while leaving graphics pipelines intact.
   const installWebGPUComputePolicy = () => {
     const GPUDeviceCtor = globalThis.GPUDevice;
@@ -564,6 +591,28 @@ std::string BuildPagePolicyScript() {
         } catch (_) {}
       };
       installScreenPolicy();
+      const installHardwarePolicy = () => {
+        try {
+          const NavigatorCtor = globalThis.Navigator;
+          if (NavigatorCtor && NavigatorCtor.prototype &&
+              !NavigatorCtor.prototype.__otfHardwarePolicy) {
+            defineGetter(NavigatorCtor.prototype, 'hardwareConcurrency', 4);
+            defineGetter(NavigatorCtor.prototype, 'deviceMemory', 4);
+            Object.defineProperty(NavigatorCtor.prototype, '__otfHardwarePolicy', {
+              value: true,
+              configurable: false
+            });
+          }
+          Object.defineProperty(globalThis, '__otfHardwareProfile', {
+            value: Object.freeze({
+              hardwareConcurrency: 4,
+              deviceMemory: 4
+            }),
+            configurable: false
+          });
+        } catch (_) {}
+      };
+      installHardwarePolicy();
       const installWebGPUComputePolicy = () => {
         const GPUDeviceCtor = globalThis.GPUDevice;
         if (!GPUDeviceCtor || !GPUDeviceCtor.prototype) return false;
