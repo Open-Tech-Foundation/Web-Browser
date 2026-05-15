@@ -363,6 +363,16 @@ bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
   return false;
 }
 
+std::string EncodeSearchQuery(const std::string& query) {
+  std::string encoded_query = CefURIEncode(query, false).ToString();
+  size_t pos = 0;
+  while ((pos = encoded_query.find("%20", pos)) != std::string::npos) {
+    encoded_query.replace(pos, 3, "+");
+    ++pos;
+  }
+  return encoded_query;
+}
+
 std::string BuildSearchUrl(const std::string& search_engine_id,
                            const std::string& query) {
   std::string base_url;
@@ -390,7 +400,7 @@ std::string BuildSearchUrl(const std::string& search_engine_id,
     return "";
   }
 
-  return base_url + CefURIEncode(query, false).ToString();
+  return base_url + EncodeSearchQuery(query);
 }
 
 bool NormalizeSettingsJson(const std::string& raw_json,

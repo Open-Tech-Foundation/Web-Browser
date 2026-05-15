@@ -17,7 +17,7 @@ const engineMap = {
 export function buildSearchUrl(engine, query) {
   const baseUrl = engineMap[engine];
   if (!baseUrl) return BROWSER_SCHEME.SETTINGS;
-  return baseUrl + encodeURIComponent(query);
+  return baseUrl + encodeURIComponent(query).replace(/%20/g, '+');
 }
 
 const explicitSchemePattern = /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//;

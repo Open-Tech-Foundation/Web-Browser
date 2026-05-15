@@ -17,8 +17,15 @@ test('resolveUrl adds https for direct hosts', () => {
 test('resolveUrl trims input and falls back to search', () => {
   assert.equal(
     resolveUrl('  hello world  ', 'bing'),
-    'https://www.bing.com/search?q=hello%20world'
+    'https://www.bing.com/search?q=hello+world'
   );
+});
+
+test('resolveUrl preserves direct host syntax in fallback mode', () => {
+  assert.equal(resolveUrl('Transformers.js', 'google'), 'https://Transformers.js');
+  assert.equal(resolveUrl('React.dev', 'google'), 'https://React.dev');
+  assert.equal(resolveUrl('Google.com/search', 'google'), 'https://Google.com/search');
+  assert.equal(resolveUrl('Google.com?query=test', 'google'), 'https://Google.com?query=test');
 });
 
 test('resolveUrl preserves internal and protocol-relative urls', () => {

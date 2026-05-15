@@ -211,22 +211,29 @@ const App = () => {
 
   const handleNavigate = (input) => {
     if (state.activeTabId !== null) {
-      const finalUrl = resolveUrl(input, searchEngine);
-      window.cefQuery({ request: `navigate:${state.activeTabId}:${finalUrl}` });
-      
-      if (finalUrl === BROWSER_SCHEME.SETTINGS) {
-        setTimeout(() => {
-          window.cefQuery({
-            request: "get-settings",
-            onSuccess: (response) => {
-              try {
-                const settings = JSON.parse(response);
-                setSearchEngine(settings.searchEngine || '');
-              } catch (e) {}
-            }
-          });
-        }, 1000);
-      }
+      const navigateTo = (finalUrl) => {
+        window.cefQuery({ request: `navigate:${state.activeTabId}:${finalUrl}` });
+
+        if (finalUrl === BROWSER_SCHEME.SETTINGS) {
+          setTimeout(() => {
+            window.cefQuery({
+              request: "get-settings",
+              onSuccess: (response) => {
+                try {
+                  const settings = JSON.parse(response);
+                  setSearchEngine(settings.searchEngine || '');
+                } catch (e) {}
+              }
+            });
+          }, 1000);
+        }
+      };
+
+      window.cefQuery({
+        request: `resolve-input-url:${input.length}:${input}`,
+        onSuccess: navigateTo,
+        onFailure: () => navigateTo(resolveUrl(input, searchEngine))
+      });
     }
   };
 

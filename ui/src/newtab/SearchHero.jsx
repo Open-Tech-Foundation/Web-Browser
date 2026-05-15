@@ -85,8 +85,15 @@ const SearchHero = ({ tabId }) => {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && query.trim()) {
-      const url = resolveUrl(query.trim(), engine);
-      window.cefQuery({ request: `navigate-current:${url}` });
+      const input = query.trim();
+      const navigateTo = (url) => {
+        window.cefQuery({ request: `navigate-current:${url}` });
+      };
+      window.cefQuery({
+        request: `resolve-input-url:${input.length}:${input}`,
+        onSuccess: navigateTo,
+        onFailure: () => navigateTo(resolveUrl(input, engine))
+      });
     }
   };
 
