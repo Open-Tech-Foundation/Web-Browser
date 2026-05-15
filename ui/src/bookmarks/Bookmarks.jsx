@@ -65,12 +65,17 @@ export default function Bookmarks() {
   }, [load]);
 
   const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return items;
-    const q = searchQuery.toLowerCase();
-    return items.filter(item => 
-      item.title?.toLowerCase().includes(q) || 
-      item.url?.toLowerCase().includes(q)
-    );
+    let result = [...items];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(item => 
+        item.title?.toLowerCase().includes(q) || 
+        item.url?.toLowerCase().includes(q)
+      );
+    }
+    
+    // Sort by createdAt desc (newest first)
+    return result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }, [items, searchQuery]);
 
   const navigateTo = (url) => {

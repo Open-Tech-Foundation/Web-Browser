@@ -1,5 +1,58 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+const getTabIcon = (tab) => {
+  const url = tab.url || '';
+  const title = (tab.title || '').toLowerCase();
+  
+  if (url.startsWith('browser://settings') || title === 'settings') {
+    return (
+      <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1-1-1.73l.43.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    );
+  }
+  if (url.startsWith('browser://bookmarks') || title === 'bookmarks') {
+    return (
+      <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+      </svg>
+    );
+  }
+  if (url.startsWith('browser://history') || title === 'history') {
+    return (
+      <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+      </svg>
+    );
+  }
+  if (url.startsWith('browser://security') || title === 'security') {
+    return (
+      <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    );
+  }
+  if (url.startsWith('browser://downloads') || title === 'downloads') {
+    return (
+      <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3v11" /><path d="m7 9 5 5 5-5" /><path d="M5 21h14" />
+      </svg>
+    );
+  }
+
+  if (tab.favicon) {
+    return <img src={tab.favicon} className="w-3.5 h-3.5 mr-2 shrink-0 object-contain" alt="" />;
+  }
+
+  return (
+    <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  );
+};
+
 const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   const viewportRef = useRef(null);
   const tabRefs = useRef(new Map());
@@ -65,6 +118,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           onClick={() => scrollTabs(-1)}
           disabled={!canScrollLeft}
           aria-label="Scroll tabs left"
+          title="Scroll left"
           className="h-[29px] w-7 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -95,15 +149,12 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
               <div className="absolute top-0 left-0 right-0 h-0.5 bg-brand-orange rounded-t-lg" />
             )}
             <div className="flex items-center flex-1 min-w-0 mr-2">
-              {tab.favicon ? (
-                <img src={tab.favicon} className="w-3.5 h-3.5 mr-2 shrink-0 object-contain" alt="" />
-              ) : (
-                <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-              )}
+              {getTabIcon(tab)}
               <span className="truncate font-medium">{tab.title || tab.url || 'New Tab'}</span>
             </div>
             <button 
               onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
+              title="Close tab"
               className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -117,6 +168,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
         ))}
         <button 
           onClick={() => onNew()}
+          title="New tab"
           className={`
             h-[29px] w-9 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all
             ${isOverflowing ? 'sticky right-0 z-10 bg-slate-200 dark:bg-slate-900/80 shadow-[-6px_0_10px_rgba(15,23,42,0.08)] dark:shadow-[-6px_0_10px_rgba(0,0,0,0.25)]' : ''}
@@ -133,6 +185,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           onClick={() => scrollTabs(1)}
           disabled={!canScrollRight}
           aria-label="Scroll tabs right"
+          title="Scroll right"
           className="h-[29px] w-7 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
