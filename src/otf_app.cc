@@ -18,6 +18,7 @@
 #include "include/cef_urlrequest.h"
 #include "include/wrapper/cef_stream_resource_handler.h"
 #include "otf_handler.h"
+#include "otf_page_policy.h"
 #include "otf_utils.h"
 
 namespace otf {
@@ -66,6 +67,61 @@ void AppendCommaSeparatedSwitchValue(CefRefPtr<CefCommandLine> command_line,
   } else {
     command_line->AppendSwitchWithValue(name, existing_value + "," + value);
   }
+}
+
+bool StartsWith(const std::string& value, const std::string& prefix) {
+  return value.rfind(prefix, 0) == 0;
+}
+
+std::string TrimTrailingSlash(std::string value) {
+  while (value.size() > 1 && value.back() == '/') {
+    value.pop_back();
+  }
+  return value;
+}
+
+bool IsDevUiUrl(const std::string& url) {
+  CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
+  if (!command_line || !command_line->HasSwitch("dev-ui-url")) {
+    return false;
+  }
+
+  const std::string dev_ui_url =
+      TrimTrailingSlash(command_line->GetSwitchValue("dev-ui-url").ToString());
+  return url == dev_ui_url || url == dev_ui_url + "/" ||
+         (StartsWith(url, dev_ui_url + "/") && otf::IsInternalBrowserUiUrl(url));
+}
+
+bool IsInheritedFrameUrl(const std::string& url) {
+  return url.empty() || url == "about:blank" || url == "about:srcdoc" ||
+         StartsWith(url, "data:") || StartsWith(url, "blob:");
+}
+
+bool IsFingerprintProofPageUrl(const std::string& url) {
+  return StartsWith(url, "browser://fingerprints") ||
+         url.find("/fingerprints.html") != std::string::npos;
+}
+
+bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
+  CefRefPtr<CefFrame> current = frame;
+  while (current) {
+    const std::string url = current->GetURL().ToString();
+    if (IsFingerprintProofPageUrl(url)) {
+      return true;
+    }
+    if (IsDevUiUrl(url) || StartsWith(url, "browser://") ||
+        StartsWith(url, "file://") || StartsWith(url, "devtools://")) {
+      return false;
+    }
+    if (otf::ShouldInjectPagePolicy(url)) {
+      return true;
+    }
+    if (!IsInheritedFrameUrl(url)) {
+      return false;
+    }
+    current = current->GetParent();
+  }
+  return false;
 }
 
 class OtfWindowDelegate : public CefWindowDelegate {
@@ -255,6 +311,7 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
 #if defined(__linux__)
   AppendCommaSeparatedSwitchValue(command_line, "enable-features", "Vulkan");
 #endif
+
 }
 
 OtfApp* OtfApp::GetInstance() {
@@ -813,6 +870,10 @@ void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
     config.js_query_function = "cefQuery";
     config.js_cancel_function = "cefQueryCancel";
     renderer_side_router_ = CefMessageRouterRendererSide::Create(config);
+  }
+  if (ShouldInjectPagePolicyForFrame(frame)) {
+    frame->ExecuteJavaScript(otf::BuildPagePolicyScript(),
+                             frame->GetURL().ToString(), 0);
   }
   renderer_side_router_->OnContextCreated(browser, frame, context);
 }

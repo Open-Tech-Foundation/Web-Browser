@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fingerprint Protection Proof</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4efe6;
+      --ink: #17130d;
+      --muted: #675f52;
+      --panel: #fffaf0;
+      --line: #d8ccb8;
+      --good: #0f7a43;
+      --bad: #a93424;
+      --warn: #9a6500;
+      --chip: #ece0cb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 10% 10%, rgba(255, 214, 139, 0.55), transparent 32rem),
+        linear-gradient(135deg, #f4efe6 0%, #e7dbc7 100%);
+      color: var(--ink);
+      font: 15px/1.5 ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+    }
+
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 34px 0 48px;
+    }
+
+    header {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font: 700 34px/1.1 Georgia, "Times New Roman", serif;
+      letter-spacing: -0.04em;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: color-mix(in srgb, var(--panel) 92%, white);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 18px 38px rgba(57, 42, 20, 0.12);
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .card.wide {
+      grid-column: 1 / -1;
+    }
+
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: var(--chip);
+      font-weight: 700;
+    }
+
+    .status.ok {
+      color: var(--good);
+    }
+
+    .status.fail {
+      color: var(--bad);
+    }
+
+    .status.warn {
+      color: var(--warn);
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 8px 12px;
+      margin: 14px 0 0;
+    }
+
+    dt {
+      color: var(--muted);
+    }
+
+    dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      max-width: 420px;
+      height: auto;
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 12px 0 0;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(32, 25, 15, 0.08);
+      color: #23180c;
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      background: #16110b;
+      color: #fffaf0;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      padding: 10px 14px;
+      width: fit-content;
+    }
+
+    @media (max-width: 760px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      dl {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Fingerprint Protection Proof</h1>
+      <p>Open this as <strong>browser://fingerprints</strong>. Reload the page to compare fresh canvas/WebGL values with the previous run.</p>
+      <button id="reload">Reload page</button>
+    </header>
+
+    <section class="grid">
+      <article class="card" id="policy-card">
+        <h2>Injection</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+      </article>
+
+      <article class="card" id="canvas-card">
+        <h2>Canvas</h2>
+        <span class="status warn">Running</span>
+        <canvas id="canvas" width="420" height="140"></canvas>
+        <dl></dl>
+      </article>
+
+      <article class="card" id="webgl-card">
+        <h2>WebGL</h2>
+        <span class="status warn">Running</span>
+        <canvas id="webgl-canvas" width="64" height="64"></canvas>
+        <dl></dl>
+      </article>
+
+      <article class="card" id="webgpu-card">
+        <h2>WebGPU Compute</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="webgpu-log"></pre>
+      </article>
+
+      <article class="card wide" id="worker-card">
+        <h2>Worker Bootstrap</h2>
+        <span class="status warn">Running</span>
+        <dl></dl>
+        <pre id="worker-log"></pre>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const storageKeys = {
+      canvas: 'otfFingerprintTest:lastCanvas',
+      webgl: 'otfFingerprintTest:lastWebgl'
+    };
+
+    const short = (value) => String(value).slice(0, 24);
+
+    const setCard = (id, status, label, rows) => {
+      const card = document.getElementById(id);
+      const badge = card.querySelector('.status');
+      const dl = card.querySelector('dl');
+      badge.className = 'status ' + status;
+      badge.textContent = label;
+      dl.innerHTML = '';
+      for (const [key, value] of rows) {
+        const dt = document.createElement('dt');
+        const dd = document.createElement('dd');
+        dt.textContent = key;
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+    };
+
+    const hashText = async (text) => {
+      if (globalThis.crypto && crypto.subtle) {
+        const bytes = new TextEncoder().encode(text);
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        return [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('');
+      }
+      let hash = 2166136261;
+      for (let i = 0; i < text.length; i += 1) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(16);
+    };
+
+    const functionLooksWrapped = (fn) =>
+      typeof fn === 'function' && !/\[native code\]/.test(Function.prototype.toString.call(fn));
+
+    const runInjectionTest = () => {
+      setCard('policy-card', globalThis.__otfPagePolicyInjected ? 'ok' : 'fail',
+        globalThis.__otfPagePolicyInjected ? 'Policy injected' : 'Policy missing', [
+          ['global marker', String(Boolean(globalThis.__otfPagePolicyInjected))],
+          ['canvas getImageData wrapped', String(functionLooksWrapped(globalThis.CanvasRenderingContext2D?.prototype?.getImageData))],
+          ['canvas toDataURL wrapped', String(functionLooksWrapped(globalThis.HTMLCanvasElement?.prototype?.toDataURL))],
+          ['webgl getParameter wrapped', String(functionLooksWrapped(globalThis.WebGLRenderingContext?.prototype?.getParameter))],
+          ['worker constructor wrapped', String(functionLooksWrapped(globalThis.Worker))]
+        ]);
+    };
+
+    const drawCanvas = () => {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fffaf0';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#102820';
+      ctx.font = '700 28px Georgia';
+      ctx.fillText('OTF canvas fingerprint', 24, 48);
+      ctx.fillStyle = '#c86f2d';
+      ctx.fillRect(24, 76, 160, 24);
+      ctx.fillStyle = '#1a6b8f';
+      ctx.beginPath();
+      ctx.arc(260, 82, 34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#16110b';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(330, 24, 56, 82);
+      return canvas;
+    };
+
+    const runCanvasTest = async () => {
+      const canvas = drawCanvas();
+      const dataUrl = canvas.toDataURL('image/png');
+      const hash = await hashText(dataUrl);
+      const previous = localStorage.getItem(storageKeys.canvas);
+      localStorage.setItem(storageKeys.canvas, hash);
+      const changed = previous && previous !== hash;
+      setCard('canvas-card', previous ? (changed ? 'ok' : 'fail') : 'warn',
+        previous ? (changed ? 'Changed after reload' : 'Same as previous reload') : 'First run', [
+          ['current hash', hash],
+          ['previous hash', previous || 'none'],
+          ['reload changed', previous ? String(changed) : 'reload once to verify'],
+          ['data URL prefix', short(dataUrl)]
+        ]);
+    };
+
+    const runWebGLTest = async () => {
+      const canvas = document.getElementById('webgl-canvas');
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (!gl) {
+        setCard('webgl-card', 'warn', 'WebGL unavailable', [['result', 'No WebGL context']]);
+        return;
+      }
+      gl.clearColor(0.18, 0.52, 0.38, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const pixels = new Uint8Array(64 * 64 * 4);
+      gl.readPixels(0, 0, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      const hash = await hashText([...pixels].join(','));
+      const previous = localStorage.getItem(storageKeys.webgl);
+      localStorage.setItem(storageKeys.webgl, hash);
+      const debugExtension = gl.getExtension('WEBGL_debug_renderer_info');
+      const vendor = gl.getParameter(37445);
+      const renderer = gl.getParameter(37446);
+      const extensions = gl.getSupportedExtensions() || [];
+      const patched = debugExtension === null && vendor === 'OTF Browser' && renderer === 'OTF WebGL';
+      setCard('webgl-card', patched ? 'ok' : 'fail',
+        patched ? 'Policy applied' : 'Policy missing', [
+          ['debug extension', String(debugExtension)],
+          ['unmasked vendor', String(vendor)],
+          ['unmasked renderer', String(renderer)],
+          ['extension listed', String(extensions.includes('WEBGL_debug_renderer_info'))],
+          ['readPixels hash', hash],
+          ['previous hash', previous || 'none']
+        ]);
+    };
+
+    const runWebGPUTest = async () => {
+      const log = document.getElementById('webgpu-log');
+      if (!navigator.gpu) {
+        log.textContent = 'navigator.gpu is unavailable in this runtime.';
+        setCard('webgpu-card', 'warn', 'WebGPU unavailable', [['navigator.gpu', 'false']]);
+        return;
+      }
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+          log.textContent = 'requestAdapter returned null.';
+          setCard('webgpu-card', 'warn', 'No adapter', [['adapter', 'null']]);
+          return;
+        }
+        const device = await adapter.requestDevice();
+        const shader = device.createShaderModule({
+          code: '@compute @workgroup_size(1) fn main() {}'
+        });
+        device.createComputePipeline({
+          layout: 'auto',
+          compute: { module: shader, entryPoint: 'main' }
+        });
+        log.textContent = 'createComputePipeline succeeded. The policy is not active.';
+        setCard('webgpu-card', 'fail', 'Compute allowed', [
+          ['navigator.gpu', 'true'],
+          ['error', 'none']
+        ]);
+      } catch (error) {
+        log.textContent = `${error.name}: ${error.message}`;
+        const expected = /compute pipelines are disabled/i.test(error.message);
+        setCard('webgpu-card', expected ? 'ok' : 'warn',
+          expected ? 'Compute blocked' : 'Blocked by runtime', [
+            ['navigator.gpu', 'true'],
+            ['error name', error.name],
+            ['error message', error.message]
+          ]);
+      }
+    };
+
+    const runWorkerTest = async () => {
+      const log = document.getElementById('worker-log');
+      if (!globalThis.Worker) {
+        setCard('worker-card', 'warn', 'Worker unavailable', [['Worker', 'false']]);
+        return;
+      }
+      const source = `
+        postMessage({
+          marker: Boolean(globalThis.__otfPagePolicyInjected),
+          gpuDevice: typeof globalThis.GPUDevice,
+          webgl: typeof globalThis.WebGLRenderingContext
+        });
+      `;
+      const url = URL.createObjectURL(new Blob([source], { type: 'application/javascript' }));
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const worker = new Worker(url);
+          worker.onmessage = (event) => {
+            worker.terminate();
+            resolve(event.data);
+          };
+          worker.onerror = (event) => {
+            worker.terminate();
+            reject(new Error(event.message || 'worker error'));
+          };
+        });
+        log.textContent = JSON.stringify(result, null, 2);
+        setCard('worker-card', result.marker ? 'ok' : 'fail',
+          result.marker ? 'Worker policy injected' : 'Worker policy missing', [
+            ['worker marker', String(result.marker)],
+            ['GPUDevice in worker', String(result.gpuDevice)],
+            ['WebGL in worker', String(result.webgl)]
+          ]);
+      } catch (error) {
+        log.textContent = error.stack || String(error);
+        setCard('worker-card', 'fail', 'Worker failed', [['error', error.message]]);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+
+    document.getElementById('reload').addEventListener('click', () => location.reload());
+
+    runInjectionTest();
+    runCanvasTest();
+    runWebGLTest();
+    runWebGPUTest();
+    runWorkerTest();
+  </script>
+</body>
+</html>

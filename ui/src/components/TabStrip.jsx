@@ -34,6 +34,14 @@ const getTabIcon = (tab) => {
       </svg>
     );
   }
+  if (url.startsWith('browser://fingerprints') || title.includes('fingerprint')) {
+    return (
+      <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    );
+  }
   if (url.startsWith('browser://downloads') || title === 'downloads') {
     return (
       <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

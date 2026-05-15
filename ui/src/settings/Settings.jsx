@@ -72,7 +72,7 @@ const engines = [
 ];
 
 const explicitSchemePattern = /^https?:\/\//i;
-const browserPagePattern = /^browser:\/\/(?:newtab|settings|findbar|history|bookmarks|downloads|security|insecure-blocked)(?:[/?#].*)?$/i;
+const browserPagePattern = /^browser:\/\/(?:newtab|settings|findbar|history|bookmarks|downloads|security|insecure-blocked|fingerprints)(?:[/?#].*)?$/i;
 const localhostPattern = /^localhost(?::\d{1,5})?(?:[/?#]|$)/i;
 const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)/;
 
@@ -310,6 +310,14 @@ const Settings = () => {
         setResetStatus(`Restart failed: ${msg || code}`);
       }
     });
+  };
+
+  const openInternalPage = (url) => {
+    if (window.cefQuery) {
+      window.cefQuery({ request: `navigate-current:${url}` });
+      return;
+    }
+    window.location.href = url;
   };
 
   const menuItems = [
@@ -641,6 +649,28 @@ const Settings = () => {
                           saveSettings({ downloadsEnabled: val });
                         }}
                       />
+                    </div>
+                  </section>
+
+                  <section>
+                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Public Proof of Concept</h2>
+                    <div className="p-8 bg-card/50 border border-main rounded-3xl relative overflow-hidden group">
+                      <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 via-transparent to-transparent opacity-80" />
+                      <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-main mb-2">Fingerprint protections test page</h3>
+                          <p className="text-muted text-sm leading-relaxed max-w-2xl">
+                            Open a local proof page that shows whether canvas, WebGL, WebGPU compute, workers, and frame-level privacy patches are active.
+                          </p>
+                          <p className="text-xs text-muted mt-3 font-mono">browser://fingerprints</p>
+                        </div>
+                        <button
+                          onClick={() => openInternalPage('browser://fingerprints')}
+                          className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                        >
+                          Open test page
+                        </button>
+                      </div>
                     </div>
                   </section>
                 </div>

@@ -33,7 +33,8 @@ bool IsInternalBrowserHistoryUrl(const std::string& url) {
   const char* kInternalPages[] = {
       "/newtab.html",     "/settings.html",  "/findbar.html",
       "/downloads.html",   "/downloadsbar.html", "/zoombar.html",
-      "/history.html",    "/bookmarks.html",  "/pdfviewer.html"};
+      "/history.html",    "/bookmarks.html",  "/fingerprints.html",
+      "/pdfviewer.html"};
   for (const char* suffix : kInternalPages) {
     if (url.find(suffix) != std::string::npos) {
       return true;

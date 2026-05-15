@@ -47,7 +47,8 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
   }
   if (page == "newtab" || page == "settings" || page == "findbar" ||
       page == "history" || page == "bookmarks" || page == "downloads" ||
-      page == "security" || page == "insecure-blocked") {
+      page == "security" || page == "insecure-blocked" ||
+      page == "fingerprints") {
     if (page_name) {
       *page_name = page;
     }
@@ -638,7 +639,8 @@ bool IsInternalBrowserUiUrl(const std::string& url) {
       "/appmenu.html",      "/newtab.html",     "/settings.html",
       "/findbar.html",      "/downloads.html",  "/downloadsbar.html",
       "/zoombar.html",      "/history.html",    "/bookmarks.html",
-      "/security.html",     "/insecure_blocked.html", "/pdfviewer.html"};
+      "/security.html",     "/fingerprints.html",
+      "/insecure_blocked.html", "/pdfviewer.html"};
   for (const char* suffix : kInternalUiPages) {
     if (url.find(suffix) != std::string::npos) {
       return true;
