@@ -76,7 +76,7 @@ bool OtfStore::Open() {
 }
 
 bool OtfStore::RunMigrations() {
-  return Exec(
+  bool ok = Exec(
              "CREATE TABLE IF NOT EXISTS schema_migrations ("
              "version INTEGER PRIMARY KEY"
              ");") &&
@@ -118,6 +118,7 @@ bool OtfStore::RunMigrations() {
              "id INTEGER PRIMARY KEY AUTOINCREMENT,"
              "title TEXT NOT NULL DEFAULT '',"
              "url TEXT NOT NULL UNIQUE,"
+             "favicon_url TEXT NOT NULL DEFAULT '',"
              "position INTEGER NOT NULL DEFAULT 0,"
              "created_at INTEGER NOT NULL,"
              "updated_at INTEGER NOT NULL"
@@ -126,6 +127,14 @@ bool OtfStore::RunMigrations() {
          Exec("CREATE INDEX IF NOT EXISTS idx_visits_history_id ON visits(history_id);") &&
          Exec("CREATE INDEX IF NOT EXISTS idx_downloads_started_at ON downloads(started_at DESC);") &&
          Exec("CREATE INDEX IF NOT EXISTS idx_bookmarks_position ON bookmarks(position ASC, updated_at DESC);");
+
+  if (!ok) return false;
+
+  // Migration v1: Add favicon_url to bookmarks if missing
+  Exec("ALTER TABLE bookmarks ADD COLUMN favicon_url TEXT NOT NULL DEFAULT '';");
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (1);");
+
+  return true;
 }
 
 bool OtfStore::Exec(const std::string& sql) const {
@@ -384,7 +393,7 @@ bool OtfStore::DeleteFinishedDownloads() {
       "DELETE FROM downloads WHERE status IN ('completed', 'canceled', 'interrupted');");
 }
 
-bool OtfStore::AddBookmark(const std::string& url, const std::string& title) {
+bool OtfStore::AddBookmark(const std::string& url, const std::string& title, const std::string& favicon_url) {
   if (!db_) {
     return false;
   }
@@ -400,9 +409,12 @@ bool OtfStore::AddBookmark(const std::string& url, const std::string& title) {
 
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
-      "INSERT INTO bookmarks(title, url, position, created_at, updated_at) "
-      "VALUES(?, ?, ?, ?, ?) "
-      "ON CONFLICT(url) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at;";
+      "INSERT INTO bookmarks(title, url, favicon_url, position, created_at, updated_at) "
+      "VALUES(?, ?, ?, ?, ?, ?) "
+      "ON CONFLICT(url) DO UPDATE SET "
+      "title = excluded.title, "
+      "favicon_url = COALESCE(NULLIF(excluded.favicon_url, ''), bookmarks.favicon_url), "
+      "updated_at = excluded.updated_at;";
   if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
     return false;
   }
@@ -410,29 +422,35 @@ bool OtfStore::AddBookmark(const std::string& url, const std::string& title) {
   sqlite3_bind_text(stmt, 1, title.c_str(), -1, SQLITE_TRANSIENT);
   const std::string canonical_url = NormalizeBookmarkKey(url);
   sqlite3_bind_text(stmt, 2, canonical_url.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmt, 3, position);
-  sqlite3_bind_int64(stmt, 4, now);
+  sqlite3_bind_text(stmt, 3, favicon_url.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 4, position);
   sqlite3_bind_int64(stmt, 5, now);
+  sqlite3_bind_int64(stmt, 6, now);
   const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
   sqlite3_finalize(stmt);
   return ok;
 }
 
-bool OtfStore::UpdateBookmark(int id, const std::string& url, const std::string& title) {
+bool OtfStore::UpdateBookmark(int id, const std::string& url, const std::string& title, const std::string& favicon_url) {
   if (!db_) {
     return false;
   }
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(
-          db_, "UPDATE bookmarks SET title = ?, url = ?, updated_at = ? WHERE id = ?;", -1,
+          db_,
+          "UPDATE bookmarks SET title = ?, url = ?, "
+          "favicon_url = COALESCE(NULLIF(?, ''), favicon_url), "
+          "updated_at = ? WHERE id = ?;",
+          -1,
           &stmt, nullptr) != SQLITE_OK) {
     return false;
   }
   const std::string canonical_url = NormalizeBookmarkKey(url);
   sqlite3_bind_text(stmt, 1, title.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmt, 2, canonical_url.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int64(stmt, 3, Now());
-  sqlite3_bind_int(stmt, 4, id);
+  sqlite3_bind_text(stmt, 3, favicon_url.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(stmt, 4, Now());
+  sqlite3_bind_int(stmt, 5, id);
   const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
   sqlite3_finalize(stmt);
   return ok;
@@ -507,7 +525,7 @@ std::vector<BookmarkEntry> OtfStore::GetBookmarks() const {
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(
           db_,
-          "SELECT id, title, url, position, created_at, updated_at "
+          "SELECT id, title, url, favicon_url, position, created_at, updated_at "
           "FROM bookmarks ORDER BY position ASC, updated_at DESC;",
           -1, &stmt, nullptr) != SQLITE_OK) {
     return out;
@@ -517,9 +535,11 @@ std::vector<BookmarkEntry> OtfStore::GetBookmarks() const {
     item.id = sqlite3_column_int(stmt, 0);
     item.title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
     item.url = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-    item.position = sqlite3_column_int(stmt, 3);
-    item.created_at = sqlite3_column_int64(stmt, 4);
-    item.updated_at = sqlite3_column_int64(stmt, 5);
+    const char* favicon = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+    item.favicon_url = favicon ? favicon : "";
+    item.position = sqlite3_column_int(stmt, 4);
+    item.created_at = sqlite3_column_int64(stmt, 5);
+    item.updated_at = sqlite3_column_int64(stmt, 6);
     out.push_back(item);
   }
   sqlite3_finalize(stmt);

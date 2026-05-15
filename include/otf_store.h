@@ -36,6 +36,7 @@ struct BookmarkEntry {
   int id = 0;
   std::string title;
   std::string url;
+  std::string favicon_url;
   int position = 0;
   int64_t created_at = 0;
   int64_t updated_at = 0;
@@ -68,8 +69,8 @@ class OtfStore {
   bool ClearDownloads();
   bool DeleteFinishedDownloads();
 
-  bool AddBookmark(const std::string& url, const std::string& title);
-  bool UpdateBookmark(int id, const std::string& url, const std::string& title);
+  bool AddBookmark(const std::string& url, const std::string& title, const std::string& favicon_url = "");
+  bool UpdateBookmark(int id, const std::string& url, const std::string& title, const std::string& favicon_url = "");
   bool RemoveBookmark(int id);
   bool RemoveBookmarkByUrl(const std::string& url);
   bool IsBookmarked(const std::string& url) const;

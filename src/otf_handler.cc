@@ -992,6 +992,7 @@ std::string BuildBookmarksJson(const std::vector<BookmarkEntry>& items) {
                .AddInt("id", item.id)
                .AddString("title", item.title)
                .AddString("url", item.url)
+               .AddString("faviconUrl", item.favicon_url)
                .AddInt("position", item.position)
                .AddRaw("createdAt", std::to_string(item.created_at))
                .AddRaw("updatedAt", std::to_string(item.updated_at))
@@ -1470,7 +1471,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             handler->store_->RemoveBookmarkByUrl(url);
             callback->Success("false");
           } else {
-            handler->store_->AddBookmark(url, handler->tab_manager_->GetTitle(tab_id));
+            const std::string title = handler->tab_manager_->GetTitle(tab_id);
+            const std::string favicon = handler->tab_manager_->GetFaviconUrl(tab_id);
+            handler->store_->AddBookmark(url, title, favicon);
             callback->Success("true");
             bookmarked = true;
           }
@@ -2128,8 +2131,12 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
 
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view) {
-    SendEvent(BuildTabPropertyEvent(view->GetID(), "favicon",
-                                    icon_urls[0].ToString()));
+    const int tab_id = view->GetID();
+    const std::string favicon_url = icon_urls[0].ToString();
+    if (tab_manager_) {
+      tab_manager_->SetFaviconUrl(tab_id, favicon_url);
+    }
+    SendEvent(BuildTabPropertyEvent(tab_id, "favicon", favicon_url));
   }
 }
 
@@ -2880,7 +2887,8 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
         if (store_->IsBookmarked(url)) {
           store_->RemoveBookmarkByUrl(url);
         } else {
-          store_->AddBookmark(url, tab_manager_->GetTitle(cur));
+          store_->AddBookmark(url, tab_manager_->GetTitle(cur),
+                              tab_manager_->GetFaviconUrl(cur));
           bookmarked = true;
         }
         SendEvent(BuildBookmarkStateEvent(cur, url, bookmarked));

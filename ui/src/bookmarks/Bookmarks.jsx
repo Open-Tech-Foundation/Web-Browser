@@ -156,10 +156,14 @@ export default function Bookmarks() {
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               {filteredItems.map((item) => (
                 <div key={item.id} className="group flex items-center gap-4 p-4 rounded-2xl bg-card border border-main hover:border-orange-500/30 hover:bg-card/80 transition-all">
-                  <div className="w-12 h-12 rounded-xl bg-main/5 flex items-center justify-center text-muted group-hover:text-orange-400 transition-colors shrink-0">
-                    <div className="text-lg font-bold">
-                       {(item.title || item.url)[0].toUpperCase()}
-                    </div>
+                  <div className="w-12 h-12 rounded-xl bg-main/5 flex items-center justify-center text-muted group-hover:text-orange-400 transition-colors shrink-0 overflow-hidden">
+                    {item.faviconUrl ? (
+                      <img src={item.faviconUrl} alt="" className="w-6 h-6 object-contain" />
+                    ) : (
+                      <div className="text-lg font-bold">
+                         {(item.title || item.url)[0].toUpperCase()}
+                      </div>
+                    )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
