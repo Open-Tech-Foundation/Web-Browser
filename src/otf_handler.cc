@@ -1413,7 +1413,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       size_t cursor = 18;
       bool ok = false;
       const std::string input = ParseLengthPrefixedField(msg, &cursor, &ok);
-      if (!ok) {
+      if (!ok || cursor != msg.size()) {
         callback->Failure(1, "Invalid resolve payload");
         return true;
       }
