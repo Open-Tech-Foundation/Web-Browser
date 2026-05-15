@@ -3,11 +3,31 @@ import { onMount } from "@opentf/web";
 export default function FingerprintsPage() {
   onMount(() => {
     const storageKeys = {
-      canvas: 'otfFingerprintTest:lastCanvas',
-      webgl: 'otfFingerprintTest:lastWebgl'
+      canvas: 'browserFingerprintTest:lastCanvas',
+      webgl: 'browserFingerprintTest:lastWebgl'
     };
 
     const short = (value) => String(value).slice(0, 24);
+    const scoreValue = {
+      ok: 1,
+      warn: 0.5,
+      fail: 0
+    };
+
+    const updateReportScore = () => {
+      const items = [...document.querySelectorAll('[data-report-item]')];
+      const scoredItems = items.filter((item) => item.dataset.status && item.dataset.status !== 'checking');
+      const total = items.length;
+      const current = scoredItems.reduce((sum, item) => sum + (scoreValue[item.dataset.status] ?? 0), 0);
+      const score = total ? Math.round((current / total) * 100) : 0;
+      const scoreNode = document.getElementById('fingerprint-score-value');
+      const labelNode = document.getElementById('fingerprint-score-label');
+      const fillNode = document.getElementById('fingerprint-score-fill');
+      if (!scoreNode || !labelNode || !fillNode) return;
+      scoreNode.textContent = `${score}`;
+      labelNode.textContent = `${scoredItems.length}/${total} tests complete`;
+      fillNode.style.width = `${score}%`;
+    };
 
     const setReportItem = (id, status, behavior, detail) => {
       const item = document.querySelector(`[data-report-item="${id}"]`);
@@ -15,10 +35,12 @@ export default function FingerprintsPage() {
       const icon = item.querySelector('.report-icon');
       const behaviorNode = item.querySelector('.report-behavior');
       const detailNode = item.querySelector('.report-detail');
+      item.dataset.status = status;
       icon.className = 'report-icon ' + status;
       icon.textContent = status === 'ok' ? '✓' : status === 'fail' ? '×' : '!';
       behaviorNode.textContent = behavior;
       detailNode.textContent = detail || '';
+      updateReportScore();
     };
 
     const setCard = (id, status, label, rows) => {
@@ -63,17 +85,12 @@ export default function FingerprintsPage() {
       const toDataUrlWrapped = functionLooksWrapped(globalThis.HTMLCanvasElement?.prototype?.toDataURL);
       const webglWrapped = functionLooksWrapped(globalThis.WebGLRenderingContext?.prototype?.getParameter);
       const workerWrapped = functionLooksWrapped(globalThis.Worker);
-      setReportItem('policy', injected ? 'ok' : 'fail',
-        injected ? 'Policy applied' : 'Policy missing',
-        injected ? 'Page-level policy marker is present.' : 'This page is running without the browser policy marker.');
-      setReportItem('canvas-hooks', canvasWrapped && toDataUrlWrapped ? 'ok' : 'fail',
-        canvasWrapped && toDataUrlWrapped ? 'Canvas hooks active' : 'Canvas hooks missing',
-        `getImageData: ${canvasWrapped}, toDataURL: ${toDataUrlWrapped}`);
-      setReportItem('worker', workerWrapped ? 'ok' : 'warn',
-        workerWrapped ? 'Worker constructor wrapped' : 'Worker constructor appears native',
-        'Worker coverage should also be checked in dedicated worker tests.');
-      setCard('policy-card', injected ? 'ok' : 'fail',
-        injected ? 'Policy injected' : 'Policy missing', [
+      const workerAvailable = typeof globalThis.Worker === 'function';
+      setReportItem('worker-surface', workerWrapped ? 'ok' : workerAvailable ? 'warn' : 'ok',
+        workerWrapped ? 'Worker constructor protected' : workerAvailable ? 'Worker API available' : 'Worker API unavailable',
+        workerAvailable ? 'Worker contexts can expose additional fingerprinting surfaces.' : 'No Worker constructor was exposed.');
+      setCard('policy-card', injected ? 'ok' : 'warn',
+        injected ? 'Browser policy marker detected' : 'Generic browser runtime', [
           ['user agent', navigator.userAgent],
           ['global marker', String(injected)],
           ['canvas getImageData wrapped', String(canvasWrapped)],
@@ -91,7 +108,7 @@ export default function FingerprintsPage() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = '#102820';
       ctx.font = '700 28px Georgia';
-      ctx.fillText('OTF canvas fingerprint', 24, 48);
+      ctx.fillText('Browser fingerprint test', 24, 48);
       ctx.fillStyle = '#c86f2d';
       ctx.fillRect(24, 76, 160, 24);
       ctx.fillStyle = '#1a6b8f';
@@ -161,19 +178,33 @@ export default function FingerprintsPage() {
       const previous = localStorage.getItem(storageKeys.webgl);
       localStorage.setItem(storageKeys.webgl, hash);
       const debugExtension = gl.getExtension('WEBGL_debug_renderer_info');
-      const vendor = gl.getParameter(37445);
-      const renderer = gl.getParameter(37446);
+      let vendor = 'unavailable';
+      let renderer = 'unavailable';
+      if (debugExtension) {
+        vendor = gl.getParameter(debugExtension.UNMASKED_VENDOR_WEBGL);
+        renderer = gl.getParameter(debugExtension.UNMASKED_RENDERER_WEBGL);
+      } else {
+        try {
+          vendor = gl.getParameter(37445);
+          renderer = gl.getParameter(37446);
+        } catch {
+          vendor = 'hidden';
+          renderer = 'hidden';
+        }
+      }
       const extensions = gl.getSupportedExtensions() || [];
-      const patched = debugExtension === null && vendor === 'OTF Browser' && renderer === 'OTF WebGL';
       const sensitiveDebugHidden = debugExtension === null && !extensions.includes('WEBGL_debug_renderer_info');
-      setReportItem('webgl-profile', patched ? 'ok' : 'fail',
-        patched ? 'Normalized WebGL identity' : 'Raw WebGL identity exposed',
+      const genericIdentity = /^(hidden|null|undefined|WebKit|OTF Browser)$/i.test(String(vendor)) &&
+        /^(hidden|null|undefined|WebKit WebGL|OTF WebGL)$/i.test(String(renderer));
+      const profileStatus = sensitiveDebugHidden ? 'ok' : genericIdentity ? 'warn' : 'fail';
+      setReportItem('webgl-profile', profileStatus,
+        profileStatus === 'ok' ? 'GPU identity hidden' : profileStatus === 'warn' ? 'Generic GPU identity' : 'Raw GPU identity exposed',
         `Vendor: ${String(vendor)}, renderer: ${String(renderer)}`);
       setReportItem('webgl-debug', sensitiveDebugHidden ? 'ok' : 'fail',
         sensitiveDebugHidden ? 'Debug renderer hidden' : 'Debug renderer available',
         `WEBGL_debug_renderer_info listed: ${extensions.includes('WEBGL_debug_renderer_info')}`);
-      setCard('webgl-card', patched ? 'ok' : 'fail',
-        patched ? 'Policy applied' : 'Policy missing', [
+      setCard('webgl-card', profileStatus,
+        profileStatus === 'ok' ? 'GPU identity hidden' : profileStatus === 'warn' ? 'Generic identity' : 'Raw identity exposed', [
           ['debug extension', String(debugExtension)],
           ['unmasked vendor', String(vendor)],
           ['unmasked renderer', String(renderer)],
@@ -188,16 +219,16 @@ export default function FingerprintsPage() {
       if (!log) return;
       if (!navigator.gpu) {
         log.textContent = 'navigator.gpu is unavailable in this runtime.';
-        setReportItem('webgpu-compute', 'warn', 'WebGPU unavailable', 'Cannot verify compute pipeline behavior in this runtime.');
-        setCard('webgpu-card', 'warn', 'WebGPU unavailable', [['navigator.gpu', 'false']]);
+        setReportItem('webgpu-compute', 'ok', 'WebGPU unavailable', 'Compute pipeline surface is not exposed in this runtime.');
+        setCard('webgpu-card', 'ok', 'WebGPU unavailable', [['navigator.gpu', 'false']]);
         return;
       }
       try {
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) {
           log.textContent = 'requestAdapter returned null.';
-          setReportItem('webgpu-compute', 'warn', 'No WebGPU adapter', 'Cannot verify compute pipeline behavior without an adapter.');
-          setCard('webgpu-card', 'warn', 'No adapter', [['adapter', 'null']]);
+          setReportItem('webgpu-compute', 'ok', 'No WebGPU adapter', 'Compute pipeline surface is not available without an adapter.');
+          setCard('webgpu-card', 'ok', 'No adapter', [['adapter', 'null']]);
           return;
         }
         const device = await adapter.requestDevice();
@@ -294,6 +325,62 @@ export default function FingerprintsPage() {
             display: grid;
             gap: 10px;
             margin: 0 0 18px;
+          }
+
+          #fingerprints-container .score-panel {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 16px;
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: rgba(255, 250, 240, 0.72);
+          }
+
+          #fingerprints-container .score-number {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            font: 800 44px/1 Georgia, "Times New Roman", serif;
+            letter-spacing: -0.05em;
+            color: var(--ink);
+          }
+
+          #fingerprints-container .score-number span:last-child {
+            font-size: 18px;
+            color: var(--muted);
+          }
+
+          #fingerprints-container .score-meta {
+            display: grid;
+            gap: 8px;
+          }
+
+          #fingerprints-container .score-title {
+            color: var(--ink);
+            font-weight: 900;
+          }
+
+          #fingerprints-container .score-label {
+            color: var(--muted);
+            font-size: 12px;
+          }
+
+          #fingerprints-container .score-track {
+            height: 9px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: var(--chip);
+          }
+
+          #fingerprints-container .score-fill {
+            width: 0;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--warn), var(--good));
+            transition: width 220ms ease;
           }
 
           #fingerprints-container .report-row {
@@ -478,29 +565,42 @@ export default function FingerprintsPage() {
             #fingerprints-container .report-row {
               grid-template-columns: 1fr;
             }
+
+            #fingerprints-container .score-panel {
+              grid-template-columns: 1fr;
+            }
           }
         `}
       </style>
       <main>
         <header>
-          <h1>Fingerprint Protection Proof</h1>
-          <p>This diagnostic tool verifies the effectiveness of the OTF Browser's anti-fingerprinting policies.</p>
+          <h1>Browser Fingerprint Test</h1>
+          <p>Run this page in any browser to compare fingerprinting exposure, protection behavior, and high-risk API surfaces.</p>
           <button onClick={() => window.location.reload()}>Reload page</button>
         </header>
 
         <section className="card wide report-card">
-          <h2>Browser Behavior Report</h2>
+          <h2>Browser Privacy Score</h2>
+          <div className="score-panel">
+            <div className="score-number">
+              <span id="fingerprint-score-value">0</span>
+              <span>/100</span>
+            </div>
+            <div className="score-meta">
+              <div className="score-title">Fingerprint resistance score</div>
+              <div className="score-track"><div className="score-fill" id="fingerprint-score-fill"></div></div>
+              <div className="score-label" id="fingerprint-score-label">0 tests complete</div>
+            </div>
+          </div>
           <div className="report">
             {[
-              ['policy', 'Page policy injection'],
-              ['canvas-hooks', 'Canvas API hooks'],
               ['canvas-fingerprint', 'Canvas fingerprint'],
               ['webgl-profile', 'WebGL identity'],
               ['webgl-debug', 'WebGL debug renderer'],
               ['webgpu-compute', 'WebGPU compute pipeline'],
-              ['worker', 'Worker constructor'],
+              ['worker-surface', 'Worker execution surface'],
             ].map(([id, label]) => (
-              <div className="report-row" data-report-item={id} key={id}>
+              <div className="report-row" data-report-item={id} data-status="checking" key={id}>
                 <div className="report-label">{label}</div>
                 <div className="report-result">
                   <span className="report-icon warn">!</span>
@@ -516,7 +616,7 @@ export default function FingerprintsPage() {
 
         <section className="grid">
           <article className="card" id="policy-card">
-            <h2>Injection</h2>
+            <h2>Runtime Surface</h2>
             <span className="status warn">Running</span>
             <dl></dl>
           </article>
