@@ -100,6 +100,59 @@ export default function FingerprintsPage() {
         ]);
     };
 
+    const runScreenTest = () => {
+      const width = Number(screen.width);
+      const height = Number(screen.height);
+      const availWidth = Number(screen.availWidth);
+      const availHeight = Number(screen.availHeight);
+      const dpr = Number(globalThis.devicePixelRatio || 1);
+      const colorDepth = Number(screen.colorDepth);
+      const pixelDepth = Number(screen.pixelDepth);
+      const profile = globalThis.__otfScreenProfile;
+      const knownProfiles = new Set([
+        '1366x768@1',
+        '1440x900@1',
+        '1920x1080@1',
+        '1920x1080@2',
+        '2560x1080@1'
+      ]);
+      const signature = `${width}x${height}@${dpr}`;
+      const commonProfile = knownProfiles.has(signature);
+      const validGeometry =
+        width > 0 &&
+        height > 0 &&
+        availWidth > 0 &&
+        availHeight > 0 &&
+        availWidth <= width &&
+        availHeight <= height &&
+        dpr > 0;
+      const validDepth =
+        colorDepth > 0 &&
+        pixelDepth > 0 &&
+        colorDepth === pixelDepth;
+      const internallyConsistent = validGeometry && validDepth;
+      const status = profile || (commonProfile && internallyConsistent)
+        ? 'ok'
+        : internallyConsistent
+          ? 'warn'
+          : 'fail';
+      setReportItem('screen-dimensions', status,
+        status === 'ok' ? 'Common screen profile' : status === 'warn' ? 'Raw or uncommon profile' : 'Invalid screen values',
+        `${width} × ${height}, available ${availWidth} × ${availHeight}, DPR ${dpr}x`);
+      setCard('screen-card', status,
+        status === 'ok' ? 'Common profile' : status === 'warn' ? 'Raw or uncommon profile' : 'Invalid values', [
+          ['resolution', `${width} × ${height}`],
+          ['available area', `${availWidth} × ${availHeight}`],
+          ['device pixel ratio', `${dpr}x`],
+          ['color depth', `${colorDepth} bits`],
+          ['pixel depth', `${pixelDepth} bits`],
+          ['known bucket', String(commonProfile)],
+          ['valid geometry', String(validGeometry)],
+          ['valid color depth', String(validDepth)],
+          ['browser profile', profile ? JSON.stringify(profile) : 'none']
+        ]);
+    };
+
     const drawCanvas = () => {
       const canvas = document.getElementById('canvas');
       if (!canvas) return;
@@ -261,6 +314,7 @@ export default function FingerprintsPage() {
     };
 
     runInjectionTest();
+    runScreenTest();
     runCanvasTest();
     runWebGLTest();
     runWebGPUTest();
@@ -594,6 +648,7 @@ export default function FingerprintsPage() {
           </div>
           <div className="report">
             {[
+              ['screen-dimensions', 'Screen dimensions'],
               ['canvas-fingerprint', 'Canvas fingerprint'],
               ['webgl-profile', 'WebGL identity'],
               ['webgl-debug', 'WebGL debug renderer'],
@@ -615,6 +670,12 @@ export default function FingerprintsPage() {
         </section>
 
         <section className="grid">
+          <article className="card" id="screen-card">
+            <h2>Screen</h2>
+            <span className="status warn">Running</span>
+            <dl></dl>
+          </article>
+
           <article className="card" id="policy-card">
             <h2>Runtime Surface</h2>
             <span className="status warn">Running</span>
