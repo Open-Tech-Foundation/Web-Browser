@@ -97,18 +97,10 @@ bool IsInheritedFrameUrl(const std::string& url) {
          StartsWith(url, "data:") || StartsWith(url, "blob:");
 }
 
-bool IsFingerprintProofPageUrl(const std::string& url) {
-  return StartsWith(url, "browser://fingerprints") ||
-         url.find("/fingerprints.html") != std::string::npos;
-}
-
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
   CefRefPtr<CefFrame> current = frame;
   while (current) {
     const std::string url = current->GetURL().ToString();
-    if (IsFingerprintProofPageUrl(url)) {
-      return true;
-    }
     if (IsDevUiUrl(url) || StartsWith(url, "browser://") ||
         StartsWith(url, "file://") || StartsWith(url, "devtools://")) {
       return false;

@@ -845,9 +845,16 @@ std::string BuildPagePolicyScript() {
   };
   const perturbImageData = (imageData) => {
     try {
-      const data = imageData && imageData.data;
-      if (!data) return imageData;
-      perturbPixelBuffer(data);
+      if (!imageData || !imageData.width || !imageData.height) return imageData;
+      const src = imageData.data;
+      if (!src) return imageData;
+      const w = imageData.width;
+      const h = imageData.height;
+      const dst = new ImageData(w, h);
+      const dstData = dst.data;
+      for (let i = 0; i < src.length; i++) dstData[i] = src[i];
+      perturbPixelBuffer(dstData);
+      return dst;
     } catch (_) {}
     return imageData;
   };
@@ -906,8 +913,8 @@ std::string BuildPagePolicyScript() {
           copyContext.drawImage(canvas, 0, 0);
           const imageData = originalGetImageData.call(
               copyContext, 0, 0, copy.width, copy.height);
-          perturbImageData(imageData);
-          originalPutImageData.call(copyContext, imageData, 0, 0);
+          const perturbed = perturbImageData(imageData);
+          originalPutImageData.call(copyContext, perturbed, 0, 0);
           return copy;
         } catch (_) {
           return null;
@@ -950,8 +957,8 @@ std::string BuildPagePolicyScript() {
             if (copyContext && typeof copyContext.drawImage === 'function') {
               copyContext.drawImage(this, 0, 0);
               const imageData = copyContext.getImageData(0, 0, copy.width, copy.height);
-              perturbImageData(imageData);
-              copyContext.putImageData(imageData, 0, 0);
+              const perturbed = perturbImageData(imageData);
+              copyContext.putImageData(perturbed, 0, 0);
               return originalConvertToBlob.apply(copy, args);
             }
           } catch (_) {}
@@ -1471,6 +1478,7 @@ std::string BuildPagePolicyScript() {
     wrapWorkerCtor('SharedWorker');
   };
   installWorkerPolicy();
+
 })();
 )JS";
   ReplaceAll(script, "__OTF_SCREEN_PROFILE__",
