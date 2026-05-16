@@ -290,18 +290,38 @@ export default function HomePage() {
             A fast, privacy-focused browser with hardened security, built on top of the Chromium Embedded Framework.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl mx-auto text-left">
-            {[
-              ["Strict browser-owned controls", "Settings, security state, reset actions, and diagnostics stay under browser control instead of page control."],
-              ["Hardened anti-fingerprint policy", "Canvas, WebGL, WebGPU compute, workers, and frames are covered by a standard privacy policy."],
-              ["Modern features", "Workspace-focused browsing and in-browser local AI model support for private, local-first workflows."],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl border p-5 backdrop-blur-sm" style="background-color: color-mix(in srgb, var(--foreground) 3%, transparent); border-color: var(--border);">
-                <div className="text-[10px] font-black uppercase tracking-widest mb-2" style="color: var(--accent);">{label}</div>
-                <div className="text-sm font-semibold leading-relaxed">{value}</div>
+        </div>
+      </section>
+
+      <section className="py-24 px-6 max-w-7xl mx-auto w-full">
+        <div className="text-center mb-16">
+          <h2 className="text-4xl font-extrabold mb-4 tracking-tight" style="color: var(--foreground);">Unique Features</h2>
+          <p className="max-w-2xl mx-auto text-lg leading-relaxed" style="color: var(--muted);">
+            Discover the innovative tools built exclusively for OTF Browser.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            {
+              title: "Intelligent Tab Strip",
+              desc: "Real-time counters and attention animations for hidden tabs provide the most intuitive multi-tab navigation experience.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20M2 5h20M2 19h20"/></svg>
+            },
+            {
+              title: "WebGPU Compute Protection",
+              desc: "Prevents GPU resource abuse by automatically blocking non-graphical WebGPU compute workloads, stopping stealth crypto mining and hardware strain.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h10"/></svg>
+            }
+          ].map((feature) => (
+            <div key={feature.title} className="p-8 rounded-[32px] border transition-all duration-500 hover:border-orange-500/30 hover:-translate-y-2 group" style="background-color: var(--bg-card); border-color: var(--border);">
+              <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center mb-6 text-orange-500 group-hover:scale-110 transition-transform">
+                {feature.icon}
               </div>
-            ))}
-          </div>
+              <h3 className="text-xl font-bold mb-4" style="color: var(--foreground);">{feature.title}</h3>
+              <p className="text-sm leading-relaxed" style="color: var(--muted);">{feature.desc}</p>
+            </div>
+          ))}
         </div>
       </section>
 
