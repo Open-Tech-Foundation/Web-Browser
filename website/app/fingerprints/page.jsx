@@ -60,6 +60,51 @@ export default function FingerprintsPage() {
       }
     };
 
+    const setAdvancedFontCard = (status, label, cases, details) => {
+      const card = document.getElementById('font-advanced-card');
+      if (!card) return;
+      const badge = card.querySelector('.status');
+      const dl = card.querySelector('dl');
+      badge.className = 'status ' + status;
+      badge.textContent = label;
+      dl.innerHTML = '';
+
+      const list = document.createElement('div');
+      list.className = 'case-list';
+      for (const item of cases) {
+        const row = document.createElement('section');
+        row.className = 'case-row ' + item.status.toLowerCase();
+
+        const heading = document.createElement('div');
+        heading.className = 'case-heading';
+        const title = document.createElement('strong');
+        title.textContent = item.title;
+        const pill = document.createElement('span');
+        pill.className = 'case-pill ' + item.status.toLowerCase();
+        pill.textContent = item.status;
+        heading.append(title, pill);
+
+        const expected = document.createElement('p');
+        expected.innerHTML = `<span>Expected</span>${item.expected}`;
+        const current = document.createElement('p');
+        current.innerHTML = `<span>Current</span>${item.current}`;
+        const why = document.createElement('p');
+        why.innerHTML = `<span>Why</span>${item.why}`;
+
+        row.append(heading, expected, current, why);
+        list.append(row);
+      }
+      dl.append(list);
+
+      for (const [key, value] of details) {
+        const dt = document.createElement('dt');
+        const dd = document.createElement('dd');
+        dt.textContent = key;
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+    };
+
     const hashText = async (text) => {
       if (globalThis.crypto && crypto.subtle) {
         const bytes = new TextEncoder().encode(text);
@@ -441,19 +486,49 @@ export default function FingerprintsPage() {
         canvasNormalized = Math.abs(arialWidth - rareWidth) < 0.01;
       }
 
+      const metricText = 'mmmMMMmmmlllmmmLLL₹▁₺₸ẞॿmmmiiimmmIIImmmwwwmmmWWW';
+      const measureDomFont = (fontFamily) => {
+        const node = document.createElement('span');
+        node.textContent = metricText;
+        node.style.cssText = [
+          'position:absolute',
+          'left:-10000px',
+          'top:-10000px',
+          'white-space:nowrap',
+          'font-size:72px',
+          `font-family:${fontFamily}, monospace`
+        ].join(';');
+        document.body.appendChild(node);
+        const rect = node.getBoundingClientRect();
+        const result = {
+          width: rect.width,
+          height: rect.height,
+          display: `${Math.round(rect.width * 100) / 100}x${Math.round(rect.height * 100) / 100}`
+        };
+        node.remove();
+        return result;
+      };
+      const domMetrics = probeFonts.map((font) => [font, measureDomFont(`"${font}"`)]);
+      const domUniqueMetrics = new Set(domMetrics.map(([, metric]) => metric.display)).size;
+      const domWidths = domMetrics.map(([, metric]) => metric.width);
+      const domHeights = domMetrics.map(([, metric]) => metric.height);
+      const domWidthRange = Math.max(...domWidths) - Math.min(...domWidths);
+      const domHeightRange = Math.max(...domHeights) - Math.min(...domHeights);
+      const domMetricsNormalized = domWidthRange < 1 && domHeightRange < 1;
+
       const limitedApi =
         fontCheckAvailable &&
         extraDetected.length === 0 &&
         allowedDetected.length <= allowedFonts.length &&
         enumeratedFonts.length <= allowedFonts.length;
-      const status = limitedApi && canvasNormalized
+      const status = limitedApi && canvasNormalized && domMetricsNormalized
         ? 'ok'
-        : limitedApi
+        : limitedApi && (canvasNormalized || domMetricsNormalized)
           ? 'warn'
           : 'fail';
       setReportItem('font-surface', status,
-        status === 'ok' ? 'Font probing limited' : status === 'warn' ? 'Font API limited; canvas uncertain' : 'Additional fonts exposed',
-        `Allowed detected: ${allowedDetected.length}, extra detected: ${extraDetected.length}`);
+        status === 'ok' ? 'Font probing limited' : status === 'warn' ? 'Font API partially limited' : 'Additional fonts exposed',
+        `Allowed detected: ${allowedDetected.length}, extra detected: ${extraDetected.length}, DOM range: ${domWidthRange.toFixed(2)}x${domHeightRange.toFixed(2)}`);
       setCard('font-card', status,
         status === 'ok' ? 'Limited font surface' : status === 'warn' ? 'Partially limited' : 'Extra fonts exposed', [
           ['document.fonts.check', fontCheckAvailable ? 'available' : 'unavailable'],
@@ -464,7 +539,237 @@ export default function FingerprintsPage() {
           ['canvas Arial width', String(arialWidth)],
           ['canvas Calibri width', String(rareWidth)],
           ['canvas measurement normalized', String(canvasNormalized)],
+          ['DOM font metrics unique count', String(domUniqueMetrics)],
+          ['DOM font metrics width range', domWidthRange.toFixed(4)],
+          ['DOM font metrics height range', domHeightRange.toFixed(4)],
+          ['DOM font metrics normalized', String(domMetricsNormalized)],
+          ['DOM font metrics probes', domMetrics.map(([font, metric]) => `${font}: ${metric.display}`).join(' | ')],
           ['browser profile', profile ? JSON.stringify(profile) : 'none']
+        ]);
+    };
+
+    const runLayoutMetricsTest = async () => {
+      const node = document.createElement('span');
+      node.textContent = 'mmmMMMmmmlllmmmLLL₹▁₺₸ẞॿmmmiiimmmIIImmmwwwmmmWWW';
+      node.style.cssText = [
+        'position:absolute',
+        'left:-10000px',
+        'top:-10000px',
+        'white-space:nowrap',
+        'font-size:72px',
+        'font-family:"Calibri", monospace'
+      ].join(';');
+      document.body.appendChild(node);
+
+      const rects = [];
+      for (let i = 0; i < 8; i += 1) {
+        const rect = node.getBoundingClientRect();
+        rects.push({
+          x: Number(rect.x).toFixed(4),
+          y: Number(rect.y).toFixed(4),
+          width: Number(rect.width).toFixed(4),
+          height: Number(rect.height).toFixed(4),
+          left: Number(rect.left).toFixed(4),
+          top: Number(rect.top).toFixed(4),
+          right: Number(rect.right).toFixed(4),
+          bottom: Number(rect.bottom).toFixed(4)
+        });
+      }
+      node.remove();
+
+      const widthValues = rects.map((rect) => rect.width);
+      const heightValues = rects.map((rect) => rect.height);
+      const uniqueWidths = new Set(widthValues).size;
+      const uniqueHeights = new Set(heightValues).size;
+      const uniqueRects = new Set(rects.map((rect) => JSON.stringify(rect))).size;
+      const hash = await hashText(JSON.stringify(rects));
+      const previous = localStorage.getItem('browserFingerprintTest:lastLayoutRect');
+      localStorage.setItem('browserFingerprintTest:lastLayoutRect', hash);
+      const changedFromPrevious = previous && previous !== hash;
+      const protectedNow = uniqueRects > 1 || changedFromPrevious;
+      const status = protectedNow ? 'ok' : 'fail';
+
+      setReportItem('layout-metrics', status,
+        protectedNow ? 'DOMRect reads vary' : 'DOMRect reads are stable',
+        `Unique rects: ${uniqueRects}/8, unique widths: ${uniqueWidths}, unique heights: ${uniqueHeights}`);
+      setCard('layout-card', status,
+        protectedNow ? 'Layout noise visible' : 'Stable layout metrics', [
+          ['current hash', hash],
+          ['previous hash', previous || 'none'],
+          ['changed from previous page run', previous ? String(changedFromPrevious) : 'no previous run'],
+          ['unique rects', `${uniqueRects}/8`],
+          ['unique widths', String(uniqueWidths)],
+          ['unique heights', String(uniqueHeights)],
+          ['width samples', widthValues.join(', ')],
+          ['height samples', heightValues.join(', ')],
+          ['first rect', JSON.stringify(rects[0])],
+          ['last rect', JSON.stringify(rects[rects.length - 1])]
+        ]);
+    };
+
+    const runAdvancedFontSurfaceTest = async () => {
+      const probeFonts = ['Calibri', 'Segoe UI', 'Roboto', 'Ubuntu', 'Noto Sans', 'DejaVu Sans', 'Courier New'];
+      const probeText = 'mmmMMMmmmlllmmmLLL₹▁₺₸ẞॿmmmiiimmmIIImmmwwwmmmWWW';
+      const metric = (width, height) => `${Number(width).toFixed(2)}x${Number(height).toFixed(2)}`;
+
+      const measureRange = (fontFamily) => {
+        const node = document.createElement('span');
+        node.textContent = probeText;
+        node.style.cssText = [
+          'position:absolute',
+          'left:-10000px',
+          'top:-10000px',
+          'white-space:nowrap',
+          'font-size:72px',
+          `font-family:${fontFamily}, monospace`
+        ].join(';');
+        document.body.appendChild(node);
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const rect = range.getBoundingClientRect();
+        const clientRects = [...range.getClientRects()].map((item) => metric(item.width, item.height));
+        range.detach?.();
+        node.remove();
+        return {
+          rect: metric(rect.width, rect.height),
+          clientRects: clientRects.join(', ') || 'none'
+        };
+      };
+
+      const measureSvg = (fontFamily) => {
+        const namespace = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(namespace, 'svg');
+        const text = document.createElementNS(namespace, 'text');
+        svg.setAttribute('width', '1');
+        svg.setAttribute('height', '1');
+        svg.style.cssText = 'position:absolute;left:-10000px;top:-10000px;';
+        text.setAttribute('x', '0');
+        text.setAttribute('y', '80');
+        text.setAttribute('font-size', '72');
+        text.setAttribute('font-family', `${fontFamily}, monospace`);
+        text.textContent = probeText;
+        svg.appendChild(text);
+        document.body.appendChild(svg);
+        let bbox = 'unavailable';
+        let computedLength = 'unavailable';
+        try {
+          const box = text.getBBox();
+          bbox = metric(box.width, box.height);
+        } catch (error) {
+          bbox = `${error.name}: ${error.message}`;
+        }
+        try {
+          computedLength = Number(text.getComputedTextLength()).toFixed(2);
+        } catch (error) {
+          computedLength = `${error.name}: ${error.message}`;
+        }
+        svg.remove();
+        return { bbox, computedLength };
+      };
+
+      const testFontFaceLocal = async (fontFamily) => {
+        if (typeof FontFace !== 'function') return 'FontFace unavailable';
+        const family = `Probe${Math.random().toString(16).slice(2)}`;
+        try {
+          const face = new FontFace(family, `local("${fontFamily}")`);
+          const loaded = await face.load();
+          return loaded && loaded.status ? loaded.status : 'loaded';
+        } catch (error) {
+          return `${error.name}: ${error.message}`;
+        }
+      };
+
+      let localFontsResult = 'unavailable';
+      try {
+        if (typeof globalThis.queryLocalFonts === 'function') {
+          const fonts = await globalThis.queryLocalFonts();
+          localFontsResult = `available:${fonts.length}`;
+        }
+      } catch (error) {
+        localFontsResult = `${error.name}: ${error.message}`;
+      }
+
+      const rangeMetrics = probeFonts.map((font) => [font, measureRange(`"${font}"`)]);
+      const svgMetrics = probeFonts.map((font) => [font, measureSvg(`"${font}"`)]);
+      const fontFaceResults = await Promise.all(probeFonts.slice(0, 4).map(async (font) => [
+        font,
+        await testFontFaceLocal(font)
+      ]));
+
+      const uniqueRangeRects = new Set(rangeMetrics.map(([, value]) => value.rect)).size;
+      const uniqueRangeClientRects = new Set(rangeMetrics.map(([, value]) => value.clientRects)).size;
+      const uniqueSvgBBoxes = new Set(svgMetrics.map(([, value]) => value.bbox)).size;
+      const uniqueSvgLengths = new Set(svgMetrics.map(([, value]) => value.computedLength)).size;
+      const fontFaceLoaded = fontFaceResults.filter(([, value]) => value === 'loaded').length;
+      const localFontsBlocked = localFontsResult === 'unavailable' ||
+        /^SecurityError:/.test(localFontsResult) ||
+        localFontsResult === 'available:0';
+      const leaks = [
+        uniqueRangeRects > 1,
+        uniqueRangeClientRects > 1,
+        uniqueSvgBBoxes > 1,
+        uniqueSvgLengths > 1,
+        fontFaceLoaded > 0,
+        !localFontsBlocked
+      ].filter(Boolean).length;
+      const status = leaks === 0 ? 'ok' : leaks <= 2 ? 'warn' : 'fail';
+      const caseRows = [
+        {
+          title: 'Range rectangles',
+          status: uniqueRangeRects <= 1 && uniqueRangeClientRects <= 1 ? 'PASS' : 'FAIL',
+          expected: 'Same rectangle for every requested font.',
+          current: `${uniqueRangeRects} bounding values, ${uniqueRangeClientRects} client-rect values.`,
+          why: 'Range metrics should not reveal the resolved local font.'
+        },
+        {
+          title: 'SVG text box',
+          status: uniqueSvgBBoxes <= 1 ? 'PASS' : 'FAIL',
+          expected: 'Same SVG text box for every requested font.',
+          current: `${uniqueSvgBBoxes} unique box values.`,
+          why: 'SVG getBBox can bypass normal DOM metric protection.'
+        },
+        {
+          title: 'SVG text length',
+          status: uniqueSvgLengths <= 1 ? 'PASS' : 'FAIL',
+          expected: 'Same SVG text length for every requested font.',
+          current: `${uniqueSvgLengths} unique text-length values.`,
+          why: 'Different lengths expose font-specific glyph metrics.'
+        },
+        {
+          title: 'FontFace local()',
+          status: fontFaceLoaded === 0 ? 'PASS' : 'FAIL',
+          expected: 'Local font loads should fail or be neutralized.',
+          current: `${fontFaceLoaded} local font loads succeeded.`,
+          why: 'local() can directly test whether a font exists.'
+        },
+        {
+          title: 'Local Font Access API',
+          status: localFontsBlocked ? 'PASS' : 'FAIL',
+          expected: 'Unavailable, denied, or empty result.',
+          current: localFontsResult,
+          why: 'queryLocalFonts can enumerate installed fonts directly.'
+        }
+      ];
+      const failedCases = caseRows.filter((item) => item.status === 'FAIL').map((item) => item.title);
+      const behavior = failedCases.length === 0
+        ? 'All advanced font probes matched expected behavior'
+        : `${failedCases.length} advanced font probe${failedCases.length === 1 ? '' : 's'} failed`;
+
+      setReportItem('font-advanced', status,
+        behavior,
+        failedCases.length ? `Failed: ${failedCases.join(', ')}` : 'No advanced font leaks detected.');
+      setAdvancedFontCard(status,
+        failedCases.length ? `${failedCases.length} failed test${failedCases.length === 1 ? '' : 's'}` : 'All tests passed',
+        caseRows,
+        [
+          ['Range unique rects', String(uniqueRangeRects)],
+          ['Range unique client rects', String(uniqueRangeClientRects)],
+          ['Range probes', rangeMetrics.map(([font, value]) => `${font}: ${value.rect} | ${value.clientRects}`).join(' || ')],
+          ['SVG unique bboxes', String(uniqueSvgBBoxes)],
+          ['SVG unique text lengths', String(uniqueSvgLengths)],
+          ['SVG probes', svgMetrics.map(([font, value]) => `${font}: bbox ${value.bbox}, len ${value.computedLength}`).join(' || ')],
+          ['FontFace local() results', fontFaceResults.map(([font, value]) => `${font}: ${value}`).join(' | ')],
+          ['queryLocalFonts', localFontsResult]
         ]);
     };
 
@@ -760,6 +1065,8 @@ export default function FingerprintsPage() {
     runScreenTest();
     runHardwareTest();
     runFontTest();
+    runLayoutMetricsTest();
+    runAdvancedFontSurfaceTest();
     runCanvasTest();
     runWebGLTest();
     runWebGPUTest();
@@ -1017,6 +1324,72 @@ export default function FingerprintsPage() {
             color: var(--ink);
           }
 
+          #fingerprints-container .case-list {
+            grid-column: 1 / -1;
+            display: grid;
+            gap: 10px;
+          }
+
+          #fingerprints-container .case-row {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            background: rgba(255, 250, 240, 0.72);
+          }
+
+          #fingerprints-container .case-row.fail {
+            border-color: rgba(180, 50, 38, 0.32);
+            background: rgba(180, 50, 38, 0.07);
+          }
+
+          #fingerprints-container .case-row.warn {
+            border-color: rgba(151, 92, 13, 0.28);
+            background: rgba(151, 92, 13, 0.07);
+          }
+
+          #fingerprints-container .case-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+          }
+
+          #fingerprints-container .case-heading strong {
+            font-size: 14px;
+            color: var(--ink);
+          }
+
+          #fingerprints-container .case-pill {
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 900;
+            background: var(--chip);
+          }
+
+          #fingerprints-container .case-pill.pass {
+            color: var(--good);
+          }
+
+          #fingerprints-container .case-pill.fail {
+            color: var(--bad);
+          }
+
+          #fingerprints-container .case-row p {
+            display: grid;
+            grid-template-columns: 92px minmax(0, 1fr);
+            gap: 10px;
+            margin: 6px 0 0;
+            color: var(--ink);
+            line-height: 1.4;
+          }
+
+          #fingerprints-container .case-row p span {
+            color: var(--muted);
+            font-weight: 800;
+          }
+
           #fingerprints-container canvas {
             display: block;
             width: 100%;
@@ -1096,6 +1469,8 @@ export default function FingerprintsPage() {
               ['screen-dimensions', 'Screen dimensions'],
               ['hardware-profile', 'CPU and memory'],
               ['font-surface', 'Font surface'],
+              ['font-advanced', 'Advanced font surfaces'],
+              ['layout-metrics', 'Layout metrics'],
               ['canvas-fingerprint', 'Canvas fingerprint'],
               ['webgl-profile', 'WebGL identity'],
               ['webgl-debug', 'WebGL debug renderer'],
@@ -1132,6 +1507,18 @@ export default function FingerprintsPage() {
 
           <article className="card" id="font-card">
             <h2>Fonts</h2>
+            <span className="status warn">Running</span>
+            <dl></dl>
+          </article>
+
+          <article className="card" id="font-advanced-card">
+            <h2>Advanced Font Surfaces</h2>
+            <span className="status warn">Running</span>
+            <dl></dl>
+          </article>
+
+          <article className="card" id="layout-card">
+            <h2>Layout Metrics</h2>
             <span className="status warn">Running</span>
             <dl></dl>
           </article>

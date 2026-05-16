@@ -268,6 +268,232 @@ std::string BuildPagePolicyScript() {
   };
   installHardwarePolicy();
 
+  // Layout metrics: normalize font probes with stable per-session noise.
+  const layoutNoiseSeed = (() => {
+    try {
+      const values = new Uint32Array(1);
+      globalThis.crypto.getRandomValues(values);
+      return values[0] || Date.now();
+    } catch (_) {
+      return Date.now();
+    }
+  })();
+  const layoutNoiseValue = (key) => {
+    const text = String(key || '');
+    let value = layoutNoiseSeed >>> 0;
+    for (let i = 0; i < text.length; i += 1) {
+      value = Math.imul(value ^ text.charCodeAt(i), 16777619) >>> 0;
+    }
+    value = Math.imul(value ^ (value >>> 16), 2246822507) >>> 0;
+    return (((value & 1023) / 1023) - 0.5) * 0.25;
+  };
+  const makeDOMRect = (x, y, width, height) => {
+    const safeWidth = Math.max(0, width);
+    const safeHeight = Math.max(0, height);
+    if (typeof DOMRect === 'function') {
+      return new DOMRect(x, y, safeWidth, safeHeight);
+    }
+    return {
+      x,
+      y,
+      width: safeWidth,
+      height: safeHeight,
+      left: x,
+      top: y,
+      right: x + safeWidth,
+      bottom: y + safeHeight,
+      toJSON() {
+        return {
+          x: this.x,
+          y: this.y,
+          width: this.width,
+          height: this.height,
+          left: this.left,
+          top: this.top,
+          right: this.right,
+          bottom: this.bottom
+        };
+      }
+    };
+  };
+  const makeProtectedDOMRect = (rect, key = 'default') => {
+    const dx = layoutNoiseValue(key + ':x');
+    const dy = layoutNoiseValue(key + ':y');
+    const dw = layoutNoiseValue(key + ':w');
+    const dh = layoutNoiseValue(key + ':h');
+    const x = rect.x + dx;
+    const y = rect.y + dy;
+    return makeDOMRect(x, y, rect.width + dw, rect.height + dh);
+  };
+  const measureWithFallbackFont = (element, rect) => {
+    try {
+      if (!element || !globalThis.document || !globalThis.getComputedStyle) {
+        return null;
+      }
+      const style = getComputedStyle(element);
+      if (!shouldNormalizeFontMetricElement(element, style)) {
+        return null;
+      }
+      const clone = element.cloneNode(true);
+      const fallbackFamily = getMetricFallbackFamily();
+      clone.style.setProperty('font-family', fallbackFamily, 'important');
+      clone.style.setProperty('position', 'absolute', 'important');
+      clone.style.setProperty('left', '-100000px', 'important');
+      clone.style.setProperty('top', '-100000px', 'important');
+      clone.style.setProperty('visibility', 'hidden', 'important');
+      clone.style.setProperty('pointer-events', 'none', 'important');
+      document.documentElement.appendChild(clone);
+      const fallbackRect = element.__otfOriginalGetBoundingClientRect.call(clone);
+      clone.remove();
+      return makeProtectedDOMRect(
+          makeDOMRect(rect.x, rect.y, fallbackRect.width, fallbackRect.height),
+          getMetricNoiseKey(element, 'rect'));
+    } catch (_) {
+      return null;
+    }
+  };
+  const shouldNormalizeElementFont = (element) => {
+    try {
+      if (!element || !globalThis.getComputedStyle) return false;
+      const style = getComputedStyle(element);
+      return shouldNormalizeFontMetricElement(element, style);
+    } catch (_) {
+      return false;
+    }
+  };
+  const shouldNormalizeFontMetricElement = (element, style) => {
+    try {
+      if (!style) return false;
+      return !fontUsesAllowedFamily(style.fontFamily) ||
+          isLikelyFontMetricProbe(element, style);
+    } catch (_) {
+      return false;
+    }
+  };
+  const isLikelyFontMetricProbe = (element, style) => {
+    try {
+      if (!element || !style) return false;
+      const text = String(element.textContent || '');
+      if (!text.trim()) return false;
+      const fontSize = Number.parseFloat(style.fontSize || '0') || 0;
+      const left = Math.abs(Number.parseFloat(style.left || '0') || 0);
+      const top = Math.abs(Number.parseFloat(style.top || '0') || 0);
+      const offscreen = left >= 5000 || top >= 5000;
+      const hidden = style.visibility === 'hidden' || style.display === 'none' ||
+          Number.parseFloat(style.opacity || '1') === 0;
+      const positioned = style.position === 'absolute' || style.position === 'fixed';
+      const nowrap = style.whiteSpace === 'nowrap';
+      const largeTextProbe = fontSize >= 48 && text.length >= 16;
+      return (positioned && offscreen) || (hidden && positioned) ||
+          (nowrap && fontSize >= 32 && text.length >= 8) ||
+          largeTextProbe;
+    } catch (_) {
+      return false;
+    }
+  };
+  const getMetricFallbackFamily = () => {
+    return 'Arial, sans-serif';
+  };
+  const getMetricNoiseKey = (element, metric) => {
+    try {
+      return 'font-metric:' + metric + ':' + String(element && element.textContent || '').length;
+    } catch (_) {
+      return 'font-metric:' + metric;
+    }
+  };
+  const createFallbackFontClone = (element) => {
+    try {
+      if (!element || !globalThis.document || !globalThis.getComputedStyle) {
+        return null;
+      }
+      const style = getComputedStyle(element);
+      if (!shouldNormalizeFontMetricElement(element, style)) {
+        return null;
+      }
+      const clone = element.cloneNode(true);
+      const fallbackFamily = getMetricFallbackFamily();
+      clone.style.setProperty('font-family', fallbackFamily, 'important');
+      clone.style.setProperty('position', 'absolute', 'important');
+      clone.style.setProperty('left', '-100000px', 'important');
+      clone.style.setProperty('top', '-100000px', 'important');
+      clone.style.setProperty('visibility', 'hidden', 'important');
+      clone.style.setProperty('pointer-events', 'none', 'important');
+      document.documentElement.appendChild(clone);
+      return clone;
+    } catch (_) {
+      return null;
+    }
+  };
+  const noisyIntegerMetric = (value, key = 'integer') => {
+    let noise = Math.round(layoutNoiseValue(key) * 24);
+    if (noise === 0) {
+      noise = layoutNoiseSeed % 2 === 0 ? 2 : -2;
+    }
+    return Math.max(0, Math.round(Number(value || 0) + noise));
+  };
+  const defineLayoutMetricGetter = (target, name) => {
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(target, name);
+      if (!descriptor || typeof descriptor.get !== 'function') return;
+      Object.defineProperty(target, name, {
+        get() {
+          if (!shouldNormalizeElementFont(this)) {
+            return descriptor.get.call(this);
+          }
+          const clone = createFallbackFontClone(this);
+          if (!clone) {
+            return noisyIntegerMetric(descriptor.get.call(this), getMetricNoiseKey(this, name));
+          }
+          try {
+            return noisyIntegerMetric(descriptor.get.call(clone), getMetricNoiseKey(this, name));
+          } finally {
+            try { clone.remove(); } catch (_) {}
+          }
+        },
+        configurable: false,
+        enumerable: descriptor.enumerable
+      });
+    } catch (_) {}
+  };
+  const installLayoutMetricPolicy = () => {
+    try {
+      const ElementCtor = globalThis.Element;
+      if (!ElementCtor || !ElementCtor.prototype ||
+          ElementCtor.prototype.__otfLayoutMetricPolicy) {
+        return;
+      }
+      const originalGetBoundingClientRect =
+          ElementCtor.prototype.getBoundingClientRect;
+      if (typeof originalGetBoundingClientRect === 'function') {
+        Object.defineProperty(ElementCtor.prototype, '__otfOriginalGetBoundingClientRect', {
+          value: originalGetBoundingClientRect,
+          configurable: false,
+          enumerable: false,
+          writable: false
+        });
+        defineMethod(ElementCtor.prototype, 'getBoundingClientRect', function(...args) {
+          const rect = originalGetBoundingClientRect.apply(this, args);
+          return measureWithFallbackFont(this, rect) || rect;
+        });
+      }
+      defineLayoutMetricGetter(ElementCtor.prototype, 'clientWidth');
+      defineLayoutMetricGetter(ElementCtor.prototype, 'clientHeight');
+      defineLayoutMetricGetter(ElementCtor.prototype, 'scrollWidth');
+      defineLayoutMetricGetter(ElementCtor.prototype, 'scrollHeight');
+      const HTMLElementCtor = globalThis.HTMLElement;
+      if (HTMLElementCtor && HTMLElementCtor.prototype) {
+        defineLayoutMetricGetter(HTMLElementCtor.prototype, 'offsetWidth');
+        defineLayoutMetricGetter(HTMLElementCtor.prototype, 'offsetHeight');
+      }
+      Object.defineProperty(ElementCtor.prototype, '__otfLayoutMetricPolicy', {
+        value: true,
+        configurable: false,
+        enumerable: false
+      });
+    } catch (_) {}
+  };
+  installLayoutMetricPolicy();
+
   // Fonts: reduce local font probing to a small common anonymity set.
   const allowedFontNames = [
     'arial',
