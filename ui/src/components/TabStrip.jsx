@@ -149,10 +149,10 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           disabled={!canScrollLeft}
           aria-label="Scroll tabs left"
           title="Scroll left"
-          className="h-[29px] min-w-[28px] px-1 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[29px] min-w-[32px] px-1 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all disabled:opacity-30"
         >
           <div className="flex items-center gap-0.5">
-            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <path d="m15 18-6-6 6-6" />
             </svg>
             {hiddenLeft > 0 && <span key={`left-${hiddenLeft}`} className="text-[11px] font-black leading-none animate-tab-count">{hiddenLeft}</span>}
@@ -203,8 +203,8 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           onClick={() => onNew()}
           title="New tab"
           className={`
-            h-[29px] w-9 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all
-            ${isOverflowing ? 'sticky right-0 z-10 bg-slate-200 dark:bg-slate-900/80 shadow-[-6px_0_10px_rgba(15,23,42,0.08)] dark:shadow-[-6px_0_10px_rgba(0,0,0,0.25)]' : ''}
+            h-[29px] w-9 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all
+            ${isOverflowing ? 'sticky right-0 z-10 bg-white dark:bg-[#1a1a20] shadow-[-6px_0_10px_rgba(15,23,42,0.08)] dark:shadow-[-6px_0_10px_rgba(0,0,0,0.25)]' : ''}
           `}
           aria-label="New tab"
         >
@@ -219,11 +219,11 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           disabled={!canScrollRight}
           aria-label="Scroll tabs right"
           title="Scroll right"
-          className="h-[29px] min-w-[28px] px-1 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[29px] min-w-[32px] px-1 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all disabled:opacity-30"
         >
           <div className="flex items-center gap-0.5">
             {hiddenRight > 0 && <span key={`right-${hiddenRight}`} className="text-[11px] font-black leading-none animate-tab-count">{hiddenRight}</span>}
-            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <path d="m9 18 6-6-6-6" />
             </svg>
           </div>
