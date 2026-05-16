@@ -3,8 +3,28 @@ import { onMount } from "@opentf/web";
 export default function FingerprintsPage() {
   onMount(() => {
     const storageKeys = {
-      canvas: 'browserFingerprintTest:lastCanvas',
-      webgl: 'browserFingerprintTest:lastWebgl'
+      canvas: 'browserFingerprintTest:canvasHistory',
+      webgl: 'browserFingerprintTest:webglHistory',
+      layout: 'browserFingerprintTest:layoutHistory'
+    };
+
+    // Maintains a ring buffer of per-session hashes in localStorage.
+    // sessionStorage is used as a "already recorded this session" flag so
+    // reloading the same page doesn't push a duplicate entry.
+    const MAX_SESSIONS = 5;
+    const trackSessionHistory = (key, hash) => {
+      const sessionFlag = key + ':session';
+      let history = [];
+      try { history = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) {}
+      if (!Array.isArray(history)) history = [];
+      const alreadyRecorded = sessionStorage.getItem(sessionFlag) !== null;
+      if (!alreadyRecorded) {
+        sessionStorage.setItem(sessionFlag, hash);
+        history.push(hash);
+        if (history.length > MAX_SESSIONS) history = history.slice(-MAX_SESSIONS);
+        localStorage.setItem(key, JSON.stringify(history));
+      }
+      return history;
     };
 
     const short = (value) => String(value).slice(0, 24);
@@ -359,6 +379,79 @@ export default function FingerprintsPage() {
     const functionLooksWrapped = (fn) =>
       typeof fn === 'function' && !/\[native code\]/.test(Function.prototype.toString.call(fn));
 
+    const runSideEffectsTest = () => {
+      // 1. canvas.measureText — web fonts normalized to Arial
+      const mc = document.createElement('canvas');
+      const mctx = mc.getContext('2d');
+      let arialW = 'unavailable', robotoW = 'unavailable', measureNormalized = false;
+      if (mctx && typeof mctx.measureText === 'function') {
+        mctx.font = '72px Arial';
+        arialW = mctx.measureText('Hello mmmMMM').width;
+        mctx.font = '72px "Roboto"';
+        robotoW = mctx.measureText('Hello mmmMMM').width;
+        measureNormalized = typeof arialW === 'number' && typeof robotoW === 'number' &&
+            Math.abs(arialW - robotoW) < 0.5;
+      }
+
+      // 2. document.fonts.check — non-allowed fonts always return false
+      let arialCheck = 'unavailable', robotoCheck = 'unavailable';
+      try {
+        if (document.fonts && typeof document.fonts.check === 'function') {
+          arialCheck = document.fonts.check('12px Arial');
+          robotoCheck = document.fonts.check('12px "Roboto"');
+        }
+      } catch (_) {}
+      const fontCheckBlocked = robotoCheck === false;
+
+      // 3. getImageData pixel noise — solid red canvas should return 255 red, noise shifts it
+      const nc = document.createElement('canvas');
+      nc.width = 8; nc.height = 8;
+      const nctx = nc.getContext('2d');
+      let pixelDeviation = 'unavailable';
+      let noiseActive = false;
+      let getImageDataWrapped = 'unavailable';
+      let imageDataType = 'unavailable';
+      let rawRedSample = 'unavailable';
+      try {
+        getImageDataWrapped = functionLooksWrapped(globalThis.CanvasRenderingContext2D?.prototype?.getImageData);
+      } catch (_) {}
+      if (nctx && typeof nctx.getImageData === 'function') {
+        nctx.fillStyle = '#ff0000';
+        nctx.fillRect(0, 0, 8, 8);
+        const id = nctx.getImageData(0, 0, 8, 8);
+        imageDataType = id ? id.constructor?.name || typeof id : 'null';
+        const reds = [];
+        if (id && id.data) {
+          rawRedSample = id.data[0];
+          for (let i = 0; i < id.data.length; i += 4) reds.push(id.data[i]);
+        }
+        pixelDeviation = reds.length ? 255 - Math.min(...reds) : 'no data';
+        noiseActive = typeof pixelDeviation === 'number' && pixelDeviation > 0;
+      }
+
+      setReportItem('getImageData-noise',
+        noiseActive ? 'ok' : getImageDataWrapped === false ? 'fail' : 'warn',
+        noiseActive ? 'getImageData pixel noise active' : getImageDataWrapped === false ? 'getImageData not wrapped by policy' : 'getImageData wrapped but noise not visible',
+        `deviation: ${pixelDeviation}, wrapped: ${getImageDataWrapped}`);
+      const allActive = measureNormalized && fontCheckBlocked && noiseActive;
+      setCard('side-effects-card',
+        allActive ? 'ok' : noiseActive === false ? 'fail' : 'warn',
+        allActive ? 'All surfaces active' : 'Some surfaces inactive', [
+          ['canvas measureText — Arial width', String(typeof arialW === 'number' ? Math.round(arialW * 100) / 100 : arialW)],
+          ['canvas measureText — Roboto width', String(typeof robotoW === 'number' ? Math.round(robotoW * 100) / 100 : robotoW)],
+          ['canvas measureText normalized (Roboto→Arial)', String(measureNormalized)],
+          ['document.fonts.check Arial', String(arialCheck)],
+          ['document.fonts.check Roboto (should be false)', String(robotoCheck)],
+          ['font check blocked for non-allowed fonts', String(fontCheckBlocked)],
+          ['getImageData wrapped', String(getImageDataWrapped)],
+          ['getImageData return type', String(imageDataType)],
+          ['getImageData raw red pixel [0]', String(rawRedSample)],
+          ['getImageData max red pixel deviation from 255', String(pixelDeviation)],
+          ['getImageData noise active', String(noiseActive)],
+          ['note', 'Chart.js/D3 labels affected by measureText; color pickers affected by pixel noise']
+        ]);
+    };
+
     const runInjectionTest = () => {
       const injected = Boolean(globalThis.__otfPagePolicyInjected);
       const canvasWrapped = functionLooksWrapped(globalThis.CanvasRenderingContext2D?.prototype?.getImageData);
@@ -390,11 +483,21 @@ export default function FingerprintsPage() {
       const pixelDepth = Number(screen.pixelDepth);
       const profile = globalThis.__otfScreenProfile;
       const knownProfiles = new Set([
+        '1280x720@1', '1280x720@2',
+        '1280x800@1', '1280x800@2',
+        '1280x1024@1',
+        '1360x768@1',
         '1366x768@1',
-        '1440x900@1',
-        '1920x1080@1',
-        '1920x1080@2',
-        '2560x1080@1'
+        '1440x900@1', '1440x900@2',
+        '1600x900@1', '1600x900@2',
+        '1680x1050@1',
+        '1920x1080@1', '1920x1080@2',
+        '1920x1200@1',
+        '2560x1080@1',
+        '2560x1440@1', '2560x1440@2',
+        '2880x1800@2',
+        '3440x1440@1',
+        '3840x2160@1', '3840x2160@2',
       ]);
       const signature = `${width}x${height}@${dpr}`;
       const commonProfile = knownProfiles.has(signature);
@@ -437,7 +540,9 @@ export default function FingerprintsPage() {
       const cores = Number(navigator.hardwareConcurrency || 0);
       const memory = Number(navigator.deviceMemory || 0);
       const profile = globalThis.__otfHardwareProfile;
-      const normalized = cores === 4 && memory === 4;
+      const normalizedCores = [2, 4, 8].includes(cores);
+      const normalizedMemory = [0.5, 1, 2, 4, 8].includes(memory);
+      const normalized = normalizedCores && normalizedMemory;
       const valid =
         Number.isFinite(cores) &&
         Number.isFinite(memory) &&
@@ -445,13 +550,14 @@ export default function FingerprintsPage() {
         memory > 0;
       const status = normalized ? 'ok' : valid ? 'warn' : 'fail';
       setReportItem('hardware-profile', status,
-        normalized ? 'Common hardware profile' : valid ? 'Raw hardware profile' : 'Invalid hardware values',
+        normalized ? 'Normalized hardware profile' : valid ? 'Raw hardware profile' : 'Invalid hardware values',
         `CPU cores: ${cores || 'unavailable'}, memory: ${memory || 'unavailable'} GB`);
       setCard('hardware-card', status,
-        normalized ? 'Common profile' : valid ? 'Raw profile' : 'Invalid values', [
+        normalized ? 'Normalized profile' : valid ? 'Raw profile' : 'Invalid values', [
           ['hardware concurrency', cores ? String(cores) : 'unavailable'],
           ['device memory', memory ? `${memory} GB` : 'unavailable'],
-          ['common profile', String(normalized)],
+          ['cores normalized', String(normalizedCores)],
+          ['memory normalized', String(normalizedMemory)],
           ['browser profile', profile ? JSON.stringify(profile) : 'none']
         ]);
     };
@@ -594,21 +700,26 @@ export default function FingerprintsPage() {
       const uniqueHeights = new Set(heightValues).size;
       const uniqueRects = new Set(rects.map((rect) => JSON.stringify(rect))).size;
       const hash = await hashText(JSON.stringify(rects));
-      const previous = localStorage.getItem('browserFingerprintTest:lastLayoutRect');
-      localStorage.setItem('browserFingerprintTest:lastLayoutRect', hash);
-      const changedFromPrevious = previous && previous !== hash;
-      const protectedNow = uniqueRects > 1 || changedFromPrevious;
-      const status = protectedNow ? 'ok' : 'fail';
+      const history = trackSessionHistory(storageKeys.layout, hash);
+      const uniqueSessionHashes = new Set(history).size;
+      const sessionCount = history.length;
+      const allSessionsUnique = uniqueSessionHashes === sessionCount;
+      const status = sessionCount < 2 ? 'warn' : allSessionsUnique ? 'ok' : 'fail';
 
       setReportItem('layout-metrics', status,
-        protectedNow ? 'DOMRect reads vary' : 'DOMRect reads are stable',
-        `Unique rects: ${uniqueRects}/8, unique widths: ${uniqueWidths}, unique heights: ${uniqueHeights}`);
+        sessionCount < 2
+          ? 'Awaiting second session for baseline'
+          : allSessionsUnique
+            ? `All ${sessionCount} sessions produced different layout hashes`
+            : 'Duplicate layout hash found across sessions — noise may be stable',
+        `Unique rects this run: ${uniqueRects}/8, sessions recorded: ${sessionCount}, unique session hashes: ${uniqueSessionHashes}/${sessionCount}`);
       setCard('layout-card', status,
-        protectedNow ? 'Layout noise visible' : 'Stable layout metrics', [
-          ['current hash', hash],
-          ['previous hash', previous || 'none'],
-          ['changed from previous page run', previous ? String(changedFromPrevious) : 'no previous run'],
-          ['unique rects', `${uniqueRects}/8`],
+        sessionCount < 2 ? 'Need another session' : allSessionsUnique ? 'Cross-session noise confirmed' : 'Session hash collision', [
+          ['session history (newest last)', history.join(', ')],
+          ['sessions recorded', String(sessionCount)],
+          ['unique session hashes', `${uniqueSessionHashes}/${sessionCount}`],
+          ['all sessions unique', String(allSessionsUnique)],
+          ['unique rects this run', `${uniqueRects}/8`],
           ['unique widths', String(uniqueWidths)],
           ['unique heights', String(uniqueHeights)],
           ['width samples', widthValues.join(', ')],
@@ -720,7 +831,12 @@ export default function FingerprintsPage() {
       const fontFaceLoaded = fontFaceResults.filter(([, value]) => value === 'loaded').length;
       const localFontsBlocked = localFontsResult === 'unavailable' ||
         /^SecurityError:/.test(localFontsResult) ||
+        /timeout/i.test(localFontsResult) ||
         localFontsResult === 'available:0';
+      setReportItem('local-font-api',
+        localFontsBlocked ? 'ok' : 'fail',
+        localFontsBlocked ? 'queryLocalFonts unavailable or denied' : 'queryLocalFonts exposed font list',
+        localFontsResult);
       const leaks = [
         uniqueRangeRects > 1,
         uniqueRangeClientRects > 1,
@@ -772,6 +888,11 @@ export default function FingerprintsPage() {
         ? 'All advanced font probes matched expected behavior'
         : `${failedCases.length} advanced font probe${failedCases.length === 1 ? '' : 's'} failed`;
 
+      const fontFaceLocalStatus = fontFaceLoaded === 0 ? 'ok' : 'fail';
+      setReportItem('fontface-local',
+        fontFaceLocalStatus,
+        fontFaceLocalStatus === 'ok' ? 'FontFace local() blocked or timed out' : `${fontFaceLoaded} local font load(s) succeeded`,
+        'FontFace local() can probe whether a specific font is installed without any metric APIs.');
       setReportItem('font-advanced', status,
         behavior,
         failedCases.length ? `Failed: ${failedCases.join(', ')}` : 'No advanced font leaks detected.');
@@ -887,28 +1008,33 @@ export default function FingerprintsPage() {
       );
       const contextProbeError = contextProbes.find((probe) => probe && probe.error)?.error;
       const uniqueAttempts = new Set(hashes).size;
-      const previous = localStorage.getItem(storageKeys.canvas);
-      localStorage.setItem(storageKeys.canvas, hash);
-      const changed = previous && previous !== hash;
-      const changedAcrossAttempts = uniqueAttempts > 1;
+      const canvasHistory = trackSessionHistory(storageKeys.canvas, hash);
+      const uniqueCanvasSessionHashes = new Set(canvasHistory).size;
+      const canvasSessionCount = canvasHistory.length;
+      const allCanvasSessionsUnique = uniqueCanvasSessionHashes === canvasSessionCount;
       const automatedContextChanged = contextChangedMethods.length > 0;
-      const canvasStatus = changedAcrossAttempts || automatedContextChanged || changed ? 'ok' : 'fail';
+      const bitmapTransferProtected = contextChangedMethods.includes('offscreenTransferToImageBitmap');
+      setReportItem('canvas-bitmap-transfer',
+        bitmapTransferProtected ? 'ok' : 'fail',
+        bitmapTransferProtected ? 'Bitmap transfer output varies' : 'Bitmap transfer unprotected',
+        'OffscreenCanvas.transferToImageBitmap bypasses canvas noise — pixels read from the resulting bitmap are unperturbed.');
+      const canvasStatus = canvasSessionCount < 2
+        ? (automatedContextChanged ? 'ok' : 'warn')
+        : allCanvasSessionsUnique ? 'ok' : 'fail';
       setReportItem('canvas-fingerprint', canvasStatus,
-        changedAcrossAttempts
-          ? 'Changes across repeated attempts'
-          : automatedContextChanged
-            ? 'Changes across automated fresh contexts'
-            : changed
-              ? 'Changed from previous page run'
-              : 'Stable across automated checks',
-        `Unique attempts: ${uniqueAttempts}/3, changed context methods: ${contextChangedMethods.length}`);
+        canvasSessionCount < 2
+          ? (automatedContextChanged ? 'Changes across automated fresh contexts' : 'Awaiting second session for baseline')
+          : allCanvasSessionsUnique
+            ? `All ${canvasSessionCount} sessions produced different canvas hashes`
+            : 'Duplicate canvas hash across sessions — noise may be stable',
+        `Unique session hashes: ${uniqueCanvasSessionHashes}/${canvasSessionCount}, changed context methods: ${contextChangedMethods.length}`);
       setCard('canvas-card', canvasStatus,
-        changedAcrossAttempts || automatedContextChanged || changed ? 'Protected output variance' : 'Stable output', [
-          ['toDataURL hash', hash],
-          ['toDataURL previous hash', previous || 'none'],
+        canvasStatus === 'ok' ? 'Cross-session noise confirmed' : canvasStatus === 'warn' ? 'Need another session' : 'Session hash collision', [
+          ['session history (newest last)', canvasHistory.join(', ')],
+          ['sessions recorded', String(canvasSessionCount)],
+          ['unique session hashes', `${uniqueCanvasSessionHashes}/${canvasSessionCount}`],
           ['toDataURL attempt hashes', hashes.join(', ')],
           ['toDataURL unique attempts', `${uniqueAttempts}/3`],
-          ['toDataURL changed from previous page run', previous ? String(changed) : 'no previous run'],
           ['toBlob hash', blobHash],
           ['getImageData hash', imageDataHash],
           ['OffscreenCanvas convertToBlob hash', offscreenBlobHash],
@@ -940,9 +1066,10 @@ export default function FingerprintsPage() {
         return;
       }
       const hash = await renderHash(gl);
-      const previous = localStorage.getItem(storageKeys.webgl);
-      localStorage.setItem(storageKeys.webgl, hash);
-      const changed = previous && previous !== hash;
+      const webglHistory = trackSessionHistory(storageKeys.webgl, hash);
+      const uniqueWebglSessionHashes = new Set(webglHistory).size;
+      const webglSessionCount = webglHistory.length;
+      const allWebglSessionsUnique = uniqueWebglSessionHashes === webglSessionCount;
 
       const webgl2Canvas = document.createElement('canvas');
       webgl2Canvas.width = 64;
@@ -982,10 +1109,23 @@ export default function FingerprintsPage() {
         contextProbes[0][name] !== contextProbes[1][name]
       );
       const contextProbeError = contextProbes.find((probe) => probe && probe.error)?.error;
-      const renderedOutputStatus = contextChangedMethods.length > 0 || changed ? 'ok' : 'fail';
+      const readPixelsNoiseActive = contextChangedMethods.includes('webgl1ReadPixels') ||
+        contextChangedMethods.includes('webgl2ReadPixels') ||
+        contextChangedMethods.includes('offscreenWebGL');
+      setReportItem('webgl-readpixels-noise',
+        readPixelsNoiseActive ? 'ok' : 'fail',
+        readPixelsNoiseActive ? 'WebGL readPixels output varies' : 'WebGL readPixels unprotected',
+        'gl.readPixels returns raw GPU pixel data — not perturbed by the canvas noise policy.');
+      const renderedOutputStatus = webglSessionCount < 2
+        ? (contextChangedMethods.length > 0 ? 'ok' : 'warn')
+        : allWebglSessionsUnique ? 'ok' : 'fail';
       setReportItem('webgl-render-output', renderedOutputStatus,
-        renderedOutputStatus === 'ok' ? 'Rendered output varies' : 'Rendered output is stable',
-        `Changed context methods: ${contextChangedMethods.length}`);
+        webglSessionCount < 2
+          ? (contextChangedMethods.length > 0 ? 'Rendered output varies across contexts' : 'Awaiting second session for baseline')
+          : allWebglSessionsUnique
+            ? `All ${webglSessionCount} sessions produced different WebGL hashes`
+            : 'Duplicate WebGL hash across sessions',
+        `Unique session hashes: ${uniqueWebglSessionHashes}/${webglSessionCount}, changed context methods: ${contextChangedMethods.length}`);
 
       const debugExtension = gl.getExtension('WEBGL_debug_renderer_info');
       let vendor = 'unavailable';
@@ -1019,9 +1159,9 @@ export default function FingerprintsPage() {
           ['unmasked vendor', String(vendor)],
           ['unmasked renderer', String(renderer)],
           ['extension listed', String(extensions.includes('WEBGL_debug_renderer_info'))],
-          ['WebGL1 readPixels hash', hash],
-          ['WebGL1 previous hash', previous || 'none'],
-          ['WebGL1 changed from previous page run', previous ? String(changed) : 'no previous run'],
+          ['session history (newest last)', webglHistory.join(', ')],
+          ['sessions recorded', String(webglSessionCount)],
+          ['unique session hashes', `${uniqueWebglSessionHashes}/${webglSessionCount}`],
           ['WebGL2 readPixels hash', webgl2Hash],
           ['canvas export hash after WebGL', exportHash],
           ['OffscreenCanvas WebGL hash', offscreenHash],
@@ -1078,16 +1218,28 @@ export default function FingerprintsPage() {
       }
     };
 
-    runInjectionTest();
-    runScreenTest();
-    runHardwareTest();
-    runFontTest();
-    runLayoutMetricsTest();
-    runAdvancedFontSurfaceTest();
-    runCanvasTest();
-    runWebGLTest();
-    runWebGPUTest();
-    setActiveSection('privacy');
+    const runAllTests = () => {
+      runSideEffectsTest();
+      runInjectionTest();
+      runScreenTest();
+      runHardwareTest();
+      runFontTest();
+      runLayoutMetricsTest();
+      runAdvancedFontSurfaceTest();
+      runCanvasTest();
+      runWebGLTest();
+      runWebGPUTest();
+    };
+
+    const startBtn = document.getElementById('start-tests-btn');
+    if (startBtn) {
+      startBtn.addEventListener('click', () => {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Running…';
+        setActiveSection('privacy');
+        runAllTests();
+      });
+    }
   });
 
   return (
@@ -1556,7 +1708,7 @@ export default function FingerprintsPage() {
           <p className="eyebrow">Browser Protection Test Center</p>
           <h1>Privacy, Security, and Abuse Resistance Tests</h1>
           <p>Run this page in any browser to inspect fingerprinting exposure, security-sensitive API behavior, and protection gaps. More modules such as cookies, ads, tracking, and abuse flows can be added here.</p>
-          <button onClick={() => window.location.reload()}>Run tests again</button>
+          <button id="start-tests-btn">Start Test Suite</button>
         </header>
 
         <section className="card wide report-card">
@@ -1618,12 +1770,17 @@ export default function FingerprintsPage() {
               ['screen-dimensions', 'Privacy: screen dimensions', 'privacy'],
               ['hardware-profile', 'Privacy: CPU and memory', 'privacy'],
               ['font-surface', 'Privacy: font surface', 'privacy'],
+              ['fontface-local', 'Privacy: FontFace local() probe', 'privacy'],
+              ['local-font-api', 'Privacy: Local Font Access API', 'privacy'],
               ['font-advanced', 'Privacy: advanced font surfaces', 'privacy'],
               ['layout-metrics', 'Privacy: layout metrics', 'privacy'],
+              ['getImageData-noise', 'Privacy: canvas pixel noise', 'privacy'],
               ['canvas-fingerprint', 'Privacy: canvas fingerprint', 'privacy'],
+              ['canvas-bitmap-transfer', 'Privacy: canvas bitmap transfer', 'privacy'],
               ['webgl-profile', 'Privacy: WebGL identity', 'privacy'],
               ['webgl-debug', 'Privacy: WebGL debug renderer', 'privacy'],
               ['webgl-render-output', 'Privacy: WebGL rendered output', 'privacy'],
+              ['webgl-readpixels-noise', 'Privacy: WebGL readPixels noise', 'privacy'],
               ['webgpu-compute', 'Security: WebGPU compute pipeline', 'security'],
               ['worker-surface', 'Privacy: worker execution surface', 'privacy'],
             ].map(([id, label, section]) => (
@@ -1695,6 +1852,13 @@ export default function FingerprintsPage() {
           <article className="card" id="policy-card" data-test-section="privacy">
             <span className="test-category">Privacy</span>
             <h2>Runtime Surface</h2>
+            <span className="status warn">Running</span>
+            <dl></dl>
+          </article>
+
+          <article className="card" id="side-effects-card" data-test-section="privacy">
+            <span className="test-category">Privacy</span>
+            <h2>Surface Side-Effects</h2>
             <span className="status warn">Running</span>
             <dl></dl>
           </article>
