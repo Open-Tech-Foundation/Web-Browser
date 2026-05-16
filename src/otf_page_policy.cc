@@ -364,8 +364,7 @@ std::string BuildPagePolicyScript() {
   const shouldNormalizeFontMetricElement = (element, style) => {
     try {
       if (!style) return false;
-      return !fontUsesAllowedFamily(style.fontFamily) ||
-          isLikelyFontMetricProbe(element, style);
+      return isLikelyFontMetricProbe(element, style);
     } catch (_) {
       return false;
     }
