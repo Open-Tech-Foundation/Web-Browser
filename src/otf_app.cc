@@ -368,6 +368,11 @@ void OtfApp::SwitchTab(int tab_id) {
     window_->Layout();
     current_tab_id_ = tab_id;
 
+    // Update window title to reflect current tab
+    if (window_) {
+      window_->SetTitle("OTF Browser - " + tab_manager_.GetTitle(tab_id));
+    }
+
     if (certificate_overlay_ && certificate_overlay_->IsVisible()) {
       DestroyCertificateOverlay();
     }
@@ -872,8 +877,16 @@ void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
     renderer_side_router_ = CefMessageRouterRendererSide::Create(config);
   }
   if (ShouldInjectPagePolicyForFrame(frame)) {
-    frame->ExecuteJavaScript(otf::BuildPagePolicyScript(),
-                             frame->GetURL().ToString(), 0);
+    CefRefPtr<CefV8Value> retval;
+    CefRefPtr<CefV8Exception> exception;
+    const std::string policy_script = otf::BuildPagePolicyScript();
+    const std::string frame_url = frame->GetURL().ToString();
+    if (context && context->Enter()) {
+      context->Eval(policy_script, frame_url, 0, retval, exception);
+      context->Exit();
+    } else {
+      frame->ExecuteJavaScript(policy_script, frame_url, 0);
+    }
   }
   renderer_side_router_->OnContextCreated(browser, frame, context);
 }

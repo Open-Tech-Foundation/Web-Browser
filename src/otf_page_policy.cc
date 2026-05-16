@@ -426,14 +426,31 @@ std::string BuildPagePolicyScript() {
       return Date.now();
     }
   })();
-  const noise = (index) => (Math.imul(index ^ noiseSeed, 1103515245) >>> 16) & 1;
+  const noiseByte = (index) => {
+    let value = Math.imul((index + 1) ^ noiseSeed, 1103515245) >>> 0;
+    value = Math.imul(value ^ (value >>> 16), 2246822507) >>> 0;
+    return value & 3;
+  };
+  const perturbPixelBuffer = (data) => {
+    try {
+      if (!data || typeof data.length !== 'number') return data;
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = Math.max(0, Math.min(255, data[i] ^ noiseByte(i)));
+        if (i + 1 < data.length) {
+          data[i + 1] = Math.max(0, Math.min(255, data[i + 1] ^ noiseByte(i + 1)));
+        }
+        if (i + 2 < data.length) {
+          data[i + 2] = Math.max(0, Math.min(255, data[i + 2] ^ noiseByte(i + 2)));
+        }
+      }
+    } catch (_) {}
+    return data;
+  };
   const perturbImageData = (imageData) => {
     try {
       const data = imageData && imageData.data;
       if (!data) return imageData;
-      for (let i = 0; i < data.length; i += 64) {
-        data[i] = Math.max(0, Math.min(255, data[i] + (noise(i) ? 1 : -1)));
-      }
+      perturbPixelBuffer(data);
     } catch (_) {}
     return imageData;
   };
@@ -519,6 +536,32 @@ std::string BuildPagePolicyScript() {
         });
       }
       Object.defineProperty(Canvas.prototype, '__otfCanvasPolicy', {
+        value: true,
+        configurable: false
+      });
+    }
+
+    const OffscreenCanvasCtor = globalThis.OffscreenCanvas;
+    if (OffscreenCanvasCtor && OffscreenCanvasCtor.prototype &&
+        !OffscreenCanvasCtor.prototype.__otfCanvasPolicy) {
+      const originalConvertToBlob = OffscreenCanvasCtor.prototype.convertToBlob;
+      if (typeof originalConvertToBlob === 'function') {
+        defineMethod(OffscreenCanvasCtor.prototype, 'convertToBlob', function(...args) {
+          try {
+            const copy = new OffscreenCanvas(this.width, this.height);
+            const copyContext = copy.getContext('2d');
+            if (copyContext && typeof copyContext.drawImage === 'function') {
+              copyContext.drawImage(this, 0, 0);
+              const imageData = copyContext.getImageData(0, 0, copy.width, copy.height);
+              perturbImageData(imageData);
+              copyContext.putImageData(imageData, 0, 0);
+              return originalConvertToBlob.apply(copy, args);
+            }
+          } catch (_) {}
+          return originalConvertToBlob.apply(this, args);
+        });
+      }
+      Object.defineProperty(OffscreenCanvasCtor.prototype, '__otfCanvasPolicy', {
         value: true,
         configurable: false
       });
@@ -648,9 +691,7 @@ std::string BuildPagePolicyScript() {
         try {
           const pixels = args[6];
           if (pixels && typeof pixels.length === 'number') {
-            for (let i = 0; i < pixels.length; i += 64) {
-              pixels[i] = Math.max(0, Math.min(255, pixels[i] + (noise(i) ? 1 : -1)));
-            }
+            perturbPixelBuffer(pixels);
           }
         } catch (_) {}
         return result;
@@ -851,6 +892,35 @@ std::string BuildPagePolicyScript() {
           });
         } catch (_) {}
       };
+      const noiseSeed = (() => {
+        try {
+          const values = new Uint32Array(1);
+          globalThis.crypto.getRandomValues(values);
+          return values[0] || Date.now();
+        } catch (_) {
+          return Date.now();
+        }
+      })();
+      const noiseByte = (index) => {
+        let value = Math.imul((index + 1) ^ noiseSeed, 1103515245) >>> 0;
+        value = Math.imul(value ^ (value >>> 16), 2246822507) >>> 0;
+        return value & 3;
+      };
+      const perturbPixelBuffer = (data) => {
+        try {
+          if (!data || typeof data.length !== 'number') return data;
+          for (let i = 0; i < data.length; i += 4) {
+            data[i] = Math.max(0, Math.min(255, data[i] ^ noiseByte(i)));
+            if (i + 1 < data.length) {
+              data[i + 1] = Math.max(0, Math.min(255, data[i + 1] ^ noiseByte(i + 1)));
+            }
+            if (i + 2 < data.length) {
+              data[i + 2] = Math.max(0, Math.min(255, data[i + 2] ^ noiseByte(i + 2)));
+            }
+          }
+        } catch (_) {}
+        return data;
+      };
       const makeRange = (first, second) => {
         try { return new Int32Array([first, second]); }
         catch (_) { return [first, second]; }
@@ -885,6 +955,7 @@ std::string BuildPagePolicyScript() {
         const originalGetExtension = ctor.prototype.getExtension;
         const originalGetSupportedExtensions = ctor.prototype.getSupportedExtensions;
         const originalGetShaderPrecisionFormat = ctor.prototype.getShaderPrecisionFormat;
+        const originalReadPixels = ctor.prototype.readPixels;
         if (typeof originalGetParameter === 'function') {
           defineWebGLMethod(ctor.prototype, 'getParameter', function(parameter) {
             if (parameter === 7938) return isWebGL2 ? 'WebGL 2.0' : 'WebGL 1.0';
@@ -921,6 +992,18 @@ std::string BuildPagePolicyScript() {
             return result ? { rangeMin: 127, rangeMax: 127, precision: 23 } : result;
           });
         }
+        if (typeof originalReadPixels === 'function') {
+          defineWebGLMethod(ctor.prototype, 'readPixels', function(...args) {
+            const result = originalReadPixels.apply(this, args);
+            try {
+              const pixels = args[6];
+              if (pixels && typeof pixels.length === 'number') {
+                perturbPixelBuffer(pixels);
+              }
+            } catch (_) {}
+            return result;
+          });
+        }
         Object.defineProperty(ctor.prototype, '__otfWebGLPolicy', {
           value: true,
           configurable: false
@@ -928,6 +1011,36 @@ std::string BuildPagePolicyScript() {
       };
       installWebGLPolicyFor(globalThis.WebGLRenderingContext);
       installWebGLPolicyFor(globalThis.WebGL2RenderingContext);
+
+      const installOffscreenCanvasPolicy = () => {
+        const OffscreenCanvasCtor = globalThis.OffscreenCanvas;
+        if (!OffscreenCanvasCtor || !OffscreenCanvasCtor.prototype ||
+            OffscreenCanvasCtor.prototype.__otfOffscreenCanvasPolicy) {
+          return;
+        }
+        const originalConvertToBlob = OffscreenCanvasCtor.prototype.convertToBlob;
+        if (typeof originalConvertToBlob === 'function') {
+          defineWebGLMethod(OffscreenCanvasCtor.prototype, 'convertToBlob', function(...args) {
+            try {
+              const copy = new OffscreenCanvas(this.width, this.height);
+              const copyContext = copy.getContext('2d');
+              if (copyContext && typeof copyContext.drawImage === 'function') {
+                copyContext.drawImage(this, 0, 0);
+                const imageData = copyContext.getImageData(0, 0, copy.width, copy.height);
+                perturbPixelBuffer(imageData.data);
+                copyContext.putImageData(imageData, 0, 0);
+                return originalConvertToBlob.apply(copy, args);
+              }
+            } catch (_) {}
+            return originalConvertToBlob.apply(this, args);
+          });
+        }
+        Object.defineProperty(OffscreenCanvasCtor.prototype, '__otfOffscreenCanvasPolicy', {
+          value: true,
+          configurable: false
+        });
+      };
+      installOffscreenCanvasPolicy();
     }).toString() + ')();';
 
     const wrapWorkerCtor = (name) => {

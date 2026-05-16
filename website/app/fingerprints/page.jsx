@@ -76,6 +76,230 @@ export default function FingerprintsPage() {
       return (hash >>> 0).toString(16);
     };
 
+    const hashBlob = async (blob) => {
+      if (!blob) return 'unavailable';
+      const buffer = await blob.arrayBuffer();
+      return hashText([...new Uint8Array(buffer)].join(','));
+    };
+
+    const canvasToBlob = (canvas) => new Promise((resolve) => {
+      if (!canvas || typeof canvas.toBlob !== 'function') {
+        resolve(null);
+        return;
+      }
+      canvas.toBlob((blob) => resolve(blob), 'image/png');
+    });
+
+    const runCanvasContextProbe = () => new Promise((resolve) => {
+      const token = `canvas-probe-${Date.now()}-${Math.random()}`;
+      const iframe = document.createElement('iframe');
+      iframe.hidden = true;
+      iframe.setAttribute('aria-hidden', 'true');
+
+      const cleanup = () => {
+        window.removeEventListener('message', onMessage);
+        iframe.remove();
+      };
+
+      const onMessage = (event) => {
+        if (!event.data || event.data.token !== token) return;
+        cleanup();
+        resolve(event.data.result);
+      };
+
+      window.addEventListener('message', onMessage);
+      iframe.srcdoc = `
+        <!doctype html>
+        <meta charset="utf-8">
+        <canvas id="canvas" width="420" height="140"></canvas>
+        <script>
+          const token = ${JSON.stringify(token)};
+          const hashText = (text) => {
+            let hash = 2166136261;
+            for (let i = 0; i < text.length; i += 1) {
+              hash ^= text.charCodeAt(i);
+              hash = Math.imul(hash, 16777619);
+            }
+            return (hash >>> 0).toString(16);
+          };
+          const hashBytes = (bytes) => hashText(Array.from(bytes).join(','));
+          const blobToHash = (blob) => new Promise((resolve) => {
+            if (!blob) {
+              resolve('unavailable');
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => resolve(hashText(String(reader.result || '')));
+            reader.onerror = () => resolve('read-error');
+            reader.readAsDataURL(blob);
+          });
+          const canvasToBlob = (canvas) => new Promise((resolve) => {
+            if (!canvas || typeof canvas.toBlob !== 'function') {
+              resolve(null);
+              return;
+            }
+            canvas.toBlob((blob) => resolve(blob), 'image/png');
+          });
+          const drawCanvas = (canvas) => {
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fffaf0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#102820';
+            ctx.font = '700 28px Georgia';
+            ctx.fillText('Browser fingerprint test', 24, 48);
+            ctx.fillStyle = '#c86f2d';
+            ctx.fillRect(24, 76, 160, 24);
+            ctx.fillStyle = '#1a6b8f';
+            ctx.beginPath();
+            ctx.arc(260, 82, 34, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#16110b';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(330, 24, 56, 82);
+          };
+          (async () => {
+            const canvas = document.getElementById('canvas');
+            drawCanvas(canvas);
+            const ctx = canvas.getContext('2d');
+            const result = {
+              toDataURL: hashText(canvas.toDataURL('image/png')),
+              toBlob: await blobToHash(await canvasToBlob(canvas)),
+              getImageData: hashBytes(ctx.getImageData(0, 0, canvas.width, canvas.height).data),
+              offscreenConvertToBlob: 'unavailable',
+              offscreenTransferToImageBitmap: 'unavailable'
+            };
+            if (typeof OffscreenCanvas === 'function') {
+              try {
+                const offscreen = new OffscreenCanvas(canvas.width, canvas.height);
+                const offscreenContext = offscreen.getContext('2d');
+                if (offscreenContext) {
+                  offscreenContext.drawImage(canvas, 0, 0);
+                  if (typeof offscreen.convertToBlob === 'function') {
+                    result.offscreenConvertToBlob = await blobToHash(
+                      await offscreen.convertToBlob({ type: 'image/png' })
+                    );
+                  }
+                  if (typeof offscreen.transferToImageBitmap === 'function') {
+                    const bitmap = offscreen.transferToImageBitmap();
+                    const bitmapCanvas = document.createElement('canvas');
+                    bitmapCanvas.width = bitmap.width;
+                    bitmapCanvas.height = bitmap.height;
+                    const bitmapContext = bitmapCanvas.getContext('2d');
+                    if (bitmapContext) {
+                      bitmapContext.drawImage(bitmap, 0, 0);
+                      result.offscreenTransferToImageBitmap = hashText(
+                        bitmapCanvas.toDataURL('image/png')
+                      );
+                    }
+                    if (typeof bitmap.close === 'function') bitmap.close();
+                  }
+                }
+              } catch (error) {
+                const value = error.name + ': ' + error.message;
+                if (result.offscreenConvertToBlob === 'unavailable') {
+                  result.offscreenConvertToBlob = value;
+                }
+                if (result.offscreenTransferToImageBitmap === 'unavailable') {
+                  result.offscreenTransferToImageBitmap = value;
+                }
+              }
+            }
+            parent.postMessage({ token, result }, '*');
+          })().catch((error) => {
+            parent.postMessage({
+              token,
+              result: { error: error.name + ': ' + error.message }
+            }, '*');
+          });
+        <\/script>
+      `;
+      document.body.appendChild(iframe);
+
+      setTimeout(() => {
+        cleanup();
+        resolve({ error: 'probe-timeout' });
+      }, 5000);
+    });
+
+    const runWebGLContextProbe = () => new Promise((resolve) => {
+      const token = `webgl-probe-${Date.now()}-${Math.random()}`;
+      const iframe = document.createElement('iframe');
+      iframe.hidden = true;
+      iframe.setAttribute('aria-hidden', 'true');
+
+      const cleanup = () => {
+        window.removeEventListener('message', onMessage);
+        iframe.remove();
+      };
+
+      const onMessage = (event) => {
+        if (!event.data || event.data.token !== token) return;
+        cleanup();
+        resolve(event.data.result);
+      };
+
+      window.addEventListener('message', onMessage);
+      iframe.srcdoc = `
+        <!doctype html>
+        <meta charset="utf-8">
+        <script>
+          const token = ${JSON.stringify(token)};
+          const hashText = (text) => {
+            let hash = 2166136261;
+            for (let i = 0; i < text.length; i += 1) {
+              hash ^= text.charCodeAt(i);
+              hash = Math.imul(hash, 16777619);
+            }
+            return (hash >>> 0).toString(16);
+          };
+          const renderHash = (gl) => {
+            gl.clearColor(0.18, 0.52, 0.38, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            const pixels = new Uint8Array(64 * 64 * 4);
+            gl.readPixels(0, 0, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            return hashText(Array.from(pixels).join(','));
+          };
+          const createCanvas = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            return canvas;
+          };
+          try {
+            const canvas = createCanvas();
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            const webgl2Canvas = createCanvas();
+            const gl2 = webgl2Canvas.getContext('webgl2');
+            const result = {
+              webgl1ReadPixels: gl ? renderHash(gl) : 'unavailable',
+              webgl1Export: gl ? hashText(canvas.toDataURL('image/png')) : 'unavailable',
+              webgl2ReadPixels: gl2 ? renderHash(gl2) : 'unavailable',
+              offscreenWebGL: 'unavailable'
+            };
+            if (typeof OffscreenCanvas === 'function') {
+              const offscreen = new OffscreenCanvas(64, 64);
+              const offscreenGl = offscreen.getContext('webgl') || offscreen.getContext('webgl2');
+              if (offscreenGl) {
+                result.offscreenWebGL = renderHash(offscreenGl);
+              }
+            }
+            parent.postMessage({ token, result }, '*');
+          } catch (error) {
+            parent.postMessage({
+              token,
+              result: { error: error.name + ': ' + error.message }
+            }, '*');
+          }
+        <\/script>
+      `;
+      document.body.appendChild(iframe);
+
+      setTimeout(() => {
+        cleanup();
+        resolve({ error: 'probe-timeout' });
+      }, 5000);
+    });
+
     const functionLooksWrapped = (fn) =>
       typeof fn === 'function' && !/\[native code\]/.test(Function.prototype.toString.call(fn));
 
@@ -278,28 +502,99 @@ export default function FingerprintsPage() {
       }
       const dataUrl = attempts[0];
       const hash = hashes[0];
+      const blobHash = await hashBlob(await canvasToBlob(canvas));
+      const ctx = canvas.getContext('2d');
+      let imageDataHash = 'unavailable';
+      if (ctx && typeof ctx.getImageData === 'function') {
+        try {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          imageDataHash = await hashText([...imageData.data].join(','));
+        } catch (error) {
+          imageDataHash = `${error.name}: ${error.message}`;
+        }
+      }
+      let offscreenBlobHash = 'unavailable';
+      let offscreenBitmapHash = 'unavailable';
+      if (typeof OffscreenCanvas === 'function') {
+        try {
+          const offscreen = new OffscreenCanvas(canvas.width, canvas.height);
+          const offscreenContext = offscreen.getContext('2d');
+          if (offscreenContext) {
+            offscreenContext.drawImage(canvas, 0, 0);
+            if (typeof offscreen.convertToBlob === 'function') {
+              offscreenBlobHash = await hashBlob(await offscreen.convertToBlob({ type: 'image/png' }));
+            }
+            if (typeof offscreen.transferToImageBitmap === 'function') {
+              const bitmap = offscreen.transferToImageBitmap();
+              const bitmapCanvas = document.createElement('canvas');
+              bitmapCanvas.width = bitmap.width;
+              bitmapCanvas.height = bitmap.height;
+              const bitmapContext = bitmapCanvas.getContext('2d');
+              if (bitmapContext) {
+                bitmapContext.drawImage(bitmap, 0, 0);
+                offscreenBitmapHash = await hashText(bitmapCanvas.toDataURL('image/png'));
+              }
+              if (typeof bitmap.close === 'function') bitmap.close();
+            }
+          }
+        } catch (error) {
+          const value = `${error.name}: ${error.message}`;
+          if (offscreenBlobHash === 'unavailable') offscreenBlobHash = value;
+          if (offscreenBitmapHash === 'unavailable') offscreenBitmapHash = value;
+        }
+      }
+      const contextProbes = await Promise.all([
+        runCanvasContextProbe(),
+        runCanvasContextProbe()
+      ]);
+      const contextMethodNames = [
+        'toDataURL',
+        'toBlob',
+        'getImageData',
+        'offscreenConvertToBlob',
+        'offscreenTransferToImageBitmap'
+      ];
+      const contextChangedMethods = contextMethodNames.filter((name) =>
+        contextProbes[0] &&
+        contextProbes[1] &&
+        contextProbes[0][name] &&
+        contextProbes[1][name] &&
+        contextProbes[0][name] !== 'unavailable' &&
+        contextProbes[1][name] !== 'unavailable' &&
+        contextProbes[0][name] !== contextProbes[1][name]
+      );
+      const contextProbeError = contextProbes.find((probe) => probe && probe.error)?.error;
       const uniqueAttempts = new Set(hashes).size;
       const previous = localStorage.getItem(storageKeys.canvas);
       localStorage.setItem(storageKeys.canvas, hash);
       const changed = previous && previous !== hash;
       const changedAcrossAttempts = uniqueAttempts > 1;
-      const canvasStatus = changedAcrossAttempts || changed ? 'ok' : previous ? 'fail' : 'warn';
+      const automatedContextChanged = contextChangedMethods.length > 0;
+      const canvasStatus = changedAcrossAttempts || automatedContextChanged || changed ? 'ok' : 'fail';
       setReportItem('canvas-fingerprint', canvasStatus,
         changedAcrossAttempts
           ? 'Changes across repeated attempts'
-          : changed
-            ? 'Changed from previous reload'
-            : previous
-              ? 'Not changed across attempts or reload'
-              : 'First run; reload once to verify',
-        `Unique attempt hashes: ${uniqueAttempts}/3`);
+          : automatedContextChanged
+            ? 'Changes across automated fresh contexts'
+            : changed
+              ? 'Changed from previous page run'
+              : 'Stable across automated checks',
+        `Unique attempts: ${uniqueAttempts}/3, changed context methods: ${contextChangedMethods.length}`);
       setCard('canvas-card', canvasStatus,
-        changedAcrossAttempts ? 'Changed across attempts' : previous ? (changed ? 'Changed after reload' : 'Same as previous reload') : 'First run', [
-          ['current hash', hash],
-          ['previous hash', previous || 'none'],
-          ['attempt hashes', hashes.join(', ')],
-          ['unique attempts', `${uniqueAttempts}/3`],
-          ['reload changed', previous ? String(changed) : 'reload once to verify'],
+        changedAcrossAttempts || automatedContextChanged || changed ? 'Protected output variance' : 'Stable output', [
+          ['toDataURL hash', hash],
+          ['toDataURL previous hash', previous || 'none'],
+          ['toDataURL attempt hashes', hashes.join(', ')],
+          ['toDataURL unique attempts', `${uniqueAttempts}/3`],
+          ['toDataURL changed from previous page run', previous ? String(changed) : 'no previous run'],
+          ['toBlob hash', blobHash],
+          ['getImageData hash', imageDataHash],
+          ['OffscreenCanvas convertToBlob hash', offscreenBlobHash],
+          ['OffscreenCanvas transferToImageBitmap hash', offscreenBitmapHash],
+          ['automated context probe 1', JSON.stringify(contextProbes[0])],
+          ['automated context probe 2', JSON.stringify(contextProbes[1])],
+          ['automated changed methods', contextChangedMethods.join(', ') || 'none'],
+          ['automated probe error', contextProbeError || 'none'],
           ['data URL prefix', short(dataUrl)]
         ]);
     };
@@ -307,20 +602,69 @@ export default function FingerprintsPage() {
     const runWebGLTest = async () => {
       const canvas = document.getElementById('webgl-canvas');
       if (!canvas) return;
+      const renderHash = async (gl) => {
+        gl.clearColor(0.18, 0.52, 0.38, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        const pixels = new Uint8Array(64 * 64 * 4);
+        gl.readPixels(0, 0, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return hashText([...pixels].join(','));
+      };
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
       if (!gl) {
         setReportItem('webgl-profile', 'warn', 'WebGL unavailable', 'No WebGL context was created.');
         setReportItem('webgl-debug', 'warn', 'WebGL unavailable', 'Cannot verify debug renderer exposure without WebGL.');
+        setReportItem('webgl-render-output', 'warn', 'WebGL unavailable', 'Cannot verify rendered-output stability without WebGL.');
         setCard('webgl-card', 'warn', 'WebGL unavailable', [['result', 'No WebGL context']]);
         return;
       }
-      gl.clearColor(0.18, 0.52, 0.38, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      const pixels = new Uint8Array(64 * 64 * 4);
-      gl.readPixels(0, 0, 64, 64, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      const hash = await hashText([...pixels].join(','));
+      const hash = await renderHash(gl);
       const previous = localStorage.getItem(storageKeys.webgl);
       localStorage.setItem(storageKeys.webgl, hash);
+      const changed = previous && previous !== hash;
+
+      const webgl2Canvas = document.createElement('canvas');
+      webgl2Canvas.width = 64;
+      webgl2Canvas.height = 64;
+      const gl2 = webgl2Canvas.getContext('webgl2');
+      const webgl2Hash = gl2 ? await renderHash(gl2) : 'unavailable';
+      const exportHash = await hashText(canvas.toDataURL('image/png'));
+      let offscreenHash = 'unavailable';
+      if (typeof OffscreenCanvas === 'function') {
+        try {
+          const offscreen = new OffscreenCanvas(64, 64);
+          const offscreenGl = offscreen.getContext('webgl') || offscreen.getContext('webgl2');
+          if (offscreenGl) {
+            offscreenHash = await renderHash(offscreenGl);
+          }
+        } catch (error) {
+          offscreenHash = `${error.name}: ${error.message}`;
+        }
+      }
+      const contextProbes = await Promise.all([
+        runWebGLContextProbe(),
+        runWebGLContextProbe()
+      ]);
+      const contextMethodNames = [
+        'webgl1ReadPixels',
+        'webgl1Export',
+        'webgl2ReadPixels',
+        'offscreenWebGL'
+      ];
+      const contextChangedMethods = contextMethodNames.filter((name) =>
+        contextProbes[0] &&
+        contextProbes[1] &&
+        contextProbes[0][name] &&
+        contextProbes[1][name] &&
+        contextProbes[0][name] !== 'unavailable' &&
+        contextProbes[1][name] !== 'unavailable' &&
+        contextProbes[0][name] !== contextProbes[1][name]
+      );
+      const contextProbeError = contextProbes.find((probe) => probe && probe.error)?.error;
+      const renderedOutputStatus = contextChangedMethods.length > 0 || changed ? 'ok' : 'fail';
+      setReportItem('webgl-render-output', renderedOutputStatus,
+        renderedOutputStatus === 'ok' ? 'Rendered output varies' : 'Rendered output is stable',
+        `Changed context methods: ${contextChangedMethods.length}`);
+
       const debugExtension = gl.getExtension('WEBGL_debug_renderer_info');
       let vendor = 'unavailable';
       let renderer = 'unavailable';
@@ -353,8 +697,16 @@ export default function FingerprintsPage() {
           ['unmasked vendor', String(vendor)],
           ['unmasked renderer', String(renderer)],
           ['extension listed', String(extensions.includes('WEBGL_debug_renderer_info'))],
-          ['readPixels hash', hash],
-          ['previous hash', previous || 'none']
+          ['WebGL1 readPixels hash', hash],
+          ['WebGL1 previous hash', previous || 'none'],
+          ['WebGL1 changed from previous page run', previous ? String(changed) : 'no previous run'],
+          ['WebGL2 readPixels hash', webgl2Hash],
+          ['canvas export hash after WebGL', exportHash],
+          ['OffscreenCanvas WebGL hash', offscreenHash],
+          ['automated context probe 1', JSON.stringify(contextProbes[0])],
+          ['automated context probe 2', JSON.stringify(contextProbes[1])],
+          ['automated changed methods', contextChangedMethods.join(', ') || 'none'],
+          ['automated probe error', contextProbeError || 'none']
         ]);
     };
 
@@ -723,7 +1075,7 @@ export default function FingerprintsPage() {
         <header>
           <h1>Browser Fingerprint Test</h1>
           <p>Run this page in any browser to compare fingerprinting exposure, protection behavior, and high-risk API surfaces.</p>
-          <button onClick={() => window.location.reload()}>Reload page</button>
+          <button onClick={() => window.location.reload()}>Run tests again</button>
         </header>
 
         <section className="card wide report-card">
@@ -747,6 +1099,7 @@ export default function FingerprintsPage() {
               ['canvas-fingerprint', 'Canvas fingerprint'],
               ['webgl-profile', 'WebGL identity'],
               ['webgl-debug', 'WebGL debug renderer'],
+              ['webgl-render-output', 'WebGL rendered output'],
               ['webgpu-compute', 'WebGPU compute pipeline'],
               ['worker-surface', 'Worker execution surface'],
             ].map(([id, label]) => (
