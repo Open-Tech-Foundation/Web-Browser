@@ -8,7 +8,7 @@
 
 ![OTF Web Browser Screenshot](Screenshot.png)
 
-[**Report Bug**](https://github.com/Open-Tech-Foundation/Web-Browser/issues)
+[**browser.opentechf.org**](https://browser.opentechf.org/) | [**Report Bug**](https://github.com/Open-Tech-Foundation/Web-Browser/issues)
 
 </div>
 

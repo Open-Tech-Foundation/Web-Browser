@@ -348,8 +348,8 @@ const Settings = () => {
               key={item.id}
               onClick={() => setActiveMenu(item.id)}
               className={`w-full text-left px-4 py-3 rounded-xl flex items-center gap-4 transition-all duration-300 text-sm font-medium group cursor-pointer ${activeMenu === item.id
-                  ? 'bg-orange-500/10 text-orange-500 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]'
-                  : 'text-muted hover:text-main hover:bg-card/50 hover:translate-x-1'
+                ? 'bg-orange-500/10 text-orange-500 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]'
+                : 'text-muted hover:text-main hover:bg-card/50 hover:translate-x-1'
                 }`}
             >
               <span className={`transition-colors duration-200 ${activeMenu === item.id ? 'text-orange-400' : 'text-muted group-hover:text-main'}`}>
@@ -400,8 +400,8 @@ const Settings = () => {
                         key={id}
                         onClick={() => selectEngine(id)}
                         className={`relative group flex items-center gap-5 p-6 rounded-2xl border transition-all duration-300 text-left ${selectedEngine === id
-                            ? 'bg-orange-500/10 border-orange-500/50 shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]'
-                            : 'bg-card border-main hover:border-orange-500/30 hover:-translate-y-1'
+                          ? 'bg-orange-500/10 border-orange-500/50 shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]'
+                          : 'bg-card border-main hover:border-orange-500/30 hover:-translate-y-1'
                           }`}
                       >
                         {selectedEngine === id && (
@@ -445,8 +445,8 @@ const Settings = () => {
                         saveSettings({ startupBehavior: id });
                       }}
                       className={`w-full flex items-center justify-between p-6 bg-card/50 border rounded-2xl transition-all duration-300 hover:bg-card group ${startupBehavior === id
-                          ? 'border-orange-500/50 bg-orange-500/5 shadow-[0_0_20px_-10px_rgba(249,115,22,0.3)]'
-                          : 'border-main hover:border-orange-500/30'
+                        ? 'border-orange-500/50 bg-orange-500/5 shadow-[0_0_20px_-10px_rgba(249,115,22,0.3)]'
+                        : 'border-main hover:border-orange-500/30'
                         }`}
                     >
                       <span className={`text-base font-semibold transition-colors duration-200 ${startupBehavior === id ? 'text-main' : 'text-muted group-hover:text-main'}`}>
@@ -530,8 +530,8 @@ const Settings = () => {
                           saveSettings({ appearanceMode: mode.id });
                         }}
                         className={`relative flex flex-col items-center gap-4 p-8 rounded-3xl border transition-all duration-300 ${appearanceMode === mode.id
-                            ? 'bg-orange-500/10 border-orange-500/50 shadow-lg shadow-orange-500/5'
-                            : 'bg-card/50 border-main hover:border-orange-500/30 hover:bg-card'
+                          ? 'bg-orange-500/10 border-orange-500/50 shadow-lg shadow-orange-500/5'
+                          : 'bg-card/50 border-main hover:border-orange-500/30 hover:bg-card'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-2 transition-transform duration-300 ${appearanceMode === mode.id ? 'bg-orange-500 text-white scale-110 shadow-lg shadow-orange-500/20' : 'bg-card/50 text-muted'
@@ -773,6 +773,40 @@ const Settings = () => {
                 </header>
 
                 <div className="space-y-6">
+                  <section className="bg-card/50 border border-main rounded-3xl p-8 backdrop-blur-sm">
+                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Resources</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <a
+                        href="https://browser.opentechf.org/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-4 p-4 bg-main/5 rounded-2xl border border-main hover:border-orange-500/30 hover:bg-main/10 transition-all group"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-card flex items-center justify-center text-muted group-hover:text-orange-500 transition-colors">
+                          <Icons.Globe />
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-main">Official Website</div>
+                          <div className="text-[10px] text-muted">browser.opentechf.org</div>
+                        </div>
+                      </a>
+                      <a
+                        href="https://github.com/Open-Tech-Foundation/Web-Browser"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-4 p-4 bg-main/5 rounded-2xl border border-main hover:border-orange-500/30 hover:bg-main/10 transition-all group"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-card flex items-center justify-center text-muted group-hover:text-orange-500 transition-colors">
+                          <Icons.GitHub />
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-main">Source Code</div>
+                          <div className="text-[10px] text-muted">github.com/Open-Tech-Foundation/Web-Browser</div>
+                        </div>
+                      </a>
+                    </div>
+                  </section>
+
                   <section className="bg-card/50 border border-main rounded-3xl p-8 backdrop-blur-sm">
                     <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Version Information</h2>
                     <div className="grid grid-cols-1 gap-4">
