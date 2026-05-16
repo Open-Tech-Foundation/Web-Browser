@@ -567,6 +567,7 @@ const Settings = () => {
                       ['Alt + ←', 'Go back'],
                       ['Alt + →', 'Go forward'],
                       ['F5 / Ctrl + R', 'Reload'],
+                      ['Ctrl + Shift + R', 'Hard reload / ignore cache'],
                       ['Escape', 'Stop loading'],
                       ['Ctrl + L / F6', 'Focus address bar'],
                     ]],

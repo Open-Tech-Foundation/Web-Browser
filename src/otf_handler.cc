@@ -2799,6 +2799,12 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kNone, Key::kF5) || M(Mod::kCtrl, Key::kR)) {
     *is_keyboard_shortcut = true; nav(Shortcut::kReload); return true;
   }
+  if (M(Mod::kCtrl|Mod::kShift, Key::kR)) {
+    *is_keyboard_shortcut = true;
+    auto b = tab_manager_->GetBrowser(cur);
+    if (b) b->ReloadIgnoreCache();
+    return true;
+  }
   if (M(Mod::kNone, Key::kEscape)) {
     if (app->downloads_overlay_ && app->downloads_overlay_->IsVisible()) {
       app->HideDownloadsOverlay();
