@@ -73,7 +73,15 @@ export default function RootLayout({ children }) {
       {/* Footer */}
       <footer className="py-10 border-t mt-10 transition-colors duration-300" style="background-color: #020617; border-color: #1e293b;">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6 text-[10px] font-bold uppercase tracking-widest" style="color: #94a3b8;">
-          <p>© 2026 Open Tech Foundation</p>
+          <div className="flex flex-col gap-4 items-center md:items-start">
+            <p>© 2026 Open Tech Foundation</p>
+            <div className="flex items-center gap-2 text-[10px] font-black">
+              <span className="text-white/40 uppercase tracking-widest">Built with</span>
+              <a href="https://web.opentechf.org/" target="_blank" rel="noopener noreferrer" className="px-3 py-1 rounded-full border bg-white/5 border-white/10 text-white shadow-xl shadow-orange-500/10 transition-all hover:border-orange-500/30 group">
+                <span className="bg-gradient-to-r from-orange-400 to-amber-300 bg-clip-text text-transparent">OTF Web Framework</span>
+              </a>
+            </div>
+          </div>
           <a href="https://github.com/Open-Tech-Foundation/Web-Browser" className="hover:text-[var(--accent)] transition-colors">GitHub</a>
         </div>
       </footer>
