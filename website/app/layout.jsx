@@ -43,7 +43,7 @@ export default function RootLayout({ children }) {
 
           <div className="flex items-center gap-6">
             <div className="hidden md:flex items-center gap-8 text-sm font-medium" style="color: var(--muted);">
-              <Link href="/fingerprints" className="hover:text-[var(--foreground)] transition-colors">Fingerprints</Link>
+              <Link href="/protection" className="hover:text-[var(--foreground)] transition-colors">Protection Tests</Link>
             </div>
 
             <button 

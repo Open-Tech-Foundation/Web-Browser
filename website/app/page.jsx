@@ -214,7 +214,7 @@ const featureRows = [
   { feature: "Security settings", status: "Complete", notes: "Security controls surfaced in settings." },
   { feature: "Privacy settings", status: "Complete", notes: "History/download defaults and reset behavior." },
   { feature: "Certificate viewer", status: "Complete", notes: "Current-tab SSL certificate API and viewer support." },
-  { feature: "Fingerprint viewer", status: "Complete", notes: "The website fingerprint test reports policy coverage and exposed values." },
+  { feature: "Protection test center", status: "Complete", notes: "The website protection test center reports privacy and security policy coverage." },
   { feature: "HTTP insecure blocking", status: "Complete", notes: "HTTP block page and red security state." },
   { feature: "Reset browser data", status: "Complete", notes: ["Settings", "History", "Bookmarks", "SSL exceptions", "HTTP auth", "Connections", "Cache", "Cookies"] },
   { feature: "Target blank handling", status: "Complete", notes: "Opens target=_blank navigations in a new tab." },
@@ -232,7 +232,7 @@ const securityHighlights = [
   { title: "WebGL normalized", desc: "Reduces vendor, renderer, extension, and capability variance that can become a stable device hash." },
   { title: "Canvas protected", desc: "Protects readback/export paths that fingerprint scripts use to compare subtle rendering differences." },
   { title: "Dangerous schemes blocked", desc: "Prevents web navigation into internal engine pages, local files, script URLs, data URLs, and disabled extension surfaces." },
-  { title: "Diagnostics included", desc: "The website fingerprint test makes browser behavior visible and testable." },
+  { title: "Diagnostics included", desc: "The website protection test center makes browser behavior visible and testable." },
 ];
 
 function renderCellContent(value) {
@@ -419,7 +419,7 @@ export default function HomePage() {
               <span className="w-8 h-8 rounded-lg flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent);">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
-              Fingerprint Coverage
+              Protection Coverage
             </h3>
             <div className="space-y-4">
               {[
@@ -437,7 +437,7 @@ export default function HomePage() {
               ))}
             </div>
             <p className="mt-8 text-[10px] uppercase tracking-widest font-bold text-center" style="color: var(--muted);">
-              Diagnostics available on the website fingerprint test
+              Diagnostics available in the protection test center
             </p>
           </div>
         </div>
