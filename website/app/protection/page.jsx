@@ -683,7 +683,10 @@ export default function FingerprintsPage() {
         const family = `Probe${Math.random().toString(16).slice(2)}`;
         try {
           const face = new FontFace(family, `local("${fontFamily}")`);
-          const loaded = await face.load();
+          const loaded = await Promise.race([
+            face.load(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
+          ]);
           return loaded && loaded.status ? loaded.status : 'loaded';
         } catch (error) {
           return `${error.name}: ${error.message}`;
@@ -693,7 +696,10 @@ export default function FingerprintsPage() {
       let localFontsResult = 'unavailable';
       try {
         if (typeof globalThis.queryLocalFonts === 'function') {
-          const fonts = await globalThis.queryLocalFonts();
+          const fonts = await Promise.race([
+            globalThis.queryLocalFonts(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
+          ]);
           localFontsResult = `available:${fonts.length}`;
         }
       } catch (error) {

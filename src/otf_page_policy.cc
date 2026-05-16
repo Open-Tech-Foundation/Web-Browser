@@ -493,6 +493,178 @@ std::string BuildPagePolicyScript() {
   };
   installLayoutMetricPolicy();
 
+  // Range + SVG: normalize font-sensitive measurement APIs used for fingerprinting.
+  const installRangeSvgMetricPolicy = () => {
+    try {
+      // ── Range ──────────────────────────────────────────────────────────────
+      const RangeCtor = globalThis.Range;
+      if (RangeCtor && RangeCtor.prototype && !RangeCtor.prototype.__otfRangePolicy) {
+        const origRangeRect = RangeCtor.prototype.getBoundingClientRect;
+        const origClientRects = RangeCtor.prototype.getClientRects;
+
+        const isRangeFontProbe = (range) => {
+          try {
+            const container = range.commonAncestorContainer;
+            const el = container && container.nodeType === 1
+                ? container
+                : container && container.parentElement;
+            if (!el || !globalThis.getComputedStyle) return false;
+            return isLikelyFontMetricProbe(el, getComputedStyle(el));
+          } catch (_) { return false; }
+        };
+
+        const cloneRangeWithFallbackFont = (range) => {
+          try {
+            const container = range.commonAncestorContainer;
+            const el = container && container.nodeType === 1
+                ? container
+                : container && container.parentElement;
+            if (!el || !globalThis.document) return null;
+            const clone = el.cloneNode(true);
+            clone.style.setProperty('font-family', 'Arial, sans-serif', 'important');
+            clone.style.setProperty('position', 'absolute', 'important');
+            clone.style.setProperty('left', '-100000px', 'important');
+            clone.style.setProperty('top', '-100000px', 'important');
+            clone.style.setProperty('visibility', 'hidden', 'important');
+            document.documentElement.appendChild(clone);
+            const cloneRange = document.createRange();
+            cloneRange.selectNodeContents(clone);
+            return { clone, cloneRange };
+          } catch (_) { return null; }
+        };
+
+        if (typeof origRangeRect === 'function') {
+          defineMethod(RangeCtor.prototype, 'getBoundingClientRect', function(...args) {
+            if (!isRangeFontProbe(this)) return origRangeRect.apply(this, args);
+            const cloned = cloneRangeWithFallbackFont(this);
+            if (!cloned) return origRangeRect.apply(this, args);
+            try {
+              const rect = origRangeRect.call(cloned.cloneRange);
+              cloned.cloneRange.detach && cloned.cloneRange.detach();
+              cloned.clone.remove();
+              return makeProtectedDOMRect(rect, 'range:rect');
+            } catch (_) {
+              try { cloned.cloneRange.detach && cloned.cloneRange.detach(); } catch (_) {}
+              try { cloned.clone.remove(); } catch (_) {}
+              return origRangeRect.apply(this, args);
+            }
+          });
+        }
+
+        if (typeof origClientRects === 'function') {
+          defineMethod(RangeCtor.prototype, 'getClientRects', function(...args) {
+            if (!isRangeFontProbe(this)) return origClientRects.apply(this, args);
+            const cloned = cloneRangeWithFallbackFont(this);
+            if (!cloned) return origClientRects.apply(this, args);
+            try {
+              const rects = origClientRects.call(cloned.cloneRange);
+              cloned.cloneRange.detach && cloned.cloneRange.detach();
+              cloned.clone.remove();
+              return rects;
+            } catch (_) {
+              try { cloned.cloneRange.detach && cloned.cloneRange.detach(); } catch (_) {}
+              try { cloned.clone.remove(); } catch (_) {}
+              return origClientRects.apply(this, args);
+            }
+          });
+        }
+
+        Object.defineProperty(RangeCtor.prototype, '__otfRangePolicy', {
+          value: true, configurable: false, enumerable: false
+        });
+      }
+
+      // ── SVG ────────────────────────────────────────────────────────────────
+      const isSvgFontProbe = (element) => {
+        try {
+          const svg = element.ownerSVGElement || element;
+          if (!globalThis.getComputedStyle) return false;
+          const style = getComputedStyle(svg);
+          const left = Math.abs(Number.parseFloat(style.left || '0') || 0);
+          const top = Math.abs(Number.parseFloat(style.top || '0') || 0);
+          const positioned = style.position === 'absolute' || style.position === 'fixed';
+          return positioned && (left >= 5000 || top >= 5000);
+        } catch (_) { return false; }
+      };
+
+      const cloneSvgWithFallbackFont = (element) => {
+        try {
+          const svg = element.ownerSVGElement;
+          if (!svg || !globalThis.document) return null;
+          const cloneSvg = svg.cloneNode(true);
+          const texts = cloneSvg.querySelectorAll('text,tspan,textPath');
+          texts.forEach((t) => t.setAttribute('font-family', 'Arial, monospace'));
+          cloneSvg.style.setProperty('position', 'absolute', 'important');
+          cloneSvg.style.setProperty('left', '-100000px', 'important');
+          cloneSvg.style.setProperty('top', '-100000px', 'important');
+          cloneSvg.style.setProperty('visibility', 'hidden', 'important');
+          document.documentElement.appendChild(cloneSvg);
+          const idx = Array.from(svg.querySelectorAll('text,tspan,textPath')).indexOf(element);
+          const cloneEl = idx >= 0
+              ? cloneSvg.querySelectorAll('text,tspan,textPath')[idx]
+              : cloneSvg.querySelector('text');
+          return { cloneSvg, cloneEl };
+        } catch (_) { return null; }
+      };
+
+      const SVGGraphicsCtor = globalThis.SVGGraphicsElement;
+      if (SVGGraphicsCtor && SVGGraphicsCtor.prototype &&
+          !SVGGraphicsCtor.prototype.__otfSvgPolicy) {
+        const origGetBBox = SVGGraphicsCtor.prototype.getBBox;
+        if (typeof origGetBBox === 'function') {
+          defineMethod(SVGGraphicsCtor.prototype, 'getBBox', function(...args) {
+            if (!isSvgFontProbe(this)) return origGetBBox.apply(this, args);
+            const cloned = cloneSvgWithFallbackFont(this);
+            if (!cloned || !cloned.cloneEl) {
+              if (cloned) try { cloned.cloneSvg.remove(); } catch (_) {}
+              return origGetBBox.apply(this, args);
+            }
+            try {
+              const box = origGetBBox.call(cloned.cloneEl, ...args);
+              cloned.cloneSvg.remove();
+              return makeProtectedDOMRect(
+                makeDOMRect(box.x, box.y, box.width, box.height), 'svg:bbox');
+            } catch (_) {
+              try { cloned.cloneSvg.remove(); } catch (_) {}
+              return origGetBBox.apply(this, args);
+            }
+          });
+        }
+        Object.defineProperty(SVGGraphicsCtor.prototype, '__otfSvgPolicy', {
+          value: true, configurable: false, enumerable: false
+        });
+      }
+
+      const SVGTextCtor = globalThis.SVGTextContentElement;
+      if (SVGTextCtor && SVGTextCtor.prototype &&
+          !SVGTextCtor.prototype.__otfSvgTextPolicy) {
+        const origGetTextLength = SVGTextCtor.prototype.getComputedTextLength;
+        if (typeof origGetTextLength === 'function') {
+          defineMethod(SVGTextCtor.prototype, 'getComputedTextLength', function(...args) {
+            if (!isSvgFontProbe(this)) return origGetTextLength.apply(this, args);
+            const cloned = cloneSvgWithFallbackFont(this);
+            if (!cloned || !cloned.cloneEl) {
+              if (cloned) try { cloned.cloneSvg.remove(); } catch (_) {}
+              return origGetTextLength.apply(this, args);
+            }
+            try {
+              const length = origGetTextLength.call(cloned.cloneEl, ...args);
+              cloned.cloneSvg.remove();
+              return length + layoutNoiseValue('svg:textlen') * 2;
+            } catch (_) {
+              try { cloned.cloneSvg.remove(); } catch (_) {}
+              return origGetTextLength.apply(this, args);
+            }
+          });
+        }
+        Object.defineProperty(SVGTextCtor.prototype, '__otfSvgTextPolicy', {
+          value: true, configurable: false, enumerable: false
+        });
+      }
+    } catch (_) {}
+  };
+  installRangeSvgMetricPolicy();
+
   // Fonts: reduce local font probing to a small common anonymity set.
   const allowedFontNames = [
     'arial',
