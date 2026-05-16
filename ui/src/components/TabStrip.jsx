@@ -67,19 +67,41 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [hiddenLeft, setHiddenLeft] = useState(0);
+  const [hiddenRight, setHiddenRight] = useState(0);
 
   const measureOverflow = () => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
     const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    const scrollLeft = viewport.scrollLeft;
     const nextOverflowing = maxScrollLeft > 1;
-    const nextCanScrollLeft = viewport.scrollLeft > 1;
-    const nextCanScrollRight = viewport.scrollLeft < maxScrollLeft - 1;
+    const nextCanScrollLeft = scrollLeft > 1;
+    const nextCanScrollRight = scrollLeft < maxScrollLeft - 1;
 
-    setIsOverflowing((prev) => (prev === nextOverflowing ? prev : nextOverflowing));
-    setCanScrollLeft((prev) => (prev === nextCanScrollLeft ? prev : nextCanScrollLeft));
-    setCanScrollRight((prev) => (prev === nextCanScrollRight ? prev : nextCanScrollRight));
+    setIsOverflowing(nextOverflowing);
+    setCanScrollLeft(nextCanScrollLeft);
+    setCanScrollRight(nextCanScrollRight);
+
+    // Calculate hidden counts
+    let leftCount = 0;
+    let rightCount = 0;
+    const viewportRect = viewport.getBoundingClientRect();
+
+    tabRefs.current.forEach((el) => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // We use a small buffer (5px) to avoid flickering on sub-pixel positions
+      if (rect.right < viewportRect.left + 5) {
+        leftCount++;
+      } else if (rect.left > viewportRect.right - 5) {
+        rightCount++;
+      }
+    });
+
+    setHiddenLeft(leftCount);
+    setHiddenRight(rightCount);
   };
 
   useLayoutEffect(() => {
@@ -127,11 +149,14 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           disabled={!canScrollLeft}
           aria-label="Scroll tabs left"
           title="Scroll left"
-          className="h-[29px] w-7 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[29px] min-w-[28px] px-1 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
+          <div className="flex items-center gap-0.5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            {hiddenLeft > 0 && <span key={`left-${hiddenLeft}`} className="text-[11px] font-black leading-none animate-tab-count">{hiddenLeft}</span>}
+          </div>
         </button>
       )}
       <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-0.5 flex items-end flex-nowrap">
@@ -194,11 +219,14 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           disabled={!canScrollRight}
           aria-label="Scroll tabs right"
           title="Scroll right"
-          className="h-[29px] w-7 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-[29px] min-w-[28px] px-1 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-brand-orange hover:bg-white/50 dark:hover:bg-white/5 transition-all disabled:opacity-30 disabled:hover:bg-transparent"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
+          <div className="flex items-center gap-0.5">
+            {hiddenRight > 0 && <span key={`right-${hiddenRight}`} className="text-[11px] font-black leading-none animate-tab-count">{hiddenRight}</span>}
+            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </div>
         </button>
       )}
     </div>

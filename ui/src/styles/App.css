@@ -66,6 +66,16 @@
     animation: downloadPulse 1.15s ease-in-out infinite;
   }
 
+  @keyframes tabCountPop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.35); color: #FF7A00; }
+    100% { transform: scale(1); }
+  }
+
+  .animate-tab-count {
+    animation: tabCountPop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
