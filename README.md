@@ -1,6 +1,6 @@
 <div align="center">
 
-# OTF Web Browser
+# OTF Web Browser <img src="https://img.shields.io/badge/Alpha-A855F7?style=flat-square" align="center" />
 
 **Engineered for Privacy & Security**
 

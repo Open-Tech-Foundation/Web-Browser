@@ -218,11 +218,11 @@ const featureRows = [
   { feature: "HTTP insecure blocking", status: "Complete", notes: "HTTP block page and red security state." },
   { feature: "Reset browser data", status: "Complete", notes: ["Settings", "History", "Bookmarks", "SSL exceptions", "HTTP auth", "Connections", "Cache", "Cookies"] },
   { feature: "Target blank handling", status: "Complete", notes: "Opens target=_blank navigations in a new tab." },
-  { feature: "Password manager", status: "Not supported", notes: "No built-in password storage or sync manager yet." },
-  { feature: "Sync", status: "Not supported", notes: "No account-based sync layer yet." },
+  { feature: "Password manager", status: "Planned", notes: "No built-in password storage or sync manager yet." },
+  { feature: "Sync", status: "Planned", notes: "No account-based sync layer yet." },
   { feature: "Extensions", status: "Not supported", notes: "Extension platform is intentionally not exposed yet." },
-  { feature: "Profiles", status: "In progress", notes: "Profile isolation is not fully implemented." },
-  { feature: "Workspaces", status: "In progress", notes: "Workspace behavior is planned/in progress." },
+  { feature: "Profiles", status: "Planned", notes: "Profile isolation is not fully implemented." },
+  { feature: "Workspaces", status: "Planned", notes: "Workspace behavior is planned/in progress." },
   { feature: "Bookmarks bar", status: "Partial", notes: "Bookmark viewing exists; full bar parity is not complete." },
   { feature: "Multi-window", status: "Partial", notes: "Core windows exist; workflow parity is still evolving." },
 ];
@@ -256,9 +256,11 @@ function StatusBadge({ status }) {
   const color =
     status === "Complete"
       ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-      : status === "Partial" || status === "In progress"
+      : status === "Partial"
         ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-        : "bg-neutral-500/10 text-neutral-600 dark:text-neutral-400 border-neutral-500/20";
+        : status === "Planned"
+          ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+          : "bg-neutral-500/10 text-neutral-600 dark:text-neutral-400 border-neutral-500/20";
 
   return (
     <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${color}`}>
@@ -279,8 +281,9 @@ export default function HomePage() {
             Engineered for Privacy & Security
           </div>
 
-          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-8 leading-tight" style="color: var(--foreground);">
+          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-8 leading-tight flex items-center justify-center gap-4" style="color: var(--foreground);">
             OTF <span className="bg-clip-text text-transparent" style="background-image: linear-gradient(to right, var(--accent), #fbbf24);">Browser</span>
+            <span className="inline-flex px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-[0.2em] translate-y-1" style="background-color: #a855f71a; border-color: #a855f74d; color: #a855f7;">Alpha</span>
           </h1>
 
           <p className="text-xl md:text-2xl max-w-3xl mx-auto mb-12 leading-relaxed" style="color: var(--muted);">
