@@ -41,7 +41,7 @@ class OtfApp : public CefApp,
                                 CefProcessId source_process,
                                 CefRefPtr<CefProcessMessage> message) override;
 
-  int CreateTab(const std::string& url);
+  int CreateTab(const std::string& url, int parent_id = -1);
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }

@@ -159,7 +159,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           </div>
         </button>
       )}
-      <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-0.5 flex items-end flex-nowrap">
+      <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-1 flex items-end flex-nowrap">
         {tabs.map((tab, index) => (
           <div 
             key={tab.id}
@@ -203,7 +203,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           onClick={() => onNew()}
           title="New tab"
           className={`
-            h-[29px] w-9 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all
+            h-[29px] w-9 ml-4 flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all rounded-md shadow-sm
             ${isOverflowing ? 'sticky right-0 z-10 bg-white dark:bg-[#1a1a20] shadow-[-6px_0_10px_rgba(15,23,42,0.08)] dark:shadow-[-6px_0_10px_rgba(0,0,0,0.25)]' : ''}
           `}
           aria-label="New tab"

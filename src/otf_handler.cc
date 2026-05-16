@@ -1588,10 +1588,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (!app) { callback->Failure(1, "App not ready"); return true; }
       int id = app->CreateTab("browser://newtab");
-      handler->SendEvent(JsonObjectBuilder()
-                             .AddString("key", "new-tab")
-                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_.get(), id))
-                             .Build());
+      handler->NotifyNewTab(id, -1);
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("new-tab:") == 0) {
@@ -1599,10 +1596,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (!app) { callback->Failure(1, "App not ready"); return true; }
       int id = app->CreateTab(url);
-      handler->SendEvent(JsonObjectBuilder()
-                             .AddString("key", "new-tab")
-                             .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_.get(), id))
-                             .Build());
+      handler->NotifyNewTab(id, -1);
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("close-tab:") == 0) {
@@ -1741,10 +1735,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (app) {
         app->HideDownloadsOverlay();
         int id = app->CreateTab("browser://downloads");
-        handler->SendEvent(JsonObjectBuilder()
-                      .AddString("key", "new-tab")
-                      .AddRaw("tab", BuildTabJson(handler->tab_manager_, handler->store_.get(), id))
-                      .Build());
+        handler->NotifyNewTab(id, handler->tab_manager_->GetId(browser));
         app->SwitchTab(id);
       }
       callback->Success("");
@@ -2035,6 +2026,15 @@ void OtfHandler::NotifyDownloadBadge() {
                 .Build());
 }
 
+
+void OtfHandler::NotifyNewTab(int new_tab_id, int parent_tab_id) {
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "new-tab")
+                .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_tab_id))
+                .AddInt("parentTabId", parent_tab_id)
+                .Build());
+}
+
 void OtfHandler::NotifyBookmarkStateForTab(int tab_id) {
   if (tab_id < 0 || !store_ || !tab_manager_) {
     return;
@@ -2133,6 +2133,12 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
   if (view) {
     const int tab_id = view->GetID();
     const std::string favicon_url = icon_urls[0].ToString();
+    const std::string page_url = tab_manager_ ? NormalizeBookmarkUrl(tab_manager_->GetUrl(tab_id))
+                                              : "";
+    if (store_ && !page_url.empty() && IsPersistableWebUrl(page_url) &&
+        store_->IsBookmarked(page_url)) {
+      store_->AddBookmark(page_url, tab_manager_->GetTitle(tab_id), favicon_url);
+    }
     if (tab_manager_) {
       tab_manager_->SetFaviconUrl(tab_id, favicon_url);
     }
@@ -2353,14 +2359,15 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
 
   const std::string popup_url =
       !target_url.empty() ? target_url.ToString() : "about:blank";
-  const int new_tab_id = app->CreateTab(popup_url);
-  SendEvent(JsonObjectBuilder()
-                .AddString("key", "new-tab")
-                .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_tab_id))
-                .Build());
+  const int parent_tab_id = tab_manager_->GetId(browser);
+  const int new_tab_id = app->CreateTab(popup_url, parent_tab_id);
+
+  NotifyNewTab(new_tab_id, parent_tab_id);
 
   if (target_disposition != CEF_WOD_NEW_BACKGROUND_TAB) {
     app->SwitchTab(new_tab_id);
+  } else {
+    app->FocusCurrentTabContent();
   }
   return true;
 }
@@ -2601,14 +2608,13 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     std::string url = params->GetLinkUrl().ToString();
     OtfApp* app = OtfApp::GetInstance();
     if (!app || !tab_manager_) return false;
-    int new_id = app->CreateTab(url);
+    int parent_id = tab_manager_->GetId(browser);
+    int new_id = app->CreateTab(url, parent_id);
     if (url.rfind("browser://", 0) == 0) {
       tab_manager_->SetSchemeUrl(new_id, url);
     }
-    SendEvent(JsonObjectBuilder()
-                  .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_id))
-                  .Build());
+    NotifyNewTab(new_id, parent_id);
+    app->FocusCurrentTabContent();
 
     return true;
   }
@@ -2631,11 +2637,9 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
       return false;
     }
 
-    int new_id = app->CreateTab(search_url);
-    SendEvent(JsonObjectBuilder()
-                  .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), new_id))
-                  .Build());
+    int parent_id = tab_manager_->GetId(browser);
+    int new_id = app->CreateTab(search_url, parent_id);
+    NotifyNewTab(new_id, parent_id);
     app->SwitchTab(new_id);
     return true;
   }
@@ -2931,19 +2935,13 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   }
   if (M(Mod::kCtrl, Key::kH)) {
     int id = app->CreateTab("browser://history");
-    SendEvent(JsonObjectBuilder()
-                  .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
-                  .Build());
+    NotifyNewTab(id, tab_manager_->GetId(browser));
     app->SwitchTab(id);
     return true;
   }
   if (M(Mod::kCtrl, Key::kJ)) {
     int id = app->CreateTab("browser://downloads");
-    SendEvent(JsonObjectBuilder()
-                  .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
-                  .Build());
+    NotifyNewTab(id, tab_manager_->GetId(browser));
     app->SwitchTab(id);
     return true;
   }
@@ -2951,10 +2949,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   // ── Tabs (C++ action + frontend notification) ─────────────
   if (M(Mod::kCtrl, Key::kT)) {
     int id = app->CreateTab("browser://newtab");
-    SendEvent(JsonObjectBuilder()
-                  .AddString("key", "new-tab")
-                  .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
-                  .Build());
+    NotifyNewTab(id, -1); // Ctrl+T always opens at the end
     app->SwitchTab(id);
     return true;
   }
@@ -2968,10 +2963,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kCtrl|Mod::kShift, Key::kT)) {
     if (!last_closed_url_.empty()) {
       int id = app->CreateTab(last_closed_url_);
-      SendEvent(JsonObjectBuilder()
-                    .AddString("key", "new-tab")
-                    .AddRaw("tab", BuildTabJson(tab_manager_, store_.get(), id))
-                    .Build());
+      NotifyNewTab(id, -1); // Re-opening closed tab goes to the end
       app->SwitchTab(id);
       last_closed_url_.clear();
     }

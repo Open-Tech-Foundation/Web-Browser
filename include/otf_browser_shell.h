@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <algorithm>
 #include "include/cef_browser.h"
 #include "include/views/cef_browser_view.h"
 
@@ -32,18 +33,25 @@ class TabManager {
  public:
   TabManager() : next_tab_id_(1) {}
 
-  int AddTab(CefRefPtr<CefBrowserView> view) {
+  int AddTab(CefRefPtr<CefBrowserView> view, int parent_id = -1) {
     int id = next_tab_id_++;
     view_map_[id] = view;
+    
+    if (parent_id != -1) {
+      auto it = std::find(tab_order_.begin(), tab_order_.end(), parent_id);
+      if (it != tab_order_.end()) {
+        tab_order_.insert(it + 1, id);
+      } else {
+        tab_order_.push_back(id);
+      }
+    } else {
+      tab_order_.push_back(id);
+    }
     return id;
   }
 
   std::vector<int> GetAllTabIds() const {
-    std::vector<int> ids;
-    for (auto const& [id, view] : view_map_) {
-      ids.push_back(id);
-    }
-    return ids;
+    return tab_order_;
   }
 
   void RemoveTab(int tab_id) {
@@ -55,6 +63,11 @@ class TabManager {
     find_text_map_.erase(tab_id);
     find_case_map_.erase(tab_id);
     history_suppressed_url_map_.erase(tab_id);
+    
+    auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
+    if (it != tab_order_.end()) {
+      tab_order_.erase(it);
+    }
   }
 
   void SetUrl(int tab_id, const std::string& url) {
@@ -101,6 +114,14 @@ class TabManager {
     auto it = browser_map_.find(tab_id);
     if (it != browser_map_.end()) return it->second;
     return nullptr;
+  }
+
+  int GetId(CefRefPtr<CefBrowser> browser) {
+    if (!browser) return -1;
+    for (auto const& [id, b] : browser_map_) {
+      if (b && b->IsSame(browser)) return id;
+    }
+    return -1;
   }
 
   // ── Find state per tab ──
@@ -235,6 +256,7 @@ class TabManager {
   std::map<int, bool> ssl_error_map_;
   std::map<int, std::string> ssl_error_url_map_;
   std::map<int, std::string> history_suppressed_url_map_;
+  std::vector<int> tab_order_;
   int next_tab_id_;
 };
 

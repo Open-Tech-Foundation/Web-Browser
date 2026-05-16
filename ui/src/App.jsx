@@ -36,11 +36,21 @@ const tabReducer = (state, action) => {
       };
     case 'SET_ACTIVE':
       return { ...state, activeTabId: action.payload };
-    case 'ADD_TAB':
+    case 'ADD_TAB': {
+      const { tab, parentTabId } = action.payload;
+      if (parentTabId !== undefined && parentTabId !== -1) {
+        const parentIndex = state.tabs.findIndex(t => t.id === parentTabId);
+        if (parentIndex !== -1) {
+          const newTabs = [...state.tabs];
+          newTabs.splice(parentIndex + 1, 0, tab);
+          return { ...state, tabs: newTabs };
+        }
+      }
       return { 
         ...state, 
-        tabs: [...state.tabs, action.payload]
+        tabs: [...state.tabs, tab]
       };
+    }
     case 'REMOVE_TAB':
       return { ...state, tabs: state.tabs.filter(t => t.id !== action.payload) };
     default:
@@ -117,7 +127,7 @@ const App = () => {
               const tabData = normalizeTab(event.tab || {});
               dispatch({
                 type: 'ADD_TAB',
-                payload: tabData
+                payload: { tab: tabData, parentTabId: event.parentTabId }
               });
               // Tab opened, focus will be handled by the page content (e.g. New Tab page)
             } else if (event.key === 'load-end') {

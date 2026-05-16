@@ -322,7 +322,7 @@ void OtfApp::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) {
   registrar->AddCustomScheme("browser", CEF_SCHEME_OPTION_STANDARD | CEF_SCHEME_OPTION_SECURE | CEF_SCHEME_OPTION_CORS_ENABLED);
 }
 
-int OtfApp::CreateTab(const std::string& url) {
+int OtfApp::CreateTab(const std::string& url, int parent_id) {
   CEF_REQUIRE_UI_THREAD();
   
   CefBrowserSettings browser_settings;
@@ -330,7 +330,7 @@ int OtfApp::CreateTab(const std::string& url) {
       OtfHandler::GetInstance(), url, browser_settings, nullptr, nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
   
-  int tab_id = tab_manager_.AddTab(content_view);
+  int tab_id = tab_manager_.AddTab(content_view, parent_id);
   content_view->SetID(tab_id);
   tab_manager_.SetUrl(tab_id, url);
 
