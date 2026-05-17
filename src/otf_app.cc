@@ -343,7 +343,30 @@ void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
   
   if (current_tab_id_ == tab_id) return;
+  
   OtfHandler* handler = OtfHandler::GetInstance();
+  if (handler) {
+    std::string tab_img_url = handler->GetImagePreviewUrlForTab(tab_id);
+    if (tab_img_url.empty()) {
+      HideImagePreviewOverlay();
+      if (handler->image_preview_subscription_) {
+        std::string event = JsonObjectBuilder()
+          .AddString("key", "load-image")
+          .AddString("url", "")
+          .Build();
+        handler->image_preview_subscription_->Success(event);
+      }
+    } else {
+      ShowImagePreviewOverlay();
+      if (handler->image_preview_subscription_) {
+        std::string event = JsonObjectBuilder()
+          .AddString("key", "load-image")
+          .AddString("url", tab_img_url)
+          .Build();
+        handler->image_preview_subscription_->Success(event);
+      }
+    }
+  }
 
   // Clear any active find on the old tab so highlights don't linger
   if (findbar_overlay_ && findbar_overlay_->IsVisible()) {

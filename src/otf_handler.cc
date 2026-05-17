@@ -1247,12 +1247,17 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "image-preview-subscribe") {
       handler->image_preview_subscription_ = callback;
-      if (!handler->image_preview_url_.empty()) {
-        std::string event = JsonObjectBuilder()
-          .AddString("key", "load-image")
-          .AddString("url", handler->image_preview_url_)
-          .Build();
-        callback->Success(event);
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        int tab_id = app->GetCurrentTabId();
+        std::string tab_url = handler->GetImagePreviewUrlForTab(tab_id);
+        if (!tab_url.empty()) {
+          std::string event = JsonObjectBuilder()
+            .AddString("key", "load-image")
+            .AddString("url", tab_url)
+            .Build();
+          callback->Success(event);
+        }
       }
       return true;
     }
@@ -1261,8 +1266,16 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         app->HideImagePreviewOverlay();
+        int tab_id = app->GetCurrentTabId();
+        handler->SetImagePreviewUrlForTab(tab_id, "");
       }
-      handler->image_preview_url_ = "";
+      callback->Success("");
+      return true;
+    }
+
+    if (msg.rfind("download-image:", 0) == 0) {
+      std::string download_url = msg.substr(15);
+      browser->GetHost()->StartDownload(download_url);
       callback->Success("");
       return true;
     }
@@ -2760,7 +2773,8 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     if (!source_url.empty()) {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
-        this->image_preview_url_ = source_url;
+        int tab_id = app->GetCurrentTabId();
+        this->SetImagePreviewUrlForTab(tab_id, source_url);
         app->ShowImagePreviewOverlay();
         if (this->image_preview_subscription_) {
           std::string event = JsonObjectBuilder()
@@ -3209,6 +3223,18 @@ bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
   }
   
   return false;
+}
+
+void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
+  tab_image_preview_urls_[tab_id] = url;
+}
+
+std::string OtfHandler::GetImagePreviewUrlForTab(int tab_id) const {
+  auto it = tab_image_preview_urls_.find(tab_id);
+  if (it != tab_image_preview_urls_.end()) {
+    return it->second;
+  }
+  return "";
 }
 
 } // namespace otf

@@ -170,7 +170,9 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> bookmark_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> image_preview_subscription_;
 
-  std::string image_preview_url_;
+  std::map<int, std::string> tab_image_preview_urls_;
+  void SetImagePreviewUrlForTab(int tab_id, const std::string& url);
+  std::string GetImagePreviewUrlForTab(int tab_id) const;
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation
