@@ -14,7 +14,11 @@ std::string GetDatabasePath() {
   std::filesystem::path base;
   const std::string home = GetHomeDir();
   if (!home.empty()) {
-    base = std::filesystem::path(home) / ".otf-browser";
+    // Match the dev/prod split used by GetSettingsFilePath. The OTF_DEV_MODE
+    // env var (set by main.cc when --dev-ui-url is present) makes both the
+    // settings file and the sqlite db land under ~/.otf-browser-dev/ during
+    // local development.
+    base = std::filesystem::path(home) / GetUserDataDirName();
   } else {
     base = std::filesystem::temp_directory_path() / "otf-browser";
   }

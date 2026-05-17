@@ -272,11 +272,20 @@ std::string GetHomeDir() {
   return "";
 }
 
+std::string GetUserDataDirName() {
+  const char* dev_mode = std::getenv("OTF_DEV_MODE");
+  if (dev_mode && dev_mode[0] != '\0' && dev_mode[0] != '0') {
+    return ".otf-browser-dev";
+  }
+  return ".otf-browser";
+}
+
 std::string GetSettingsFilePath() {
   std::string home = GetHomeDir();
   if (home.empty()) return "";
 
-  std::filesystem::path settings_dir = std::filesystem::path(home) / ".otf-browser";
+  std::filesystem::path settings_dir =
+      std::filesystem::path(home) / GetUserDataDirName();
   if (!std::filesystem::exists(settings_dir)) {
     std::filesystem::create_directories(settings_dir);
   }
