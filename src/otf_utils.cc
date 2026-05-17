@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -153,6 +154,40 @@ std::string JsonEscape(const std::string& s) {
 
 std::string JsonString(const std::string& s) {
   return "\"" + JsonEscape(s) + "\"";
+}
+
+std::string HtmlAttrEscape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (char c : s) {
+    switch (c) {
+      case '&': out += "&amp;"; break;
+      case '<': out += "&lt;"; break;
+      case '>': out += "&gt;"; break;
+      case '"': out += "&quot;"; break;
+      case '\'': out += "&#39;"; break;
+      default: out += c; break;
+    }
+  }
+  return out;
+}
+
+std::optional<int> ParseIntStrict(std::string_view s) {
+  if (s.empty()) return std::nullopt;
+  int value = 0;
+  const auto* end = s.data() + s.size();
+  auto [ptr, ec] = std::from_chars(s.data(), end, value);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
+}
+
+std::optional<uint32_t> ParseUint32Strict(std::string_view s) {
+  if (s.empty()) return std::nullopt;
+  uint32_t value = 0;
+  const auto* end = s.data() + s.size();
+  auto [ptr, ec] = std::from_chars(s.data(), end, value);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
 }
 
 JsonObjectBuilder& JsonObjectBuilder::AddString(const std::string& key,

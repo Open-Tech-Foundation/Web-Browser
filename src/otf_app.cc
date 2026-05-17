@@ -155,6 +155,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateDownloadsOverlay();
     app->CreateCertificateOverlay();
     app->CreateAppMenuOverlay();
+    app->CreateBookmarkOverlay();
 
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
@@ -176,6 +177,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionDownloadsOverlay();
       app->PositionCertificateOverlay();
       app->PositionAppMenuOverlay();
+      app->PositionBookmarkOverlay();
     }
   }
 
@@ -240,26 +242,7 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
   IMPLEMENT_REFCOUNTING(OtfViewDelegate);
 };
 
-// Escape a string for safe inclusion inside an HTML attribute value. The
-// browser:// dev-mode redirect interpolates a URL (which carries the original
-// query/fragment from the user-controlled request) into a meta-refresh
-// attribute — without escaping, `browser://newtab?'><script>…</script>` would
-// inject markup into a privileged frame.
-std::string HtmlAttrEscape(const std::string& s) {
-  std::string out;
-  out.reserve(s.size());
-  for (char c : s) {
-    switch (c) {
-      case '&': out += "&amp;"; break;
-      case '<': out += "&lt;"; break;
-      case '>': out += "&gt;"; break;
-      case '"': out += "&quot;"; break;
-      case '\'': out += "&#39;"; break;
-      default: out += c; break;
-    }
-  }
-  return out;
-}
+using ::otf::HtmlAttrEscape;
 
 class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
  public:
@@ -799,6 +782,63 @@ void OtfApp::HideAppMenuOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (appmenu_overlay_) {
     appmenu_overlay_->SetVisible(false);
+  }
+}
+
+void OtfApp::CreateBookmarkOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/bookmarkbar.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/bookmarkbar.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 200));
+  view->SetID(kBookmarkBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  bookmark_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionBookmarkOverlay();
+}
+
+void OtfApp::PositionBookmarkOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !bookmark_overlay_) return;
+
+  constexpr int kOverlayWidth = 340;
+  constexpr int kOverlayHeight = 200;
+  constexpr int kOverlayTop = 60;
+  constexpr int kOverlayRightMargin = 80;
+
+  CefRect bounds = window_->GetBounds();
+  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
+  bookmark_overlay_->SetBounds(
+      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+}
+
+void OtfApp::ShowBookmarkOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !bookmark_overlay_) return;
+
+  PositionBookmarkOverlay();
+  bookmark_overlay_->SetVisible(true);
+  if (handler->bookmark_subscription_) {
+    handler->bookmark_subscription_->Success(
+        JsonObjectBuilder().AddString("key", "bookmark-refresh").Build());
+  }
+  if (bookmark_overlay_->GetContentsView()) {
+    bookmark_overlay_->GetContentsView()->RequestFocus();
+  }
+}
+
+void OtfApp::HideBookmarkOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (bookmark_overlay_) {
+    bookmark_overlay_->SetVisible(false);
   }
 }
 

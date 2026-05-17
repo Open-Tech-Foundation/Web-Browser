@@ -104,26 +104,8 @@ constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,
 };
 
-// Strict integer parsers for cefQuery payload fields. Reject empty input,
-// leading/trailing junk, and out-of-range values — std::stoi/std::stoul throw
-// on those, which would crash the browser process on malformed messages.
-std::optional<int> ParseIntStrict(std::string_view s) {
-  if (s.empty()) return std::nullopt;
-  int value = 0;
-  const auto* end = s.data() + s.size();
-  auto [ptr, ec] = std::from_chars(s.data(), end, value);
-  if (ec != std::errc{} || ptr != end) return std::nullopt;
-  return value;
-}
-
-std::optional<uint32_t> ParseUint32Strict(std::string_view s) {
-  if (s.empty()) return std::nullopt;
-  uint32_t value = 0;
-  const auto* end = s.data() + s.size();
-  auto [ptr, ec] = std::from_chars(s.data(), end, value);
-  if (ec != std::errc{} || ptr != end) return std::nullopt;
-  return value;
-}
+using ::otf::ParseIntStrict;
+using ::otf::ParseUint32Strict;
 
 std::string TrimWhitespaceCopy(const std::string& value) {
   size_t start = 0;
@@ -1256,6 +1238,20 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "bookmark-subscribe") {
+      handler->bookmark_subscription_ = callback;
+      return true;
+    }
+
+    if (msg == "hide-bookmarkbar") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideBookmarkOverlay();
+      }
+      callback->Success("");
+      return true;
+    }
+
     if (msg == "get-tabs") {
       std::stringstream ss;
       ss << "[";
@@ -1534,17 +1530,17 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         const std::string url = NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
         if (IsPersistableWebUrl(url)) {
           bool bookmarked = false;
-          if (handler->store_->IsBookmarked(url)) {
-            handler->store_->RemoveBookmarkByUrl(url);
-            callback->Success("false");
-          } else {
+          if (!handler->store_->IsBookmarked(url)) {
             const std::string title = handler->tab_manager_->GetTitle(tab_id);
             const std::string favicon = handler->tab_manager_->GetFaviconUrl(tab_id);
             handler->store_->AddBookmark(url, title, favicon);
-            callback->Success("true");
+            bookmarked = true;
+            handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
+          } else {
             bookmarked = true;
           }
-          handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
+          app->ShowBookmarkOverlay();
+          callback->Success(bookmarked ? "true" : "false");
           return true;
         }
       }

@@ -1,15 +1,27 @@
 #ifndef OTF_BROWSER_UTILS_H_
 #define OTF_BROWSER_UTILS_H_
 
+#include <cstdint>
 #include <initializer_list>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace otf {
 
 std::string JsonEscape(const std::string& s);
 std::string JsonString(const std::string& s);
+
+// Escape a string for safe inclusion inside an HTML attribute value
+// (escapes & < > " ' as named entities).
+std::string HtmlAttrEscape(const std::string& s);
+
+// Strict integer parsers — reject empty input, leading/trailing junk, and
+// out-of-range values. Unlike std::stoi/std::stoul these never throw, which
+// matters when parsing untrusted strings from the cefQuery bridge.
+std::optional<int> ParseIntStrict(std::string_view s);
+std::optional<uint32_t> ParseUint32Strict(std::string_view s);
 
 class JsonObjectBuilder {
  public:
