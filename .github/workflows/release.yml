@@ -74,7 +74,7 @@ jobs:
       # download (and the CDN dependency at release time). The cache key
       # bumps automatically whenever CEF_VERSION changes.
       - name: Cache CEF SDK
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: third_party/cef
           key: cef-linux64-${{ hashFiles('CEF_VERSION', 'CEF_SHA256') }}
