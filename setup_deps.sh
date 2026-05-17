@@ -34,6 +34,24 @@ if ! curl -fLo "${CEF_ARCHIVE}" "${CEF_DOWNLOAD_URL}"; then
     exit 1
 fi
 
+# Verify the archive matches the SHA256 pinned in the repo before doing
+# anything with it. Without this, a compromised CDN (or TLS MITM) could
+# silently swap a backdoored CEF/Chromium into the release build.
+if [ ! -f CEF_SHA256 ]; then
+    echo "Error: CEF_SHA256 file is missing. Refusing to extract unverified CEF archive." >&2
+    rm -f "${CEF_ARCHIVE}"
+    exit 1
+fi
+EXPECTED_SHA256=$(tr -d '[:space:]' < CEF_SHA256)
+echo "Verifying CEF archive checksum..."
+if ! echo "${EXPECTED_SHA256}  ${CEF_ARCHIVE}" | sha256sum -c -; then
+    echo "Error: CEF archive checksum mismatch. Refusing to extract." >&2
+    echo "  Expected: ${EXPECTED_SHA256}" >&2
+    echo "  Actual:   $(sha256sum "${CEF_ARCHIVE}" | awk '{print $1}')" >&2
+    rm -f "${CEF_ARCHIVE}"
+    exit 1
+fi
+
 echo "Extracting CEF..."
 tar -xjf "${CEF_ARCHIVE}"
 
