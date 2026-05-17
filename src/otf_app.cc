@@ -319,7 +319,6 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   command_line->AppendSwitch("enable-unsafe-webgpu");
-  command_line->AppendSwitch("ignore-gpu-blocklist");
 
 #if defined(__linux__)
   AppendCommaSeparatedSwitchValue(command_line, "enable-features", "Vulkan");
