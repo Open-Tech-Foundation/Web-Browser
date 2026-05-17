@@ -207,6 +207,7 @@ const featureRows = [
   { feature: "Search engine selection", status: "Complete", notes: "User-selectable search engine support." },
   { feature: "Address-bar URL resolution", status: "Complete", notes: "DNS-backed URL/search resolver with clean query encoding." },
   { feature: "Selected-text search", status: "Complete", notes: "Context menu search uses the current search engine and selected text." },
+  { feature: "Native image preview", status: "Complete", notes: "Tab-unique interactive preview overlay with full zoom, rotation, panning, copying, and download integration." },
   { feature: "Bookmarks", status: "Complete", notes: "Bookmark storage, state, and UI integration." },
   { feature: "History", status: "Complete", notes: "History page and persistence controls follow privacy settings." },
   { feature: "Downloads", status: "Complete", notes: "Download tracking and downloads page." },
@@ -312,6 +313,11 @@ export default function HomePage() {
               title: "WebGPU Compute Protection",
               desc: "Prevents GPU resource abuse by automatically blocking non-graphical WebGPU compute workloads, stopping stealth crypto mining and hardware strain.",
               icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h10"/></svg>
+            },
+            {
+              title: "Native Image Preview",
+              desc: "Right-click any image to open it in a beautiful interactive overlay. Zoom, drag, rotate, copy, or natively download with complete tab-unique preservation.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
             }
           ].map((feature) => (
             <div key={feature.title} className="p-8 rounded-[32px] border transition-all duration-500 hover:border-orange-500/30 hover:-translate-y-2 group" style="background-color: var(--bg-card); border-color: var(--border);">
