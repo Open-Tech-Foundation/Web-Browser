@@ -1144,6 +1144,25 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                const CefString& request,
                bool persistent,
                CefRefPtr<Callback> callback) override {
+    // The cefQuery bridge exposes privileged operations (settings I/O, tab
+    // navigation, downloads, restart, etc.). Only the internal UI surface
+    // (browser://, file://.../ui/*.html, or the dev-ui server) is trusted to
+    // call it — any other frame is denied outright. Web content should never
+    // see this API even though CEF injects the JS function globally.
+    const std::string frame_url = frame ? frame->GetURL().ToString() : "";
+    if (!IsInternalBrowserUiUrl(frame_url)) {
+      callback->Failure(1, "denied");
+      return true;
+    }
+
+    // Defense-in-depth cap: even trusted frames shouldn't push multi-megabyte
+    // payloads through the synchronous bridge.
+    constexpr size_t kMaxRequestBytes = 64 * 1024;
+    if (request.size() > kMaxRequestBytes) {
+      callback->Failure(1, "request too large");
+      return true;
+    }
+
     std::string msg = request.ToString();
     OtfHandler* handler = OtfHandler::GetInstance();
     if (!handler || !handler->tab_manager_) return false;
