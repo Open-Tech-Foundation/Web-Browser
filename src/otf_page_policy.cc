@@ -379,6 +379,9 @@ std::string BuildPagePolicyScript() {
       const text = String(element.textContent || '');
       if (!text.trim()) return false;
       const fontSize = Number.parseFloat(style.fontSize || '0') || 0;
+      // Body-text-sized elements are almost never probes; skip them so we
+      // don't normalize getBoundingClientRect on normal page content.
+      if (fontSize < 16) return false;
       const left = Math.abs(Number.parseFloat(style.left || '0') || 0);
       const top = Math.abs(Number.parseFloat(style.top || '0') || 0);
       const offscreen = left >= 5000 || top >= 5000;
@@ -386,10 +389,23 @@ std::string BuildPagePolicyScript() {
           Number.parseFloat(style.opacity || '1') === 0;
       const positioned = style.position === 'absolute' || style.position === 'fixed';
       const nowrap = style.whiteSpace === 'nowrap';
-      const largeTextProbe = fontSize >= 48 && text.length >= 16;
-      return (positioned && offscreen) || (hidden && positioned) ||
-          (nowrap && fontSize >= 32 && text.length >= 8) ||
-          largeTextProbe;
+      const inlineBlock = style.display === 'inline-block';
+      // Strong signals: classic off-screen / hidden positioned probe.
+      if ((positioned && offscreen) || (hidden && positioned)) return true;
+      // Large rendered text — common 48–72px font-presence probe.
+      // (Loosened: was length ≥ 16.)
+      if (fontSize >= 48 && text.length >= 8) return true;
+      // nowrap measurement at ≥24px with short text — typical inline / span
+      // pattern used by fingerprintjs and similar libraries.
+      // (Loosened: was size ≥ 32, length ≥ 8.)
+      if (nowrap && fontSize >= 24 && text.length >= 4) return true;
+      // inline-block + nowrap with a candidate font outside our allowlist —
+      // strong indicator of a font-availability probe.
+      if (inlineBlock && nowrap &&
+          !fontUsesAllowedFamily(style.fontFamily || style.font || '')) {
+        return true;
+      }
+      return false;
     } catch (_) {
       return false;
     }
