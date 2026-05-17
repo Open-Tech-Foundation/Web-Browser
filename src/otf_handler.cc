@@ -1149,6 +1149,43 @@ std::string BuildCurrentCertificateJson(CefRefPtr<CefBrowser> browser,
       .Build();
 }
 
+class OtfSizeRequestClient : public CefURLRequestClient {
+ public:
+  OtfSizeRequestClient(CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback)
+      : callback_(callback) {}
+
+  void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+    if (request->GetRequestStatus() == UR_SUCCESS) {
+      CefRefPtr<CefResponse> response = request->GetResponse();
+      if (response) {
+        std::string len_str = response->GetHeaderByName("Content-Length").ToString();
+        if (!len_str.empty()) {
+          callback_->Success(len_str);
+          return;
+        }
+      }
+    }
+    callback_->Failure(0, "Could not fetch size");
+  }
+
+  void OnUploadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+  void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+  void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t data_length) override {}
+  bool GetAuthCredentials(bool isProxy,
+                          const CefString& host,
+                          int port,
+                          const CefString& realm,
+                          const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override {
+    return false;
+  }
+
+ private:
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback_;
+
+  IMPLEMENT_REFCOUNTING(OtfSizeRequestClient);
+};
+
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
  public:
@@ -1277,6 +1314,36 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       std::string download_url = msg.substr(15);
       browser->GetHost()->StartDownload(download_url);
       callback->Success("");
+      return true;
+    }
+
+    if (msg.rfind("get-image-size:", 0) == 0) {
+      std::string img_url = msg.substr(15);
+      if (img_url.rfind("file://", 0) == 0) {
+        std::string file_path = img_url.substr(7);
+#if defined(_WIN32)
+        if (file_path.length() > 2 && file_path[0] == '/' && file_path[2] == ':') {
+          file_path = file_path.substr(1);
+        }
+#endif
+        std::ifstream file(file_path, std::ios::binary | std::ios::ate);
+        if (file.is_open()) {
+          std::streamsize size = file.tellg();
+          callback->Success(std::to_string(size));
+        } else {
+          callback->Failure(0, "Could not open local file");
+        }
+        return true;
+      }
+      if (img_url.rfind("http://", 0) == 0 || img_url.rfind("https://", 0) == 0) {
+        CefRefPtr<CefRequest> request = CefRequest::Create();
+        request->SetURL(img_url);
+        request->SetMethod("HEAD");
+        CefRefPtr<OtfSizeRequestClient> client = new OtfSizeRequestClient(callback);
+        CefURLRequest::Create(request, client, nullptr);
+        return true;
+      }
+      callback->Failure(0, "Unsupported scheme");
       return true;
     }
 
@@ -2722,7 +2789,35 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
     }
   }
 
-  if (params->HasImageContents() && !params->GetSourceUrl().empty()) {
+  bool is_image_link = false;
+  if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    std::string lower_link = link_url;
+    std::transform(lower_link.begin(), lower_link.end(), lower_link.begin(), ::tolower);
+    
+    size_t query_pos = lower_link.find('?');
+    if (query_pos != std::string::npos) {
+      lower_link = lower_link.substr(0, query_pos);
+    }
+    size_t hash_pos = lower_link.find('#');
+    if (hash_pos != std::string::npos) {
+      lower_link = lower_link.substr(0, hash_pos);
+    }
+    
+    const std::string extensions[] = {
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".ico", ".avif",
+        ".jfif", ".pjpeg", ".pjp", ".apng", ".tiff", ".tif", ".heic", ".heif"
+    };
+    for (const auto& ext : extensions) {
+      if (lower_link.length() >= ext.length() &&
+          lower_link.compare(lower_link.length() - ext.length(), ext.length(), ext) == 0) {
+        is_image_link = true;
+        break;
+      }
+    }
+  }
+
+  if ((params->HasImageContents() && !params->GetSourceUrl().empty()) || is_image_link) {
     model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_IMAGE, "Preview Image");
   }
 }
@@ -2769,17 +2864,20 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
   }
 
   if (command_id == MENU_ID_PREVIEW_IMAGE) {
-    std::string source_url = params->GetSourceUrl().ToString();
-    if (!source_url.empty()) {
+    std::string image_url = params->GetSourceUrl().ToString();
+    if (image_url.empty()) {
+      image_url = params->GetLinkUrl().ToString();
+    }
+    if (!image_url.empty()) {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         int tab_id = app->GetCurrentTabId();
-        this->SetImagePreviewUrlForTab(tab_id, source_url);
+        this->SetImagePreviewUrlForTab(tab_id, image_url);
         app->ShowImagePreviewOverlay();
         if (this->image_preview_subscription_) {
           std::string event = JsonObjectBuilder()
             .AddString("key", "load-image")
-            .AddString("url", source_url)
+            .AddString("url", image_url)
             .Build();
           this->image_preview_subscription_->Success(event);
         }

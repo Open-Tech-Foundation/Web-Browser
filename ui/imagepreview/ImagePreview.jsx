@@ -10,6 +10,7 @@ const ImagePreview = () => {
   const [naturalHeight, setNaturalHeight] = useState(0);
   const [showInfo, setShowInfo] = useState(true);
   const [toast, setToast] = useState('');
+  const [fileSize, setFileSize] = useState('');
 
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef(null);
@@ -48,6 +49,79 @@ const ImagePreview = () => {
       if (sub && typeof sub.cancel === 'function') sub.cancel();
     };
   }, []);
+
+  useEffect(() => {
+    if (!url) {
+      setFileSize('');
+      return;
+    }
+
+    if (url.startsWith('data:')) {
+      const base64Str = url.split(',')[1] || '';
+      const bytes = Math.floor((base64Str.length * 3) / 4) - (base64Str.endsWith('==') ? 2 : base64Str.endsWith('=') ? 1 : 0);
+      if (bytes < 1024) setFileSize(`${bytes} B`);
+      else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
+      else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+      return;
+    }
+
+    setFileSize('Loading...');
+
+    const fallbackJsFetch = (targetUrl) => {
+      fetch(targetUrl, { method: 'HEAD' })
+        .then(res => {
+          const len = res.headers.get('content-length');
+          if (len) {
+            const bytes = parseInt(len, 10);
+            if (bytes < 1024) setFileSize(`${bytes} B`);
+            else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
+            else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+          } else {
+            fetch(targetUrl)
+              .then(r => r.blob())
+              .then(blob => {
+                const bytes = blob.size;
+                if (bytes < 1024) setFileSize(`${bytes} B`);
+                else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
+                else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+              })
+              .catch(() => setFileSize('Unknown'));
+          }
+        })
+        .catch(() => {
+          fetch(targetUrl)
+            .then(r => r.blob())
+            .then(blob => {
+              const bytes = blob.size;
+              if (bytes < 1024) setFileSize(`${bytes} B`);
+              else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
+              else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+            })
+            .catch(() => setFileSize('Unknown'));
+        });
+    };
+
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: `get-image-size:${url}`,
+        onSuccess: (sizeStr) => {
+          const bytes = parseInt(sizeStr, 10);
+          if (isNaN(bytes) || bytes <= 0) {
+            fallbackJsFetch(url);
+          } else {
+            if (bytes < 1024) setFileSize(`${bytes} B`);
+            else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
+            else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+          }
+        },
+        onFailure: () => {
+          fallbackJsFetch(url);
+        }
+      });
+    } else {
+      fallbackJsFetch(url);
+    }
+  }, [url]);
 
   const handleClose = () => {
     setUrl('');
@@ -268,6 +342,7 @@ const ImagePreview = () => {
           </div>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.5', wordBreak: 'break-all' }}>
             <strong>Resolution:</strong> {naturalWidth} × {naturalHeight} px<br />
+            <strong>Size:</strong> {fileSize}<br />
             <strong>Format:</strong> {url.split('.').pop().split('?')[0].toUpperCase()}<br />
             <strong>Source:</strong> {url.length > 45 ? url.substring(0, 45) + '...' : url}
           </div>
