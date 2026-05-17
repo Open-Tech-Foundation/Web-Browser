@@ -235,12 +235,20 @@ jobs:
           tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
           chmod +x /tmp/nfpm
 
-          # nfpm.yaml reads STAGE_DIR/VERSION from env.
-          export VERSION
-          export STAGE_DIR="${PACKAGE_NAME}"
+          # nfpm does NOT expand ${VAR} in contents[].src — it only does env
+          # substitution on a small subset of fields. Pre-process the yaml
+          # ourselves with sed so the staging path and version are inlined
+          # before nfpm sees the file. Verified locally against nfpm v2.46.3:
+          # the unsubstituted yaml fails with "lstat ${STAGE_DIR}/: no such
+          # file or directory", the substituted yaml produces both packages.
+          STAGE_DIR="${PACKAGE_NAME}"
+          sed \
+            -e "s|\${STAGE_DIR}|${STAGE_DIR}|g" \
+            -e "s|\${VERSION}|${VERSION}|g" \
+            packaging/nfpm.yaml > /tmp/nfpm.yaml
 
-          /tmp/nfpm package --packager deb --config packaging/nfpm.yaml --target "otf-browser_${VERSION}_amd64.deb"
-          /tmp/nfpm package --packager rpm --config packaging/nfpm.yaml --target "otf-browser-${VERSION}-1.x86_64.rpm"
+          /tmp/nfpm package --packager deb --config /tmp/nfpm.yaml --target "otf-browser_${VERSION}_amd64.deb"
+          /tmp/nfpm package --packager rpm --config /tmp/nfpm.yaml --target "otf-browser-${VERSION}-1.x86_64.rpm"
 
           sha256sum "otf-browser_${VERSION}_amd64.deb" > "otf-browser_${VERSION}_amd64.deb.sha256"
           sha256sum "otf-browser-${VERSION}-1.x86_64.rpm" > "otf-browser-${VERSION}-1.x86_64.rpm.sha256"
