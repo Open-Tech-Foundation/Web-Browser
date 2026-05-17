@@ -35,10 +35,22 @@ contents:
     dst: /usr/bin/otf-browser
     type: symlink
 
-  # Desktop entry + icon for application menus.
+  # Desktop entry for application menus.
   - src: packaging/otf-browser.desktop
     dst: /usr/share/applications/otf-browser.desktop
-  - src: packaging/otf-browser.png
+  # Icons at all sizes so the WM/desktop integration picks the best fit
+  # for each context (panel, taskbar, alt-tab, app menu).
+  - src: ui/assets/icons/otf-browser-16.png
+    dst: /usr/share/icons/hicolor/16x16/apps/otf-browser.png
+  - src: ui/assets/icons/otf-browser-32.png
+    dst: /usr/share/icons/hicolor/32x32/apps/otf-browser.png
+  - src: ui/assets/icons/otf-browser-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/otf-browser.png
+  - src: ui/assets/icons/otf-browser-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/otf-browser.png
+  - src: ui/assets/icons/otf-browser-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/otf-browser.png
+  - src: ui/assets/icons/otf-browser-256.png
     dst: /usr/share/icons/hicolor/256x256/apps/otf-browser.png
 
 scripts:

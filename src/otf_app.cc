@@ -6,6 +6,7 @@
 #include <libgen.h>
 
 #include "include/cef_browser.h"
+#include "include/cef_image.h"
 #include "include/internal/cef_types.h"
 #include "include/views/cef_box_layout.h"
 #include "include/views/cef_browser_view.h"
@@ -20,6 +21,9 @@
 #include "otf_handler.h"
 #include "otf_page_policy.h"
 #include "otf_utils.h"
+
+#include <cstdio>
+#include <filesystem>
 
 namespace otf {
 
@@ -97,6 +101,45 @@ bool IsInheritedFrameUrl(const std::string& url) {
          StartsWith(url, "data:") || StartsWith(url, "blob:");
 }
 
+// Lazily load the OTF window icon from the PNG files shipped alongside the
+// binary at ui/assets/icons/otf-browser-{N}.png. Cached after the first call
+// so subsequent windows reuse the same CefImage. Multiple scale factors are
+// registered so the WM/Views can pick an appropriate size for the display
+// DPR without an extra resize step.
+CefRefPtr<CefImage> LoadOtfWindowIcon() {
+  static CefRefPtr<CefImage> icon = []() -> CefRefPtr<CefImage> {
+    CefRefPtr<CefImage> image = CefImage::CreateImage();
+    if (!image) {
+      return nullptr;
+    }
+    const std::string base =
+        otf::GetExecutableDir() + "/ui/assets/icons/otf-browser-";
+    struct Variant { float scale; int size; };
+    // 1x, 2x, 4x — enough to cover standard and hidpi displays. The window
+    // manager picks the closest match.
+    const Variant kVariants[] = {{1.0f, 64}, {2.0f, 128}, {4.0f, 256}};
+    bool any_loaded = false;
+    for (const auto& v : kVariants) {
+      const std::string path = base + std::to_string(v.size) + ".png";
+      FILE* f = std::fopen(path.c_str(), "rb");
+      if (!f) continue;
+      std::fseek(f, 0, SEEK_END);
+      const long len = std::ftell(f);
+      std::fseek(f, 0, SEEK_SET);
+      if (len <= 0) { std::fclose(f); continue; }
+      std::vector<char> buf(static_cast<size_t>(len));
+      const size_t got = std::fread(buf.data(), 1, buf.size(), f);
+      std::fclose(f);
+      if (got != buf.size()) continue;
+      if (image->AddPNG(v.scale, buf.data(), buf.size())) {
+        any_loaded = true;
+      }
+    }
+    return any_loaded ? image : nullptr;
+  }();
+  return icon;
+}
+
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
   CefRefPtr<CefFrame> current = frame;
   while (current) {
@@ -128,6 +171,14 @@ class OtfWindowDelegate : public CefWindowDelegate {
         initial_show_state_(initial_show_state) {}
 
   void OnWindowCreated(CefRefPtr<CefWindow> window) override {
+    // Replace the default Chromium-derived icons with the OTF logo. Done
+    // before any layout so the window is born with the right branding in
+    // its title bar and taskbar entry.
+    if (auto icon = LoadOtfWindowIcon()) {
+      window->SetWindowIcon(icon);
+      window->SetWindowAppIcon(icon);
+    }
+
     CefBoxLayoutSettings layout_settings;
     layout_settings.horizontal = false;
     layout_settings.between_child_spacing = 0;

@@ -57,7 +57,6 @@ jobs:
             libxss1 \
             libxtst6 \
             libgtk-3-dev \
-            librsvg2-bin \
             libfuse2t64
           # linuxdeploy ships as a "continuous" AppImage with no tagged
           # release. Pin the binary's SHA256 so an upstream swap fails loudly.
@@ -153,20 +152,22 @@ jobs:
           rm -rf "${APPDIR}"
           mkdir -p "${APPDIR}/usr/bin" \
                    "${APPDIR}/usr/lib/otf-browser" \
-                   "${APPDIR}/usr/share/applications" \
-                   "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+                   "${APPDIR}/usr/share/applications"
+          # Install icons at all sizes so the WM can pick the best fit for
+          # each context (taskbar, alt-tab, app menu, etc.).
+          for size in 16 32 48 64 128 256; do
+            mkdir -p "${APPDIR}/usr/share/icons/hicolor/${size}x${size}/apps"
+            cp "ui/assets/icons/otf-browser-${size}.png" \
+              "${APPDIR}/usr/share/icons/hicolor/${size}x${size}/apps/otf-browser.png"
+          done
 
           # Drop the entire built tree under usr/lib/otf-browser. CEF needs
           # libcef.so and the locales/, *.pak resources beside the binary, so
           # we keep them grouped and use AppRun to cd in.
           cp -r ${PACKAGE_NAME}/* "${APPDIR}/usr/lib/otf-browser/"
 
-          # Render the canonical SVG logo to 256x256 PNG. linuxdeploy needs
-          # both the icon at AppDir root and the standard hicolor path.
-          rsvg-convert -w 256 -h 256 website/public/logo.svg \
-            -o "${APPDIR}/otf-browser.png"
-          cp "${APPDIR}/otf-browser.png" \
-            "${APPDIR}/usr/share/icons/hicolor/256x256/apps/otf-browser.png"
+          # linuxdeploy expects the primary icon at AppDir root too.
+          cp ui/assets/icons/otf-browser-256.png "${APPDIR}/otf-browser.png"
 
           # Desktop entry + AppRun launcher come from packaging/.
           cp packaging/otf-browser.desktop "${APPDIR}/otf-browser.desktop"
@@ -204,11 +205,6 @@ jobs:
           echo "${NFPM_SHA256}  /tmp/nfpm.tar.gz" | sha256sum -c -
           tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
           chmod +x /tmp/nfpm
-
-          # The 256x256 PNG icon was already rendered for the AppImage step,
-          # so reuse it from the AppDir layout for nfpm.
-          cp "otf-browser.AppDir/usr/share/icons/hicolor/256x256/apps/otf-browser.png" \
-            packaging/otf-browser.png
 
           # nfpm.yaml reads STAGE_DIR/VERSION from env.
           export VERSION
