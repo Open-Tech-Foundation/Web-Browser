@@ -89,7 +89,7 @@ bool IsDevUiUrl(const std::string& url) {
   const std::string dev_ui_url =
       TrimTrailingSlash(command_line->GetSwitchValue("dev-ui-url").ToString());
   return url == dev_ui_url || url == dev_ui_url + "/" ||
-         (StartsWith(url, dev_ui_url + "/") && otf::IsInternalBrowserUiUrl(url));
+         (StartsWith(url, dev_ui_url + "/") && otf::IsInternalUiPagePath(url));
 }
 
 bool IsInheritedFrameUrl(const std::string& url) {

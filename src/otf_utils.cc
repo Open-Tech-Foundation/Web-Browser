@@ -665,24 +665,47 @@ bool IsAllowedStartupUrl(const std::string& url) {
   return !CefString(&parts.host).ToString().empty();
 }
 
+namespace {
+const char* const kInternalUiPages[] = {
+    "/index.html",        "/appmenu.html",    "/newtab.html",
+    "/settings.html",     "/findbar.html",    "/downloads.html",
+    "/downloadsbar.html", "/zoombar.html",    "/history.html",
+    "/bookmarks.html",    "/security.html",   "/fingerprints.html",
+    "/insecure_blocked.html", "/pdfviewer.html"};
+}  // namespace
+
+bool IsInternalUiPagePath(const std::string& url) {
+  // Strip query/fragment so we suffix-match the path only. Without this,
+  // `…/newtab.html?x=1` would fail the suffix check.
+  std::string base = url;
+  const size_t q = base.find_first_of("?#");
+  if (q != std::string::npos) {
+    base = base.substr(0, q);
+  }
+  for (const char* suffix : kInternalUiPages) {
+    const size_t slen = std::strlen(suffix);
+    if (base.size() >= slen &&
+        base.compare(base.size() - slen, slen, suffix) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool IsInternalBrowserUiUrl(const std::string& url) {
   if (url.rfind("browser://", 0) == 0) {
     return true;
   }
-
-  const char* kInternalUiPages[] = {
-      "/index.html",        "/appmenu.html",    "/newtab.html",
-      "/settings.html",     "/findbar.html",    "/downloads.html",
-      "/downloadsbar.html", "/zoombar.html",    "/history.html",
-      "/bookmarks.html",    "/security.html",   "/fingerprints.html",
-      "/insecure_blocked.html", "/pdfviewer.html"};
-  for (const char* suffix : kInternalUiPages) {
-    if (url.find(suffix) != std::string::npos) {
-      return true;
-    }
+  // Only file:// is trusted by this check. Web origins (http/https) match
+  // separately via the dev-ui-url gate at the call site — never here. The
+  // previous implementation did a substring search for "/newtab.html" with
+  // no scheme restriction, which let an attacker page at
+  // http://evil.com/newtab.html (or even http://evil.com/?x=/newtab.html)
+  // be classified as a trusted internal UI URL.
+  if (url.rfind("file://", 0) != 0) {
+    return false;
   }
-
-  return false;
+  return IsInternalUiPagePath(url);
 }
 
 std::string NormalizeBookmarkUrl(const std::string& url) {

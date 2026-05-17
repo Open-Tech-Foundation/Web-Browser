@@ -60,7 +60,17 @@ std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
 bool IsPersistableWebUrl(const std::string& url);
 bool IsAllowedHttpUrl(const std::string& url);
 bool IsAllowedStartupUrl(const std::string& url);
+// True when the URL is one of the bundled UI pages (security-critical):
+// requires browser:// scheme, OR file:// scheme whose path ends with one of
+// the allowlisted *.html files. Web origins (http/https) are NEVER trusted
+// by this check — dev-mode callers must validate dev-ui-url separately.
 bool IsInternalBrowserUiUrl(const std::string& url);
+
+// Path-suffix match against the same allowlist, ignoring scheme. Use this
+// from callers that have already validated the URL's origin (e.g. checked
+// the dev-ui-url prefix) and just need to know whether the path points at
+// a bundled UI page.
+bool IsInternalUiPagePath(const std::string& url);
 std::string NormalizeBookmarkUrl(const std::string& url);
 
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id);
