@@ -17,13 +17,19 @@
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
 #include "include/cef_urlrequest.h"
+#include "include/wrapper/cef_byte_read_handler.h"
 #include "include/wrapper/cef_stream_resource_handler.h"
 #include "otf_handler.h"
 #include "otf_page_policy.h"
 #include "otf_utils.h"
 
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string_view>
+#include <utility>
 
 namespace otf {
 
@@ -297,45 +303,176 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
 
 using ::otf::HtmlAttrEscape;
 
+// Owns a byte buffer and keeps it alive via CEF refcounting so a
+// CefByteReadHandler can safely read from it after the factory returns.
+// CefByteReadHandler takes a raw pointer + size and a "source" ref-counted
+// holder; the holder's destruction is what frees the bytes.
+class CefBytesHolder : public CefBaseRefCounted {
+ public:
+  explicit CefBytesHolder(std::vector<unsigned char> bytes)
+      : bytes_(std::move(bytes)) {}
+  const unsigned char* data() const { return bytes_.data(); }
+  size_t size() const { return bytes_.size(); }
+
+ private:
+  std::vector<unsigned char> bytes_;
+  IMPLEMENT_REFCOUNTING(CefBytesHolder);
+};
+
+std::string GuessMimeType(const std::string& path) {
+  auto ends_with = [&](std::string_view suffix) {
+    return path.size() >= suffix.size() &&
+           path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
+  };
+  if (ends_with(".html") || ends_with(".htm")) return "text/html";
+  if (ends_with(".js") || ends_with(".mjs")) return "application/javascript";
+  if (ends_with(".css")) return "text/css";
+  if (ends_with(".json") || ends_with(".map")) return "application/json";
+  if (ends_with(".svg")) return "image/svg+xml";
+  if (ends_with(".png")) return "image/png";
+  if (ends_with(".ico")) return "image/x-icon";
+  if (ends_with(".gif")) return "image/gif";
+  if (ends_with(".jpg") || ends_with(".jpeg")) return "image/jpeg";
+  if (ends_with(".webp")) return "image/webp";
+  if (ends_with(".woff2")) return "font/woff2";
+  if (ends_with(".woff")) return "font/woff";
+  if (ends_with(".ttf")) return "font/ttf";
+  if (ends_with(".otf")) return "font/otf";
+  if (ends_with(".txt")) return "text/plain";
+  return "application/octet-stream";
+}
+
+// Validate a relative path (no leading slash) before resolving it inside
+// ui/. Rejects "..", embedded NULs, backslashes, and anything weird so a
+// request like browser://x/../../etc/passwd can't escape.
+bool IsSafeUiRelativePath(const std::string& path) {
+  if (path.empty()) return false;
+  for (char c : path) {
+    if (c == '\\' || c == '\0') return false;
+  }
+  size_t pos = 0;
+  while (pos <= path.size()) {
+    size_t next = path.find('/', pos);
+    if (next == std::string::npos) next = path.size();
+    if (path.compare(pos, next - pos, "..") == 0) return false;
+    if (next == path.size()) break;
+    pos = next + 1;
+  }
+  return true;
+}
+
+CefRefPtr<CefResourceHandler> MakeBytesResponse(
+    const std::string& mime, std::vector<unsigned char> bytes) {
+  CefRefPtr<CefBytesHolder> holder = new CefBytesHolder(std::move(bytes));
+  CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForHandler(
+      new CefByteReadHandler(holder->data(), holder->size(), holder));
+  return new CefStreamResourceHandler(mime, stream);
+}
+
+CefRefPtr<CefResourceHandler> MakeStringResponse(const std::string& mime,
+                                                 const std::string& body) {
+  return MakeBytesResponse(mime, {body.begin(), body.end()});
+}
+
+CefRefPtr<CefResourceHandler> MakeNotFound() {
+  return MakeStringResponse(
+      "text/html",
+      "<!DOCTYPE html><html><body><h1>404</h1><p>Not found.</p></body></html>");
+}
+
+CefRefPtr<CefResourceHandler> MakeFileResponse(const std::string& disk_path) {
+  std::error_code ec;
+  if (!std::filesystem::is_regular_file(disk_path, ec)) {
+    return MakeNotFound();
+  }
+  std::ifstream f(disk_path, std::ios::binary);
+  if (!f) return MakeNotFound();
+  std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+  return MakeBytesResponse(GuessMimeType(disk_path), std::move(bytes));
+}
+
+// browser:// scheme handler.
+//
+// Production mode (no --dev-ui-url):
+//   browser://<page>             → ui/<page>.html
+//     (special: browser://shell  → ui/index.html — the toolbar shell)
+//   browser://<page>/<sub-path>  → ui/<sub-path>
+//     (e.g. browser://newtab/assets/main-XYZ.js → ui/assets/main-XYZ.js)
+//
+//   This replaces the previous file:// loading approach. file:// pages are
+//   each their own opaque origin, which means Chromium refuses to fetch
+//   ES module scripts across them — the bundled <script type="module">
+//   silently failed and the UI rendered empty. The browser:// scheme is
+//   registered as STANDARD | SECURE | CORS_ENABLED so modules, fetch, and
+//   storage all behave like an http(s) origin, and we don't need to set
+//   --allow-file-access-from-files to compensate.
+//
+// Dev mode (--dev-ui-url set):
+//   The same URLs meta-refresh to the vite dev server, which serves the
+//   pre-bundle React source via HMR.
 class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
  public:
   CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser> browser,
                                        CefRefPtr<CefFrame> frame,
                                        const CefString& scheme_name,
                                        CefRefPtr<CefRequest> request) override {
-    std::string url = request->GetURL().ToString();
-    std::string dev_ui_url = CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
-    std::string html_content;
+    const std::string url = request->GetURL().ToString();
 
-    std::string full_url = GetBrowserPageDevUrl(dev_ui_url, url);
-    if (!full_url.empty()) {
-      html_content =
-          "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0;url=" +
-          HtmlAttrEscape(full_url) + "'></head><body>Redirecting...</body></html>";
-    } else {
-      std::string file_path = GetBrowserPageFilePath(url);
-      FILE* f = fopen(file_path.c_str(), "rb");
-      if (f) {
-        fseek(f, 0, SEEK_END);
-        long len = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        std::vector<char> buffer(len);
-        if (fread(buffer.data(), 1, len, f) == static_cast<size_t>(len)) {
-          html_content = std::string(buffer.data(), len);
-        }
-        fclose(f);
-      }
-      if (html_content.empty()) {
-        html_content =
-            "<!DOCTYPE html><html><body><h1>404</h1><p>Page not found.</p></body></html>";
+    CefURLParts parts;
+    if (!CefParseURL(url, parts)) {
+      return MakeNotFound();
+    }
+    const std::string authority = CefString(&parts.host).ToString();
+    std::string path = CefString(&parts.path).ToString();
+    if (!path.empty() && path[0] == '/') path = path.substr(1);
+    const std::string query = CefString(&parts.query).ToString();
+
+    // Authority is the page name. Restrict to a safe character set so a
+    // request like browser://../etc/foo can't slip through path resolution.
+    if (authority.empty()) return MakeNotFound();
+    for (char c : authority) {
+      if (!(std::isalnum(static_cast<unsigned char>(c)) ||
+            c == '-' || c == '_')) {
+        return MakeNotFound();
       }
     }
 
-    CefRefPtr<CefStreamResourceHandler> handler(
-        new CefStreamResourceHandler("text/html",
-            CefStreamReader::CreateForData(const_cast<char*>(html_content.data()),
-                                           html_content.length())));
-    return handler;
+    CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+    const std::string dev_ui_url =
+        (cmd && cmd->HasSwitch("dev-ui-url"))
+            ? cmd->GetSwitchValue("dev-ui-url").ToString()
+            : std::string();
+
+    if (!dev_ui_url.empty()) {
+      // Dev mode: hand off to the vite dev server. After the redirect the
+      // document URL becomes http://localhost:3000/<page>.html, and all
+      // sub-resource loads go through HTTP — they never come back here.
+      std::string target;
+      if (path.empty()) {
+        target = dev_ui_url + "/" + authority + ".html";
+      } else {
+        target = dev_ui_url + "/" + path;
+      }
+      if (!query.empty()) target += "?" + query;
+      const std::string body =
+          "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0;url=" +
+          HtmlAttrEscape(target) +
+          "'></head><body>Redirecting...</body></html>";
+      return MakeStringResponse("text/html", body);
+    }
+
+    // Production: serve from ui/. "shell" is the toolbar (ui/index.html).
+    const std::string ui_dir = otf::GetExecutableDir() + "/ui";
+    std::string disk_path;
+    if (path.empty()) {
+      const std::string page = (authority == "shell") ? "index" : authority;
+      disk_path = ui_dir + "/" + page + ".html";
+    } else {
+      if (!IsSafeUiRelativePath(path)) return MakeNotFound();
+      disk_path = ui_dir + "/" + path;
+    }
+    return MakeFileResponse(disk_path);
   }
 
   IMPLEMENT_REFCOUNTING(BrowserSchemeHandlerFactory);
@@ -355,6 +492,11 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   command_line->AppendSwitch("enable-unsafe-webgpu");
+  // (Previously we set --allow-file-access-from-files here so the file://-
+  // loaded UI shell could fetch its ES module bundles. That's no longer
+  // needed — the shell is now served via our browser:// custom scheme
+  // which is registered as STANDARD|SECURE|CORS_ENABLED and behaves like
+  // a proper HTTP origin.)
 
 #if defined(__linux__)
   AppendCommaSeparatedSwitchValue(command_line, "enable-features", "Vulkan");
@@ -514,7 +656,7 @@ int OtfApp::CloseTab(int tab_id) {
 
 void OtfApp::CreateFindBarOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/findbar.html";
+  std::string url = "browser://findbar";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/findbar.html";
@@ -533,7 +675,7 @@ void OtfApp::CreateFindBarOverlay() {
 
 void OtfApp::CreateZoomBarOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/zoombar.html";
+  std::string url = "browser://zoombar";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/zoombar.html";
@@ -552,7 +694,7 @@ void OtfApp::CreateZoomBarOverlay() {
 
 void OtfApp::CreateDownloadsOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/downloadsbar.html";
+  std::string url = "browser://downloadsbar";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/downloadsbar.html";
@@ -571,7 +713,7 @@ void OtfApp::CreateDownloadsOverlay() {
 
 void OtfApp::CreateCertificateOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/certificate.html";
+  std::string url = "browser://certificate";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/certificate.html";
@@ -590,7 +732,7 @@ void OtfApp::CreateCertificateOverlay() {
 
 void OtfApp::CreateAppMenuOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/appmenu.html";
+  std::string url = "browser://appmenu";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/appmenu.html";
@@ -863,7 +1005,7 @@ void OtfApp::HideAppMenuOverlay() {
 
 void OtfApp::CreateBookmarkOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/bookmarkbar.html";
+  std::string url = "browser://bookmarkbar";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/bookmarkbar.html";
@@ -920,7 +1062,7 @@ void OtfApp::HideBookmarkOverlay() {
 
 void OtfApp::CreateImagePreviewOverlay() {
   if (!window_) return;
-  std::string url = "file://" + otf::GetExecutableDir() + "/ui/imagepreview.html";
+  std::string url = "browser://imagepreview";
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
   if (cmd->HasSwitch("dev-ui-url")) {
     url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/imagepreview.html";
@@ -1014,7 +1156,7 @@ void OtfApp::OnContextInitialized() {
   }
 
   // Dynamic UI Path: Loads from the executable's directory
-  std::string ui_url = "file://" + otf::GetExecutableDir() + "/ui/index.html";
+  std::string ui_url = "browser://shell";
   std::string start_url = "browser://newtab";
   if (startup_behavior_ == "specific" && !startup_urls_.empty()) {
     start_url = startup_urls_.front();
