@@ -30,6 +30,14 @@ jobs:
         with:
           bun-version: "1.1.42"
 
+      # `bun x vite build` only fetches vite itself, not the plugins the
+      # ui/vite.config.js file imports (@vitejs/plugin-react,
+      # @tailwindcss/vite, react, etc.). Without this step the build fails
+      # with ERR_MODULE_NOT_FOUND on those imports.
+      # --frozen-lockfile guards against accidental bun.lock drift in CI.
+      - name: Install Node dependencies
+        run: bun install --frozen-lockfile
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update
