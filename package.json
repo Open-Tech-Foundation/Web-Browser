@@ -11,7 +11,8 @@
     "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser-native-tests otf-browser-extra-tests && ctest --output-on-failure",
     "test:js": "node --test ui/src/shared/search.test.js",
     "test": "bun run test:cpp && bun run test:js",
-    "setup": "./setup_deps.sh"
+    "setup": "./setup_deps.sh",
+    "release": "bun scripts/release.js"
   },
   "dependencies": {
     "@types/react": "^19.2.14",
