@@ -814,30 +814,24 @@ std::string BuildPagePolicyScript() {
   }
 
   // Canvas: protect readback/export surfaces used for fingerprinting.
-  const noiseSeed = (() => {
-    try {
-      const values = new Uint32Array(1);
-      globalThis.crypto.getRandomValues(values);
-      return values[0] || Date.now();
-    } catch (_) {
-      return Date.now();
-    }
-  })();
-  const noiseByte = (index) => {
-    let value = Math.imul((index + 1) ^ noiseSeed, 1103515245) >>> 0;
-    value = Math.imul(value ^ (value >>> 16), 2246822507) >>> 0;
-    return value & 3;
-  };
+  // Tiny additive noise (±2 per channel) drawn fresh per call. Additive
+  // perturbation is preferred over XOR because XOR is reversible and, with
+  // a stable seed, the output itself becomes a stable per-session fingerprint
+  // signal. Fresh randomness per call also breaks linkability across reads
+  // of the same canvas.
   const perturbPixelBuffer = (data) => {
     try {
       if (!data || typeof data.length !== 'number') return data;
       for (let i = 0; i < data.length; i += 4) {
-        data[i] = Math.max(0, Math.min(255, data[i] ^ noiseByte(i)));
+        let r = data[i] + ((Math.random() * 5) | 0) - 2;
+        data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
         if (i + 1 < data.length) {
-          data[i + 1] = Math.max(0, Math.min(255, data[i + 1] ^ noiseByte(i + 1)));
+          let g = data[i + 1] + ((Math.random() * 5) | 0) - 2;
+          data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
         }
         if (i + 2 < data.length) {
-          data[i + 2] = Math.max(0, Math.min(255, data[i + 2] ^ noiseByte(i + 2)));
+          let b = data[i + 2] + ((Math.random() * 5) | 0) - 2;
+          data[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
         }
       }
     } catch (_) {}
@@ -1296,30 +1290,19 @@ std::string BuildPagePolicyScript() {
           });
         } catch (_) {}
       };
-      const noiseSeed = (() => {
-        try {
-          const values = new Uint32Array(1);
-          globalThis.crypto.getRandomValues(values);
-          return values[0] || Date.now();
-        } catch (_) {
-          return Date.now();
-        }
-      })();
-      const noiseByte = (index) => {
-        let value = Math.imul((index + 1) ^ noiseSeed, 1103515245) >>> 0;
-        value = Math.imul(value ^ (value >>> 16), 2246822507) >>> 0;
-        return value & 3;
-      };
       const perturbPixelBuffer = (data) => {
         try {
           if (!data || typeof data.length !== 'number') return data;
           for (let i = 0; i < data.length; i += 4) {
-            data[i] = Math.max(0, Math.min(255, data[i] ^ noiseByte(i)));
+            let r = data[i] + ((Math.random() * 5) | 0) - 2;
+            data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
             if (i + 1 < data.length) {
-              data[i + 1] = Math.max(0, Math.min(255, data[i + 1] ^ noiseByte(i + 1)));
+              let g = data[i + 1] + ((Math.random() * 5) | 0) - 2;
+              data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
             }
             if (i + 2 < data.length) {
-              data[i + 2] = Math.max(0, Math.min(255, data[i + 2] ^ noiseByte(i + 2)));
+              let b = data[i + 2] + ((Math.random() * 5) | 0) - 2;
+              data[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
             }
           }
         } catch (_) {}
