@@ -63,6 +63,16 @@ jobs:
           echo "CC=gcc-14" >> $GITHUB_ENV
           echo "CXX=g++-14" >> $GITHUB_ENV
 
+      # CEF is a ~400 MB download from Spotify's CDN. Cache it keyed on the
+      # version file so subsequent runs at the same CEF_VERSION skip the
+      # download (and the CDN dependency at release time). The cache key
+      # bumps automatically whenever CEF_VERSION changes.
+      - name: Cache CEF SDK
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: third_party/cef
+          key: cef-linux64-${{ hashFiles('CEF_VERSION', 'CEF_SHA256') }}
+
       - name: Install Dependencies (CEF)
         run: bun run setup
 
@@ -84,6 +94,17 @@ jobs:
           # Remove test binaries from release package
           rm -f ${PACKAGE_NAME}/otf-browser-native-tests
           rm -f ${PACKAGE_NAME}/otf-browser-extra-tests
+          # Strip the main binary (debug info isn't useful in a release
+          # tarball and meaningfully shrinks the download).
+          strip ${PACKAGE_NAME}/otf-browser || true
+          # Smoke check: refuse to publish a tarball whose binary can't find
+          # its shared libs. ldd output containing "not found" means the
+          # rpath/copy step regressed and the binary won't launch at all.
+          if ldd ${PACKAGE_NAME}/otf-browser | grep -q "not found"; then
+            echo "Smoke check FAILED — missing shared libraries:" >&2
+            ldd ${PACKAGE_NAME}/otf-browser | grep "not found" >&2
+            exit 1
+          fi
           tar -czf ${PACKAGE_NAME}.tar.gz ${PACKAGE_NAME}
           # Publish a checksum alongside the tarball so downloaders can verify
           # the asset matches what this workflow built.
