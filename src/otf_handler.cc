@@ -24,6 +24,10 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 #include "include/base/cef_callback.h"
@@ -378,30 +382,55 @@ std::string GetDevUiUrl() {
   return CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
 }
 
-std::string QuoteForShell(const std::string& value) {
-  std::string out = "'";
-  for (char c : value) {
-    if (c == '\'') {
-      out += "'\\''";
-    } else {
-      out += c;
-    }
+#if !defined(_WIN32)
+// Spawn a detached child running `program` with the given argv, with stdio
+// pointed at /dev/null. Uses fork+execvp directly so no shell is involved —
+// quoting bugs in caller-supplied paths cannot become command injection.
+// Double-fork pattern leaves no zombie behind.
+bool SpawnDetached(const char* program,
+                   const std::vector<std::string>& args) {
+  const pid_t pid = fork();
+  if (pid < 0) {
+    return false;
   }
-  out += "'";
-  return out;
+  if (pid == 0) {
+    const pid_t grandchild = fork();
+    if (grandchild == 0) {
+      setsid();
+      const int devnull = open("/dev/null", O_RDWR);
+      if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        if (devnull > STDERR_FILENO) {
+          close(devnull);
+        }
+      }
+      std::vector<char*> argv;
+      argv.reserve(args.size() + 2);
+      argv.push_back(const_cast<char*>(program));
+      for (const auto& arg : args) {
+        argv.push_back(const_cast<char*>(arg.c_str()));
+      }
+      argv.push_back(nullptr);
+      execvp(program, argv.data());
+      _exit(127);
+    }
+    _exit(0);
+  }
+  int status = 0;
+  waitpid(pid, &status, 0);  // reap intermediate child
+  return true;
 }
+#endif
 
 void OpenPathWithSystemApp(const std::string& path) {
 #if defined(_WIN32)
   ShellExecuteA(nullptr, "open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
-  std::string command = "open " + QuoteForShell(path) + " >/dev/null 2>&1 &";
-  const int result = std::system(command.c_str());
-  (void)result;
+  SpawnDetached("open", {path});
 #else
-  std::string command = "xdg-open " + QuoteForShell(path) + " >/dev/null 2>&1 &";
-  const int result = std::system(command.c_str());
-  (void)result;
+  SpawnDetached("xdg-open", {path});
 #endif
 }
 
@@ -410,16 +439,10 @@ void RevealPathInFolder(const std::string& path) {
   ShellExecuteA(nullptr, "open", std::filesystem::path(path).parent_path().string().c_str(),
                 nullptr, nullptr, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
-  std::string command =
-      "open -R " + QuoteForShell(path) + " >/dev/null 2>&1 &";
-  const int result = std::system(command.c_str());
-  (void)result;
+  SpawnDetached("open", {"-R", path});
 #else
-  std::string command =
-      "xdg-open " + QuoteForShell(std::filesystem::path(path).parent_path().string()) +
-      " >/dev/null 2>&1 &";
-  const int result = std::system(command.c_str());
-  (void)result;
+  SpawnDetached("xdg-open",
+                {std::filesystem::path(path).parent_path().string()});
 #endif
 }
 
@@ -457,19 +480,6 @@ std::string BuildTabPropertyEvent(int tab_id,
       .AddString("key", key)
       .AddBool("value", value)
       .Build();
-}
-
-std::string QuoteForRestartShell(const std::string& value) {
-  std::string out = "'";
-  for (char c : value) {
-    if (c == '\'') {
-      out += "'\\''";
-    } else {
-      out += c;
-    }
-  }
-  out += "'";
-  return out;
 }
 
 bool RestartBrowserProcess() {
@@ -524,14 +534,12 @@ bool RestartBrowserProcess() {
   CloseHandle(process_info.hProcess);
   return true;
 #else
-  std::string command = QuoteForRestartShell(executable_path);
+  std::vector<std::string> args;
+  args.reserve(arguments.size());
   for (const auto& arg : arguments) {
-    command += " ";
-    command += QuoteForRestartShell(arg.ToString());
+    args.push_back(arg.ToString());
   }
-  command += " >/dev/null 2>&1 &";
-  const int result = std::system(command.c_str());
-  return result == 0;
+  return SpawnDetached(executable_path.c_str(), args);
 #endif
 }
 
