@@ -789,33 +789,97 @@ std::string BuildPagePolicyScript() {
   installFontPolicy();
 
   // WebGPU: block compute pipelines while leaving graphics pipelines intact.
-  const installWebGPUComputePolicy = () => {
-    const GPUDeviceCtor = globalThis.GPUDevice;
-    if (!GPUDeviceCtor || !GPUDeviceCtor.prototype) return false;
-    if (GPUDeviceCtor.prototype.__otfWebGPUComputePolicy) return true;
-
-    const message = 'WebGPU compute pipelines are disabled by browser policy.';
-    defineMethod(GPUDeviceCtor.prototype, 'createComputePipeline', () => {
-      throw makeSecurityError(message);
+  // Chain-wrap from whichever layer of the GPU → GPUAdapter → GPUDevice
+  // prototype chain is actually exposed at policy-injection time. Each wrap
+  // patches the next layer's prototype on first use, so by the time a caller
+  // can touch device.createComputePipeline*, those methods are already
+  // replaced. No polling needed.
+  const COMPUTE_DENIED_MSG =
+      'WebGPU compute pipelines are disabled by browser policy.';
+  const patchGPUDeviceProto = (proto) => {
+    if (!proto || proto.__otfWebGPUComputePolicy) return;
+    defineMethod(proto, 'createComputePipeline', () => {
+      throw makeSecurityError(COMPUTE_DENIED_MSG);
     });
-    defineMethod(GPUDeviceCtor.prototype, 'createComputePipelineAsync', () =>
-      Promise.reject(makeSecurityError(message))
+    defineMethod(proto, 'createComputePipelineAsync', () =>
+      Promise.reject(makeSecurityError(COMPUTE_DENIED_MSG))
     );
-    Object.defineProperty(GPUDeviceCtor.prototype, '__otfWebGPUComputePolicy', {
-      value: true,
-      configurable: false,
-      enumerable: false,
-      writable: false
+    Object.defineProperty(proto, '__otfWebGPUComputePolicy', {
+      value: true, configurable: false, enumerable: false, writable: false
     });
-    return true;
   };
-
-  if (!installWebGPUComputePolicy()) {
-    const timer = setInterval(() => {
-      if (installWebGPUComputePolicy()) clearInterval(timer);
-    }, 50);
-    setTimeout(() => clearInterval(timer), 5000);
+  const patchGPUAdapterProto = (proto) => {
+    if (!proto || proto.__otfGPUAdapterPolicy) return;
+    const originalRequestDevice = proto.requestDevice;
+    if (typeof originalRequestDevice === 'function') {
+      defineMethod(proto, 'requestDevice', function(...args) {
+        return originalRequestDevice.apply(this, args).then((device) => {
+          if (device) patchGPUDeviceProto(Object.getPrototypeOf(device));
+          return device;
+        });
+      });
+    }
+    Object.defineProperty(proto, '__otfGPUAdapterPolicy', {
+      value: true, configurable: false, enumerable: false, writable: false
+    });
+  };
+  const patchGPUProto = (proto) => {
+    if (!proto || proto.__otfGPUPolicy) return;
+    const originalRequestAdapter = proto.requestAdapter;
+    if (typeof originalRequestAdapter === 'function') {
+      defineMethod(proto, 'requestAdapter', function(...args) {
+        return originalRequestAdapter.apply(this, args).then((adapter) => {
+          if (adapter) patchGPUAdapterProto(Object.getPrototypeOf(adapter));
+          return adapter;
+        });
+      });
+    }
+    Object.defineProperty(proto, '__otfGPUPolicy', {
+      value: true, configurable: false, enumerable: false, writable: false
+    });
+  };
+  // Patch every layer that's exposed up-front. If a layer isn't, the wrapper
+  // installed on the layer above takes care of it when its returned value
+  // first resolves.
+  if (globalThis.GPUDevice && globalThis.GPUDevice.prototype) {
+    patchGPUDeviceProto(globalThis.GPUDevice.prototype);
   }
+  if (globalThis.GPUAdapter && globalThis.GPUAdapter.prototype) {
+    patchGPUAdapterProto(globalThis.GPUAdapter.prototype);
+  }
+  if (globalThis.GPU && globalThis.GPU.prototype) {
+    patchGPUProto(globalThis.GPU.prototype);
+  } else {
+    // Even the GPU constructor isn't exposed yet. Hook navigator.gpu by
+    // shadowing the getter so we can patch on first access.
+    try {
+      const nav = globalThis.navigator;
+      const proto = nav && Object.getPrototypeOf(nav);
+      const desc = proto && Object.getOwnPropertyDescriptor(proto, 'gpu');
+      if (desc && typeof desc.get === 'function') {
+        const originalGetter = desc.get;
+        Object.defineProperty(proto, 'gpu', {
+          configurable: desc.configurable,
+          enumerable: desc.enumerable,
+          get() {
+            const gpu = originalGetter.call(this);
+            if (gpu) patchGPUProto(Object.getPrototypeOf(gpu));
+            return gpu;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+  // Debug marker so we can confirm from devtools that the policy attached.
+  // Read with: globalThis.__otfWebGPUPolicyState
+  Object.defineProperty(globalThis, '__otfWebGPUPolicyState', {
+    value: Object.freeze({
+      hadGPU: !!globalThis.GPU,
+      hadGPUAdapter: !!globalThis.GPUAdapter,
+      hadGPUDevice: !!globalThis.GPUDevice
+    }),
+    configurable: false, enumerable: false, writable: false
+  });
 
   // Canvas: protect readback/export surfaces used for fingerprinting.
   // Tiny additive noise (±2 per channel) drawn fresh per call. Additive

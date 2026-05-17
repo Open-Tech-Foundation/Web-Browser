@@ -1175,10 +1175,33 @@ export default function FingerprintsPage() {
     const runWebGPUTest = async () => {
       const log = document.getElementById('webgpu-log');
       if (!log) return;
+      // Debug: surface the policy's own diagnostic markers so we can tell
+      // whether the page-policy script ran at all and which GPU types were
+      // exposed at policy-injection time.
+      const diag = [
+        ['policy injected', String(!!globalThis.__otfPagePolicyInjected)],
+      ];
+      const state = globalThis.__otfWebGPUPolicyState;
+      if (state) {
+        diag.push(['policy saw GPU', String(state.hadGPU)]);
+        diag.push(['policy saw GPUAdapter', String(state.hadGPUAdapter)]);
+        diag.push(['policy saw GPUDevice', String(state.hadGPUDevice)]);
+      } else {
+        diag.push(['policy WebGPU state', 'missing']);
+      }
+      try {
+        const GPUProto = globalThis.GPU && globalThis.GPU.prototype;
+        const GPUAdapterProto = globalThis.GPUAdapter && globalThis.GPUAdapter.prototype;
+        const GPUDeviceProto = globalThis.GPUDevice && globalThis.GPUDevice.prototype;
+        diag.push(['GPU patched', String(!!(GPUProto && GPUProto.__otfGPUPolicy))]);
+        diag.push(['GPUAdapter patched', String(!!(GPUAdapterProto && GPUAdapterProto.__otfGPUAdapterPolicy))]);
+        diag.push(['GPUDevice patched', String(!!(GPUDeviceProto && GPUDeviceProto.__otfWebGPUComputePolicy))]);
+      } catch (_) {}
+
       if (!navigator.gpu) {
         log.textContent = 'navigator.gpu is unavailable in this runtime.';
         setReportItem('webgpu-compute', 'ok', 'WebGPU unavailable', 'Compute pipeline surface is not exposed in this runtime.');
-        setCard('webgpu-card', 'ok', 'WebGPU unavailable', [['navigator.gpu', 'false']]);
+        setCard('webgpu-card', 'ok', 'WebGPU unavailable', [['navigator.gpu', 'false'], ...diag]);
         return;
       }
       try {
@@ -1186,7 +1209,7 @@ export default function FingerprintsPage() {
         if (!adapter) {
           log.textContent = 'requestAdapter returned null.';
           setReportItem('webgpu-compute', 'ok', 'No WebGPU adapter', 'Compute pipeline surface is not available without an adapter.');
-          setCard('webgpu-card', 'ok', 'No adapter', [['adapter', 'null']]);
+          setCard('webgpu-card', 'ok', 'No adapter', [['adapter', 'null'], ...diag]);
           return;
         }
         const device = await adapter.requestDevice();
@@ -1201,7 +1224,8 @@ export default function FingerprintsPage() {
         setReportItem('webgpu-compute', 'fail', 'Compute pipeline allowed', 'createComputePipeline succeeded.');
         setCard('webgpu-card', 'fail', 'Compute allowed', [
           ['navigator.gpu', 'true'],
-          ['error', 'none']
+          ['error', 'none'],
+          ...diag
         ]);
       } catch (error) {
         log.textContent = `${error.name}: ${error.message}`;
@@ -1213,7 +1237,8 @@ export default function FingerprintsPage() {
           expected ? 'Compute blocked' : 'Blocked by runtime', [
             ['navigator.gpu', 'true'],
             ['error name', error.name],
-            ['error message', error.message]
+            ['error message', error.message],
+            ...diag
           ]);
       }
     };
