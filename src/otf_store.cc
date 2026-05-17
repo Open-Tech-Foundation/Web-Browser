@@ -26,21 +26,13 @@ std::string NormalizeBookmarkKey(const std::string& url) {
   return NormalizeBookmarkUrl(url);
 }
 
+// Previously this kept its own copy of the internal-pages allowlist, which
+// drifted from the canonical list in otf_utils.cc — newer pages
+// (appmenu, certificate, bookmarkbar, imagepreview) leaked into history.
+// Defer to the unified IsInternalUiUrl which is scheme-agnostic so dev
+// URLs (http://localhost:3000/...) are also filtered.
 bool IsInternalBrowserHistoryUrl(const std::string& url) {
-  if (url.rfind("browser://", 0) == 0) {
-    return true;
-  }
-  const char* kInternalPages[] = {
-      "/newtab.html",     "/settings.html",  "/findbar.html",
-      "/downloads.html",   "/downloadsbar.html", "/zoombar.html",
-      "/history.html",    "/bookmarks.html",  "/fingerprints.html",
-      "/pdfviewer.html"};
-  for (const char* suffix : kInternalPages) {
-    if (url.find(suffix) != std::string::npos) {
-      return true;
-    }
-  }
-  return false;
+  return otf::IsInternalUiUrl(url);
 }
 
 }  // namespace

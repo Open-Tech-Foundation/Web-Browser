@@ -139,6 +139,23 @@ void TestBookmarkNormalization() {
          "https://example.com/path");
 }
 
+void TestIsInternalUiUrl() {
+  // Scheme-agnostic — matches the internal UI page allowlist regardless of
+  // how the page was loaded. Used to keep dev-server URLs and bundled file://
+  // pages out of browser history.
+  assert(otf::IsInternalUiUrl("browser://newtab"));
+  assert(otf::IsInternalUiUrl("file:///opt/otf/ui/appmenu.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/appmenu.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/bookmarkbar.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/certificate.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/imagepreview.html"));
+  // The hyphen vs underscore fix — the file on disk is insecure-blocked.html.
+  assert(otf::IsInternalUiUrl("http://localhost:3000/insecure-blocked.html"));
+  // Regular web pages are not matched.
+  assert(!otf::IsInternalUiUrl("https://example.com"));
+  assert(!otf::IsInternalUiUrl("https://example.com/products"));
+}
+
 void TestIsInternalBrowserUiUrl() {
   // browser:// scheme — always trusted.
   assert(otf::IsInternalBrowserUiUrl("browser://newtab"));
@@ -259,6 +276,7 @@ int main() {
   TestStorePersistence();
   TestBookmarkNormalization();
   TestIsInternalBrowserUiUrl();
+  TestIsInternalUiUrl();
   TestIsPersistableWebUrl();
   TestIsAllowedStartupUrl();
   TestSecureDeletePragma();

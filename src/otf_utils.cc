@@ -672,12 +672,17 @@ bool IsAllowedStartupUrl(const std::string& url) {
 }
 
 namespace {
+// Canonical list of UI page filenames bundled with the browser. Used by
+// IsInternalUiPagePath (scheme-agnostic suffix match), IsInternalBrowserUiUrl
+// (security gate — adds scheme restriction), and the history filter. Keep in
+// sync with ui/vite.config.js rollupOptions.input.
 const char* const kInternalUiPages[] = {
-    "/index.html",        "/appmenu.html",    "/newtab.html",
-    "/settings.html",     "/findbar.html",    "/downloads.html",
-    "/downloadsbar.html", "/zoombar.html",    "/history.html",
-    "/bookmarks.html",    "/security.html",   "/fingerprints.html",
-    "/insecure_blocked.html", "/pdfviewer.html"};
+    "/index.html",         "/appmenu.html",        "/newtab.html",
+    "/settings.html",      "/findbar.html",        "/downloads.html",
+    "/downloadsbar.html",  "/zoombar.html",        "/history.html",
+    "/bookmarks.html",     "/bookmarkbar.html",    "/security.html",
+    "/fingerprints.html",  "/insecure-blocked.html",
+    "/pdfviewer.html",     "/certificate.html",    "/imagepreview.html"};
 }  // namespace
 
 bool IsInternalUiPagePath(const std::string& url) {
@@ -710,6 +715,13 @@ bool IsInternalBrowserUiUrl(const std::string& url) {
   // be classified as a trusted internal UI URL.
   if (url.rfind("file://", 0) != 0) {
     return false;
+  }
+  return IsInternalUiPagePath(url);
+}
+
+bool IsInternalUiUrl(const std::string& url) {
+  if (url.rfind("browser://", 0) == 0) {
+    return true;
   }
   return IsInternalUiPagePath(url);
 }

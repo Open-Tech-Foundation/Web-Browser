@@ -93,11 +93,21 @@ endif()
 COPY_FILES("otf-browser" "${CEF_BINARY_FILES}" "${CEF_BINARY_DIR}" "${CEF_TARGET_OUT_DIR}")
 COPY_FILES("otf-browser" "${CEF_RESOURCE_FILES}" "${CEF_RESOURCE_DIR}" "${CEF_TARGET_OUT_DIR}")
 
-# Copy custom UI resources
+# Copy non-bundled UI assets (icons, search-engine logos, etc.). Vite owns
+# the build/Release/ui directory for HTML + bundled JS (see ui/vite.config.js
+# `outDir: '../build/Release/ui'` and `emptyOutDir: true`). Previously this
+# step copied the entire raw ui/ source tree on top, which silently clobbered
+# vite's bundled HTML — production binaries ended up pointing at
+# /src/<page>/main.jsx instead of the hashed bundle. Scope the copy to
+# ui/assets so the two outputs coexist without conflicting filenames.
+#
+# Ordering matters: `bun run build:ui` must run before `bun run build:cpp`
+# (vite empties the output dir before writing). package.json's `build` target
+# enforces this.
 add_custom_command(
     TARGET otf-browser POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/ui" "${CEF_TARGET_OUT_DIR}/ui"
-    COMMENT "Copying UI resources..."
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/ui/assets" "${CEF_TARGET_OUT_DIR}/ui/assets"
+    COMMENT "Copying UI static assets (icons, logos)..."
 )
 
 # Linux SUID Permission Helper

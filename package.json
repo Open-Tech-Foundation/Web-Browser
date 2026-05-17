@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "fuser -k 3000/tcp || true; (cd ui && bun x vite --port 3000 --strictPort &) && bun x wait-on http://localhost:3000 && bun run dev:browser; fuser -k 3000/tcp || true",
     "dev:browser": "./build/Release/otf-browser --no-sandbox --dev-ui-url=http://localhost:3000 --ozone-platform=x11",
+    "build": "bun run build:ui && bun run build:cpp",
     "build:ui": "bun x vite build ui",
     "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
     "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser-native-tests otf-browser-extra-tests && ctest --output-on-failure",

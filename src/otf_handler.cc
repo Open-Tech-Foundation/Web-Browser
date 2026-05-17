@@ -1463,7 +1463,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           if (handler->tab_manager_) {
             for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
               const std::string url = handler->tab_manager_->GetUrl(tab_id);
-              if (IsPersistableWebUrl(url) && !IsInternalBrowserUiUrl(url)) {
+              if (IsPersistableWebUrl(url) && !IsInternalUiUrl(url)) {
                 handler->tab_manager_->SetHistorySuppressedUrl(tab_id, url);
               }
             }
@@ -2272,7 +2272,7 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
     const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
     if (store_ && otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
-        !IsInternalBrowserUiUrl(url)) {
+        !IsInternalUiUrl(url)) {
       store_->UpdateHistoryTitle(url, title.ToString());
     }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
@@ -2410,7 +2410,7 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
     const std::string suppressed_url =
         tab_manager_->GetHistorySuppressedUrl(tab_id);
     if (otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
-        !IsInternalBrowserUiUrl(url) && (current.empty() ||
+        !IsInternalUiUrl(url) && (current.empty() ||
         current.rfind("browser://", 0) != 0) &&
         (suppressed_url.empty() || suppressed_url != url)) {
       store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link");

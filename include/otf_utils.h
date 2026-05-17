@@ -71,6 +71,13 @@ bool IsInternalBrowserUiUrl(const std::string& url);
 // the dev-ui-url prefix) and just need to know whether the path points at
 // a bundled UI page.
 bool IsInternalUiPagePath(const std::string& url);
+
+// True for any URL that points at an internal UI page in *any* environment
+// (browser:// scheme, file:// production path, or http(s):// dev-server URL).
+// Use this for history/bookmark filtering — internal pages shouldn't be
+// recorded regardless of how they were loaded. Do NOT use for security
+// gates: those need the strict IsInternalBrowserUiUrl above.
+bool IsInternalUiUrl(const std::string& url);
 std::string NormalizeBookmarkUrl(const std::string& url);
 
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id);
