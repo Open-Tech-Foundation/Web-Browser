@@ -31,9 +31,17 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
     setUrl(initialUrl);
   }, [initialUrl, tabId]);
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      onNavigate(url);
+      let targetUrl = url;
+      if (e.ctrlKey && url) {
+        if (e.shiftKey) {
+          targetUrl = `https://${url}.org`;
+        } else {
+          targetUrl = `https://${url}.com`;
+        }
+      }
+      onNavigate(targetUrl);
       inputRef.current?.blur();
     }
   };
@@ -82,7 +90,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
         onFocus={handleFocus}
         onBlur={handleBlur}
         onChange={(e) => setUrl(e.target.value)}
-        onKeyPress={handleKeyPress}
+        onKeyDown={handleKeyDown}
         placeholder="Search or enter address..."
       />
       

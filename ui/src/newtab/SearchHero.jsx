@@ -85,7 +85,14 @@ const SearchHero = ({ tabId }) => {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && query.trim()) {
-      const input = query.trim();
+      let input = query.trim();
+      if (e.ctrlKey) {
+        if (e.shiftKey) {
+          input = `https://${input}.org`;
+        } else {
+          input = `https://${input}.com`;
+        }
+      }
       const navigateTo = (url) => {
         window.cefQuery({ request: `navigate-current:${url}` });
       };
