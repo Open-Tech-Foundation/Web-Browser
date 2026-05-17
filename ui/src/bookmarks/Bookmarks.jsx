@@ -4,6 +4,7 @@ export default function Bookmarks() {
   const [items, setItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [appearanceMode, setAppearanceMode] = useState('auto');
+  const [bookmarkToRemove, setBookmarkToRemove] = useState(null);
 
   const applyTheme = (mode) => {
     const root = document.documentElement;
@@ -83,10 +84,19 @@ export default function Bookmarks() {
   };
 
   const removeBookmark = (id) => {
-    window.cefQuery?.({ 
-      request: `remove-bookmark:${id}`, 
-      onSuccess: load 
-    });
+    setBookmarkToRemove(id);
+  };
+
+  const confirmRemoveBookmark = () => {
+    if (bookmarkToRemove) {
+      window.cefQuery?.({ 
+        request: `remove-bookmark:${bookmarkToRemove}`, 
+        onSuccess: () => {
+          load();
+          setBookmarkToRemove(null);
+        }
+      });
+    }
   };
 
   return (
@@ -157,13 +167,10 @@ export default function Bookmarks() {
               {filteredItems.map((item) => (
                 <div key={item.id} className="group flex items-center gap-4 p-4 rounded-2xl bg-card border border-main hover:border-orange-500/30 hover:bg-card/80 transition-all">
                   <div className="w-12 h-12 rounded-xl bg-main/5 flex items-center justify-center text-muted group-hover:text-orange-400 transition-colors shrink-0 overflow-hidden">
-                    {item.faviconUrl ? (
-                      <img src={item.faviconUrl} alt="" className="w-6 h-6 object-contain" />
-                    ) : (
-                      <div className="text-lg font-bold">
-                         {(item.title || item.url)[0].toUpperCase()}
-                      </div>
-                    )}
+                    {item.faviconUrl
+                      ? <img src={item.faviconUrl} alt="" className="w-6 h-6 object-contain" />
+                      : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+                    }
                   </div>
                   
                   <div className="flex-1 min-w-0">
@@ -197,6 +204,30 @@ export default function Bookmarks() {
           )}
         </div>
       </main>
+
+      {/* Remove Bookmark Modal */}
+      {bookmarkToRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-300">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Delete Bookmark?</h3>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Are you sure you want to delete this bookmark? This action cannot be undone.</p>
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setBookmarkToRemove(null)}
+                className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmRemoveBookmark}
+                className="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-lg shadow-red-500/20 transition-all"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
