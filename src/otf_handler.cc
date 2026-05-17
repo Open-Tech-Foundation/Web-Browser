@@ -1582,16 +1582,44 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Failure(1, "Invalid resolve payload");
         return true;
       }
+      // Resolve with whatever search engine we have (possibly empty). The
+      // helper returns a search URL only in branches that genuinely needed
+      // one; URL-shaped input (browser://, http(s)://, localhost:PORT, an
+      // IP, or an obvious host like example.com/path) resolves without
+      // touching the engine string. We then differentiate after the call.
       const std::optional<std::string> search_engine_id =
           otf::GetCurrentSearchEngineId();
+      const std::string engine_id = search_engine_id.value_or("");
+      std::string resolved_url;
+      std::string dns_host;
+      const bool resolved_without_dns = ResolveUserInputUrlWithoutDns(
+          input, engine_id, &resolved_url, &dns_host);
+
+      // If the input looks like a URL we can navigate to right now, do it —
+      // no need for a search engine. This keeps a fresh install (no engine
+      // chosen yet) usable for direct URLs like 'localhost:3000' instead of
+      // bouncing the user to the settings page on every attempt.
+      const bool looks_like_url =
+          resolved_without_dns &&
+          (resolved_url.rfind("http://", 0) == 0 ||
+           resolved_url.rfind("https://", 0) == 0 ||
+           resolved_url.rfind("browser://", 0) == 0 ||
+           resolved_url.rfind("//", 0) == 0 ||
+           HasExplicitScheme(resolved_url));
+      if (looks_like_url) {
+        callback->Success(resolved_url);
+        return true;
+      }
+
+      // Past this point we either need to build a search URL or do DNS
+      // disambiguation — both require a chosen search engine. Send the
+      // user to settings if none is configured.
       if (!search_engine_id.has_value()) {
         callback->Success("browser://settings");
         return true;
       }
-      std::string resolved_url;
-      std::string dns_host;
-      if (ResolveUserInputUrlWithoutDns(input, *search_engine_id, &resolved_url,
-                                        &dns_host)) {
+      if (resolved_without_dns) {
+        // Search URL came back from the resolver (whitespace / ambiguous).
         callback->Success(resolved_url);
         return true;
       }
