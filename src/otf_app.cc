@@ -240,6 +240,27 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
   IMPLEMENT_REFCOUNTING(OtfViewDelegate);
 };
 
+// Escape a string for safe inclusion inside an HTML attribute value. The
+// browser:// dev-mode redirect interpolates a URL (which carries the original
+// query/fragment from the user-controlled request) into a meta-refresh
+// attribute — without escaping, `browser://newtab?'><script>…</script>` would
+// inject markup into a privileged frame.
+std::string HtmlAttrEscape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (char c : s) {
+    switch (c) {
+      case '&': out += "&amp;"; break;
+      case '<': out += "&lt;"; break;
+      case '>': out += "&gt;"; break;
+      case '"': out += "&quot;"; break;
+      case '\'': out += "&#39;"; break;
+      default: out += c; break;
+    }
+  }
+  return out;
+}
+
 class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
  public:
   CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser> browser,
@@ -254,7 +275,7 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     if (!full_url.empty()) {
       html_content =
           "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0;url=" +
-          full_url + "'></head><body>Redirecting...</body></html>";
+          HtmlAttrEscape(full_url) + "'></head><body>Redirecting...</body></html>";
     } else {
       std::string file_path = GetBrowserPageFilePath(url);
       FILE* f = fopen(file_path.c_str(), "rb");
