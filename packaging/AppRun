@@ -1,0 +1,16 @@
+#!/bin/bash
+# AppImage entry point. Resolves the AppDir at runtime, points the binary at
+# its bundled libs, and launches.
+#
+# Note on the sandbox: AppImages mount a read-only squashfs as the user, so
+# chrome-sandbox cannot have the SUID bit set inside the image. We pass
+# --no-sandbox here as a trade-off for the "double-click and it runs"
+# distribution model. Users who want the full Chromium sandbox should
+# install the .deb / .rpm package (postinstall sets SUID) or extract the
+# tarball and chmod chrome-sandbox manually.
+set -e
+HERE="$(dirname "$(readlink -f "$0")")"
+APP_DIR="$HERE/usr/lib/otf-browser"
+export LD_LIBRARY_PATH="$APP_DIR:${LD_LIBRARY_PATH:-}"
+cd "$APP_DIR"
+exec ./otf-browser --no-sandbox "$@"

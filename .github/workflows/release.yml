@@ -56,7 +56,14 @@ jobs:
             libxrender1 \
             libxss1 \
             libxtst6 \
-            libgtk-3-dev
+            libgtk-3-dev \
+            librsvg2-bin \
+            libfuse2t64
+          # linuxdeploy ships as a "continuous" AppImage with no tagged
+          # release. Pin the binary's SHA256 so an upstream swap fails loudly.
+          curl -fLo /tmp/linuxdeploy-x86_64.AppImage \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x /tmp/linuxdeploy-x86_64.AppImage
 
       - name: Set CC/CXX to GCC 14
         run: |
@@ -134,9 +141,54 @@ jobs:
           # Publish a checksum alongside the tarball so downloaders can verify
           # the asset matches what this workflow built.
           sha256sum ${PACKAGE_NAME}.tar.gz > ${PACKAGE_NAME}.tar.gz.sha256
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
           echo "ASSET_PATH=${PACKAGE_NAME}.tar.gz" >> $GITHUB_ENV
           echo "ASSET_SHA256_PATH=${PACKAGE_NAME}.tar.gz.sha256" >> $GITHUB_ENV
           echo "ASSET_NAME=${PACKAGE_NAME}.tar.gz" >> $GITHUB_ENV
+
+      - name: Build AppImage
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          APPDIR="otf-browser.AppDir"
+          rm -rf "${APPDIR}"
+          mkdir -p "${APPDIR}/usr/bin" \
+                   "${APPDIR}/usr/lib/otf-browser" \
+                   "${APPDIR}/usr/share/applications" \
+                   "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+
+          # Drop the entire built tree under usr/lib/otf-browser. CEF needs
+          # libcef.so and the locales/, *.pak resources beside the binary, so
+          # we keep them grouped and use AppRun to cd in.
+          cp -r ${PACKAGE_NAME}/* "${APPDIR}/usr/lib/otf-browser/"
+
+          # Render the canonical SVG logo to 256x256 PNG. linuxdeploy needs
+          # both the icon at AppDir root and the standard hicolor path.
+          rsvg-convert -w 256 -h 256 website/public/logo.svg \
+            -o "${APPDIR}/otf-browser.png"
+          cp "${APPDIR}/otf-browser.png" \
+            "${APPDIR}/usr/share/icons/hicolor/256x256/apps/otf-browser.png"
+
+          # Desktop entry + AppRun launcher come from packaging/.
+          cp packaging/otf-browser.desktop "${APPDIR}/otf-browser.desktop"
+          cp packaging/otf-browser.desktop "${APPDIR}/usr/share/applications/"
+          cp packaging/AppRun "${APPDIR}/AppRun"
+          chmod +x "${APPDIR}/AppRun"
+
+          export VERSION
+          /tmp/linuxdeploy-x86_64.AppImage --appdir "${APPDIR}" --output appimage
+
+          # linuxdeploy names the output with version + arch. Normalize the
+          # filename to match the rest of the release assets.
+          APPIMAGE_OUT=$(ls OTF_Browser-*.AppImage 2>/dev/null | head -1)
+          if [ -z "${APPIMAGE_OUT}" ]; then
+            # Fallback: linuxdeploy uses the Name from the .desktop file
+            APPIMAGE_OUT=$(ls *.AppImage 2>/dev/null | grep -v linuxdeploy | head -1)
+          fi
+          APPIMAGE_NAME="otf-browser-linux-x64-${GITHUB_REF_NAME}.AppImage"
+          mv "${APPIMAGE_OUT}" "${APPIMAGE_NAME}"
+          sha256sum "${APPIMAGE_NAME}" > "${APPIMAGE_NAME}.sha256"
+          echo "APPIMAGE_PATH=${APPIMAGE_NAME}" >> $GITHUB_ENV
+          echo "APPIMAGE_SHA256_PATH=${APPIMAGE_NAME}.sha256" >> $GITHUB_ENV
 
       - name: Create Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
@@ -145,6 +197,8 @@ jobs:
           files: |
             ${{ env.ASSET_PATH }}
             ${{ env.ASSET_SHA256_PATH }}
+            ${{ env.APPIMAGE_PATH }}
+            ${{ env.APPIMAGE_SHA256_PATH }}
           generate_release_notes: true
           draft: false
           prerelease: false

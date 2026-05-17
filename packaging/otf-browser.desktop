@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=OTF Browser
+GenericName=Web Browser
+Comment=Privacy-focused web browser built on the Chromium Embedded Framework
+Exec=otf-browser %U
+Icon=otf-browser
+Terminal=false
+StartupNotify=true
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;
+Keywords=web;browser;internet;privacy;
