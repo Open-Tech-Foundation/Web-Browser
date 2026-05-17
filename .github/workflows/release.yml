@@ -33,18 +33,23 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
+          # Ubuntu 24.04 went through the time_t64 ABI transition: several
+          # libraries got renamed with a "t64" suffix and the old names became
+          # virtual packages with no installation candidate. Ask for the t64
+          # names directly so apt resolves them on 24.04 (and on older Ubuntu
+          # releases the t64 packages still exist as aliases).
           sudo apt-get install -y \
             cmake \
             ninja-build \
             g++-14 \
             libsqlite3-dev \
             libnss3 \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libcups2 \
+            libatk1.0-0t64 \
+            libatk-bridge2.0-0t64 \
+            libcups2t64 \
             libdrm-dev \
             libgbm-dev \
-            libasound2 \
+            libasound2t64 \
             libpangocairo-1.0-0 \
             libxcomposite1 \
             libxcursor1 \
