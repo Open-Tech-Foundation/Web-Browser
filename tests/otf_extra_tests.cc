@@ -1,5 +1,8 @@
 #include "otf_utils.h"
 #include "otf_page_policy.h"
+// Release builds set NDEBUG, which makes assert() a no-op. Force it off here
+// so the assertions in this suite actually execute.
+#undef NDEBUG
 #include <cassert>
 #include <iostream>
 #include <vector>
@@ -51,6 +54,60 @@ void TestJsonObjectBuilder() {
     std::cout << "TestJsonObjectBuilder passed" << std::endl;
 }
 
+void TestHtmlAttrEscape() {
+    // All five HTML metacharacters get escaped.
+    assert(otf::HtmlAttrEscape("plain") == "plain");
+    assert(otf::HtmlAttrEscape("a&b") == "a&amp;b");
+    assert(otf::HtmlAttrEscape("<script>") == "&lt;script&gt;");
+    assert(otf::HtmlAttrEscape("\"quote\"") == "&quot;quote&quot;");
+    assert(otf::HtmlAttrEscape("'apos'") == "&#39;apos&#39;");
+    // Regression: dev-mode redirect input that previously injected markup.
+    const std::string evil = "browser://newtab?'><script>alert(1)</script>";
+    const std::string out = otf::HtmlAttrEscape(evil);
+    assert(out.find("<script>") == std::string::npos);
+    assert(out.find("'>") == std::string::npos);
+    std::cout << "TestHtmlAttrEscape passed" << std::endl;
+}
+
+void TestParseIntStrict() {
+    assert(otf::ParseIntStrict("0").value() == 0);
+    assert(otf::ParseIntStrict("42").value() == 42);
+    assert(otf::ParseIntStrict("-7").value() == -7);
+    // Rejections — these are exactly the inputs that used to crash via
+    // std::stoi.
+    assert(!otf::ParseIntStrict("").has_value());
+    assert(!otf::ParseIntStrict("abc").has_value());
+    assert(!otf::ParseIntStrict("12abc").has_value());
+    assert(!otf::ParseIntStrict(" 12").has_value());
+    assert(!otf::ParseIntStrict("12 ").has_value());
+    assert(!otf::ParseIntStrict("1.0").has_value());
+    // Out of range for int32: 99999999999 overflows.
+    assert(!otf::ParseIntStrict("99999999999").has_value());
+    std::cout << "TestParseIntStrict passed" << std::endl;
+}
+
+void TestParseUint32Strict() {
+    assert(otf::ParseUint32Strict("0").value() == 0u);
+    assert(otf::ParseUint32Strict("4294967295").value() == 4294967295u);
+    // Negative rejected for unsigned.
+    assert(!otf::ParseUint32Strict("-1").has_value());
+    // Overflow rejected.
+    assert(!otf::ParseUint32Strict("4294967296").has_value());
+    assert(!otf::ParseUint32Strict("").has_value());
+    assert(!otf::ParseUint32Strict("12abc").has_value());
+    std::cout << "TestParseUint32Strict passed" << std::endl;
+}
+
+void TestIsAllowedSearchEngineId() {
+    for (const char* id : {"google", "bing", "yahoo", "duckduckgo", "baidu",
+                            "yandex", "ecosia", "naver", "startpage"}) {
+        assert(otf::IsAllowedSearchEngineId(id));
+    }
+    assert(!otf::IsAllowedSearchEngineId("notarealengine"));
+    assert(!otf::IsAllowedSearchEngineId("Google"));  // case-sensitive
+    std::cout << "TestIsAllowedSearchEngineId passed" << std::endl;
+}
+
 } // namespace
 
 int main() {
@@ -58,6 +115,10 @@ int main() {
     TestSearchUrl();
     TestPagePolicyAllowlist();
     TestJsonObjectBuilder();
+    TestHtmlAttrEscape();
+    TestParseIntStrict();
+    TestParseUint32Strict();
+    TestIsAllowedSearchEngineId();
     std::cout << "All extra native tests passed!" << std::endl;
     return 0;
 }

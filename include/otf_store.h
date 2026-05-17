@@ -76,6 +76,11 @@ class OtfStore {
   bool IsBookmarked(const std::string& url) const;
   std::vector<BookmarkEntry> GetBookmarks() const;
 
+  // Test-facing: returns whether secure_delete is on for this connection.
+  // SQLite pragmas are per-connection, not stored in the file, so the only
+  // way to verify our Open() set it is to query the same connection.
+  bool IsSecureDeleteEnabled() const;
+
  private:
   bool Open();
   bool RunMigrations();

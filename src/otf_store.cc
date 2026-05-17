@@ -521,6 +521,23 @@ bool OtfStore::IsBookmarked(const std::string& url) const {
   return found;
 }
 
+bool OtfStore::IsSecureDeleteEnabled() const {
+  if (!db_) {
+    return false;
+  }
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "PRAGMA secure_delete;", -1, &stmt, nullptr) !=
+      SQLITE_OK) {
+    return false;
+  }
+  bool enabled = false;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    enabled = sqlite3_column_int(stmt, 0) != 0;
+  }
+  sqlite3_finalize(stmt);
+  return enabled;
+}
+
 std::vector<BookmarkEntry> OtfStore::GetBookmarks() const {
   std::vector<BookmarkEntry> out;
   if (!db_) {
