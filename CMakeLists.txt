@@ -3,12 +3,22 @@ project(otf-browser VERSION 0.1.0 LANGUAGES C CXX)
 enable_testing()
 
 # Version string baked into the binary (--version flag + user-agent).
-# Local builds get the CMake project version. CI builds set the OTF_VERSION
-# environment variable to the release tag (stripped of leading "v") so that
-# `--version` on a packaged binary reports e.g. "0.1.0-alpha.1" instead of
-# the bare project version.
+# Priority:
+#   1. OTF_VERSION env var — set by CI from the release tag, e.g. "0.1.0-alpha.1".
+#   2. package.json "version" — kept in sync by `bun run release`; lets local
+#      builds after a release bump show the full pre-release suffix that
+#      CMake's project(VERSION) field can't carry (hyphens aren't allowed).
+#   3. PROJECT_VERSION — bare semver from the project() line; final fallback.
 if(DEFINED ENV{OTF_VERSION})
     set(OTF_VERSION "$ENV{OTF_VERSION}")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/package.json")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/package.json" _pkg_json)
+    string(JSON _pkg_ver ERROR_VARIABLE _pkg_err GET "${_pkg_json}" version)
+    if(_pkg_err OR NOT _pkg_ver)
+        set(OTF_VERSION "${PROJECT_VERSION}")
+    else()
+        set(OTF_VERSION "${_pkg_ver}")
+    endif()
 else()
     set(OTF_VERSION "${PROJECT_VERSION}")
 endif()
