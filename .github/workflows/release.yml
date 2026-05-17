@@ -97,6 +97,31 @@ jobs:
           # Strip the main binary (debug info isn't useful in a release
           # tarball and meaningfully shrinks the download).
           strip ${PACKAGE_NAME}/otf-browser || true
+          # Bundle the project license and CEF's third-party license so the
+          # tarball is self-contained for compliance / audit.
+          cp LICENSE ${PACKAGE_NAME}/LICENSE
+          cp third_party/cef/LICENSE.txt ${PACKAGE_NAME}/LICENSE-cef.txt
+          # Tell the recipient how to make chrome-sandbox usable. The build's
+          # SUID-helper note doesn't survive into the tarball, and without
+          # this step the binary refuses to launch with a sandbox error.
+          cat > ${PACKAGE_NAME}/INSTALL.txt <<'EOF'
+          OTF Browser — installation notes
+          ================================
+
+          After extracting this tarball, give chrome-sandbox the SUID bit so
+          the browser's sandbox can initialize:
+
+              sudo chown root:root chrome-sandbox
+              sudo chmod 4755 chrome-sandbox
+
+          Then launch with:
+
+              ./otf-browser
+
+          If you skip the chmod step you can still run the browser with
+          --no-sandbox, but doing so disables an important security layer
+          and is not recommended for daily use.
+          EOF
           # Smoke check: refuse to publish a tarball whose binary can't find
           # its shared libs. ldd output containing "not found" means the
           # rpath/copy step regressed and the binary won't launch at all.
