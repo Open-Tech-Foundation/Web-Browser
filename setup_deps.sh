@@ -7,11 +7,17 @@ set -e
 
 CEF_VERSION=$(cat CEF_VERSION)
 CEF_PLATFORM="linux64"
-CEF_DIST="cef_binary_${CEF_VERSION}_${CEF_PLATFORM}"
+# Use the "minimal" distribution — drops Debug/ binaries and the
+# cefclient/cefsimple sample-app sources we don't build. About half the
+# size of the standard distribution (~300 MB vs ~640 MB), which matters
+# for CI cache size and cold-start CDN fetch time.
+CEF_DIST="cef_binary_${CEF_VERSION}_${CEF_PLATFORM}_minimal"
 CEF_ARCHIVE="${CEF_DIST}.tar.bz2"
-# URL encode the '+' signs in the version
-CEF_URL_VERSION=$(echo $CEF_VERSION | sed 's/+/%%2B/g')
-CEF_DOWNLOAD_URL="https://cef-builds.spotifycdn.com/cef_binary_${CEF_URL_VERSION}_${CEF_PLATFORM}.tar.bz2"
+# URL-encode the '+' signs in the version. sed doesn't interpret %% as a
+# percent escape (that's printf), so the previous "%%2B" wrote a literal
+# double percent into the URL and Spotify's CDN returned 404.
+CEF_URL_VERSION=$(echo "$CEF_VERSION" | sed 's/+/%2B/g')
+CEF_DOWNLOAD_URL="https://cef-builds.spotifycdn.com/cef_binary_${CEF_URL_VERSION}_${CEF_PLATFORM}_minimal.tar.bz2"
 
 THIRD_PARTY_DIR="third_party"
 CEF_TARGET_DIR="${THIRD_PARTY_DIR}/cef"
