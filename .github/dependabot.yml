@@ -1,0 +1,10 @@
+# Keep the SHA-pinned GitHub Actions in release.yml fresh. Dependabot opens
+# a PR when a new tag is published upstream, updating both the pinned SHA
+# and the `# vX.Y.Z` comment. SHAs stay pinned (no auto-merge), so nothing
+# changes in CI without human review.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

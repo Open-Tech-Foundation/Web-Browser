@@ -6,19 +6,29 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Limit the GITHUB_TOKEN to the minimum needed by this workflow. Any future
+# step that tries to do more (push to other refs, comment on PRs, etc.) will
+# fail noisily instead of silently exfiltrating via the default scopes.
+permissions:
+  contents: write
+
 jobs:
   build-linux:
     name: Build Linux x64
     runs-on: ubuntu-24.04
-    
+
     steps:
+      # Third-party actions are pinned to commit SHAs (with the human-readable
+      # tag in a comment) so a compromised upstream repo can't quietly swap
+      # malicious code into the release build. Dependabot can keep these
+      # current via `package-ecosystem: github-actions`.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@f4d14e03ff726c06358e5557344e1da148b56cf7  # v1.2.2
         with:
-          bun-version: latest
+          bun-version: "1.1.42"
 
       - name: Install System Dependencies
         run: |
@@ -78,7 +88,7 @@ jobs:
           echo "ASSET_NAME=${PACKAGE_NAME}.tar.gz" >> $GITHUB_ENV
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ env.ASSET_PATH }}
