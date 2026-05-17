@@ -156,6 +156,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateCertificateOverlay();
     app->CreateAppMenuOverlay();
     app->CreateBookmarkOverlay();
+    app->CreateImagePreviewOverlay();
 
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
@@ -178,6 +179,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionCertificateOverlay();
       app->PositionAppMenuOverlay();
       app->PositionBookmarkOverlay();
+      app->PositionImagePreviewOverlay();
     }
   }
 
@@ -839,6 +841,57 @@ void OtfApp::HideBookmarkOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (bookmark_overlay_) {
     bookmark_overlay_->SetVisible(false);
+  }
+}
+
+void OtfApp::CreateImagePreviewOverlay() {
+  if (!window_) return;
+  std::string url = "file://" + otf::GetExecutableDir() + "/ui/imagepreview.html";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/imagepreview.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 0));
+  view->SetID(kImagePreviewBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  image_preview_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionImagePreviewOverlay();
+}
+
+void OtfApp::PositionImagePreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !image_preview_overlay_ || !content_panel_) return;
+  CefRect bounds = content_panel_->GetBounds();
+  image_preview_overlay_->SetBounds(bounds);
+}
+
+void OtfApp::ShowImagePreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !image_preview_overlay_) return;
+  
+  HideAppMenuOverlay();
+  HideDownloadsOverlay();
+  HideCertificateOverlay();
+  HideBookmarkOverlay();
+  PositionImagePreviewOverlay();
+  image_preview_overlay_->SetVisible(true);
+  
+  if (image_preview_overlay_->GetContentsView()) {
+    image_preview_overlay_->GetContentsView()->RequestFocus();
+  }
+}
+
+void OtfApp::HideImagePreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (image_preview_overlay_) {
+    image_preview_overlay_->SetVisible(false);
+    FocusCurrentTabContent();
   }
 }
 

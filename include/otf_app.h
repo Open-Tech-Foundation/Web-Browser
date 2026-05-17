@@ -51,6 +51,7 @@ class OtfApp : public CefApp,
   void CreateCertificateOverlay();
   void CreateAppMenuOverlay();
   void CreateBookmarkOverlay();
+  void CreateImagePreviewOverlay();
   void FocusCurrentTabContent();
   void OpenPendingStartupTabs();
   void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
@@ -62,6 +63,7 @@ class OtfApp : public CefApp,
   void DestroyCertificateOverlay();
   void PositionAppMenuOverlay();
   void PositionBookmarkOverlay();
+  void PositionImagePreviewOverlay();
   void ShowZoomBarOverlay();
   void HideZoomBarOverlay();
   void ShowDownloadsOverlay();
@@ -72,6 +74,8 @@ class OtfApp : public CefApp,
   void HideAppMenuOverlay();
   void ShowBookmarkOverlay();
   void HideBookmarkOverlay();
+  void ShowImagePreviewOverlay();
+  void HideImagePreviewOverlay();
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;
@@ -82,6 +86,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> certificate_overlay_;
   CefRefPtr<CefOverlayController> appmenu_overlay_;
   CefRefPtr<CefOverlayController> bookmark_overlay_;
+  CefRefPtr<CefOverlayController> image_preview_overlay_;
 
  private:
   TabManager tab_manager_;

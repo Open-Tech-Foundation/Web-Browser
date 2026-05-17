@@ -43,6 +43,7 @@
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
 #include "include/cef_command_ids.h"
+#include "include/cef_urlrequest.h"
 
 static bool HasCommand(const char* command) {
   std::string check = "command -v ";
@@ -97,6 +98,7 @@ namespace {
 OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
 const int MENU_ID_SEARCH_SELECTION = 10002;
+const int MENU_ID_PREVIEW_IMAGE = 10003;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -1240,6 +1242,28 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "bookmark-subscribe") {
       handler->bookmark_subscription_ = callback;
+      return true;
+    }
+
+    if (msg == "image-preview-subscribe") {
+      handler->image_preview_subscription_ = callback;
+      if (!handler->image_preview_url_.empty()) {
+        std::string event = JsonObjectBuilder()
+          .AddString("key", "load-image")
+          .AddString("url", handler->image_preview_url_)
+          .Build();
+        callback->Success(event);
+      }
+      return true;
+    }
+
+    if (msg == "hide-imagepreview") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideImagePreviewOverlay();
+      }
+      handler->image_preview_url_ = "";
+      callback->Success("");
       return true;
     }
 
@@ -2684,6 +2708,10 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
                         CefString(BuildSearchSelectionMenuLabel(selection_text)));
     }
   }
+
+  if (params->HasImageContents() && !params->GetSourceUrl().empty()) {
+    model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_IMAGE, "Preview Image");
+  }
 }
 
 bool OtfHandler::RunContextMenu(CefRefPtr<CefBrowser> browser,
@@ -2724,6 +2752,25 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     NotifyNewTab(new_id, parent_id);
     app->FocusCurrentTabContent();
 
+    return true;
+  }
+
+  if (command_id == MENU_ID_PREVIEW_IMAGE) {
+    std::string source_url = params->GetSourceUrl().ToString();
+    if (!source_url.empty()) {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        this->image_preview_url_ = source_url;
+        app->ShowImagePreviewOverlay();
+        if (this->image_preview_subscription_) {
+          std::string event = JsonObjectBuilder()
+            .AddString("key", "load-image")
+            .AddString("url", source_url)
+            .Build();
+          this->image_preview_subscription_->Success(event);
+        }
+      }
+    }
     return true;
   }
 
