@@ -6,13 +6,16 @@
 #include <array>
 #include <cctype>
 #include <cerrno>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <fstream>
 #include <regex>
 #include <vector>
@@ -96,6 +99,27 @@ constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_CONTENT_CONTEXT_OPENLINKNEWTAB,
     IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,
 };
+
+// Strict integer parsers for cefQuery payload fields. Reject empty input,
+// leading/trailing junk, and out-of-range values — std::stoi/std::stoul throw
+// on those, which would crash the browser process on malformed messages.
+std::optional<int> ParseIntStrict(std::string_view s) {
+  if (s.empty()) return std::nullopt;
+  int value = 0;
+  const auto* end = s.data() + s.size();
+  auto [ptr, ec] = std::from_chars(s.data(), end, value);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
+}
+
+std::optional<uint32_t> ParseUint32Strict(std::string_view s) {
+  if (s.empty()) return std::nullopt;
+  uint32_t value = 0;
+  const auto* end = s.data() + s.size();
+  auto [ptr, ec] = std::from_chars(s.data(), end, value);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
+}
 
 std::string TrimWhitespaceCopy(const std::string& value) {
   size_t start = 0;
@@ -1464,8 +1488,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("delete-history-item:") == 0) {
+      const auto id = ParseIntStrict(std::string_view(msg).substr(20));
+      if (!id) { callback->Failure(1, "invalid id"); return true; }
       if (handler->store_) {
-        handler->store_->DeleteHistoryItem(std::stoi(msg.substr(20)));
+        handler->store_->DeleteHistoryItem(*id);
       }
       callback->Success("");
       return true;
@@ -1513,8 +1539,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("remove-bookmark:") == 0) {
+      const auto id = ParseIntStrict(std::string_view(msg).substr(16));
+      if (!id) { callback->Failure(1, "invalid id"); return true; }
       if (handler->store_) {
-        handler->store_->RemoveBookmark(std::stoi(msg.substr(16)));
+        handler->store_->RemoveBookmark(*id);
         handler->SendEvent(BuildBookmarkStateEvent(-1, "", false));
       }
       callback->Success("");
@@ -1548,7 +1576,13 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Failure(1, "Invalid bookmark payload");
         return true;
       }
-      const int bookmark_id = std::stoi(msg.substr(cursor, id_end - cursor));
+      const auto bookmark_id_opt =
+          ParseIntStrict(std::string_view(msg).substr(cursor, id_end - cursor));
+      if (!bookmark_id_opt) {
+        callback->Failure(1, "Invalid bookmark payload");
+        return true;
+      }
+      const int bookmark_id = *bookmark_id_opt;
       cursor = id_end + 1;
       bool ok = false;
       const std::string url = ParseLengthPrefixedField(msg, &cursor, &ok);
@@ -1593,7 +1627,12 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("");
     } else if (msg.find("navigate:") == 0) {
       size_t colon = msg.find(':', 9);
-      int tab_id = std::stoi(msg.substr(9, colon - 9));
+      if (colon == std::string::npos) {
+        callback->Failure(1, "invalid id"); return true;
+      }
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(9, colon - 9));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
       std::string url = msg.substr(colon + 1);
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
@@ -1619,7 +1658,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       app->SwitchTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("close-tab:") == 0) {
-      int tab_id = std::stoi(msg.substr(10));
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         app->CloseTab(tab_id);
@@ -1630,32 +1671,40 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg.find("switch-tab:") == 0) {
-      int tab_id = std::stoi(msg.substr(11));
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
       OtfApp* app = OtfApp::GetInstance();
       if (app) app->SwitchTab(tab_id);
       callback->Success("");
     } else if (msg.find("back:") == 0) {
-      int tab_id = std::stoi(msg.substr(5));
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->GoBack();
       callback->Success("");
     } else if (msg.find("forward:") == 0) {
-      int tab_id = std::stoi(msg.substr(8));
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(8));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->GoForward();
       callback->Success("");
     } else if (msg.find("reload:") == 0) {
-      int tab_id = std::stoi(msg.substr(7));
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(7));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->Reload();
       callback->Success("");
     } else if (msg.find("stop:") == 0) {
-      int tab_id = std::stoi(msg.substr(5));
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->StopLoad();
       callback->Success("");
     } else if (msg.find("zoom-in:") == 0) {
-      int tab_id = std::stoi(msg.substr(8));
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(8));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double zoom = b->GetHost()->GetZoomLevel();
@@ -1671,7 +1720,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg.find("zoom-out:") == 0) {
-      int tab_id = std::stoi(msg.substr(9));
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(9));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double zoom = b->GetHost()->GetZoomLevel();
@@ -1687,7 +1738,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg.find("zoom-reset:") == 0) {
-      int tab_id = std::stoi(msg.substr(11));
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         double next_zoom = otf::ZoomReset();
@@ -1776,36 +1829,41 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg.find("cancel-download:") == 0) {
-      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(16)));
-      auto it = handler->download_callbacks_.find(download_id);
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(16));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->download_callbacks_.find(*download_id);
       if (it != handler->download_callbacks_.end()) {
         it->second->Cancel();
       }
       callback->Success("");
     } else if (msg.find("pause-download:") == 0) {
-      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(15)));
-      auto it = handler->download_callbacks_.find(download_id);
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(15));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->download_callbacks_.find(*download_id);
       if (it != handler->download_callbacks_.end()) {
         it->second->Pause();
       }
       callback->Success("");
     } else if (msg.find("resume-download:") == 0) {
-      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(16)));
-      auto it = handler->download_callbacks_.find(download_id);
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(16));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->download_callbacks_.find(*download_id);
       if (it != handler->download_callbacks_.end()) {
         it->second->Resume();
       }
       callback->Success("");
     } else if (msg.find("open-download:") == 0) {
-      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(14)));
-      auto it = handler->downloads_.find(download_id);
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(14));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->downloads_.find(*download_id);
       if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
         OpenPathWithSystemApp(it->second.full_path);
       }
       callback->Success("");
     } else if (msg.find("show-download-in-folder:") == 0) {
-      uint32_t download_id = static_cast<uint32_t>(std::stoul(msg.substr(24)));
-      auto it = handler->downloads_.find(download_id);
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(24));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->downloads_.find(*download_id);
       if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
         RevealPathInFolder(it->second.full_path);
       }
@@ -1828,14 +1886,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     } else if (msg.find("find:") == 0) {
       // find:<tab_id>:<text>
       size_t c1 = msg.find(':', 5);
-      int tab_id = std::stoi(msg.substr(5, c1 - 5));
+      if (c1 == std::string::npos) {
+        callback->Failure(1, "invalid id"); return true;
+      }
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5, c1 - 5));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
       std::string text = msg.substr(c1 + 1);
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->GetHost()->Find(text, true, false, false);  // findNext=false: initial search
       callback->Success("");
     } else if (msg.find("stop-find:") == 0) {
-      int tab_id = std::stoi(msg.substr(10));
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->GetHost()->StopFinding(true);
       callback->Success("");
     } else if (msg.find("findbar-find:") == 0) {
