@@ -636,10 +636,10 @@ bool IsInternalBrowserUiUrl(const std::string& url) {
   }
 
   const char* kInternalUiPages[] = {
-      "/appmenu.html",      "/newtab.html",     "/settings.html",
-      "/findbar.html",      "/downloads.html",  "/downloadsbar.html",
-      "/zoombar.html",      "/history.html",    "/bookmarks.html",
-      "/security.html",     "/fingerprints.html",
+      "/index.html",        "/appmenu.html",    "/newtab.html",
+      "/settings.html",     "/findbar.html",    "/downloads.html",
+      "/downloadsbar.html", "/zoombar.html",    "/history.html",
+      "/bookmarks.html",    "/security.html",   "/fingerprints.html",
       "/insecure_blocked.html", "/pdfviewer.html"};
   for (const char* suffix : kInternalUiPages) {
     if (url.find(suffix) != std::string::npos) {

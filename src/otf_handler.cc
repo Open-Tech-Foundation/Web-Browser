@@ -1174,7 +1174,21 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     // call it — any other frame is denied outright. Web content should never
     // see this API even though CEF injects the JS function globally.
     const std::string frame_url = frame ? frame->GetURL().ToString() : "";
-    if (!IsInternalBrowserUiUrl(frame_url)) {
+    bool trusted_frame = IsInternalBrowserUiUrl(frame_url);
+    if (!trusted_frame) {
+      // Dev mode: Vite serves the shell at the dev-ui-url root with no
+      // /index.html in the path, so the suffix check above misses it.
+      CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+      if (cmd && cmd->HasSwitch("dev-ui-url")) {
+        const std::string dev_ui_url = cmd->GetSwitchValue("dev-ui-url").ToString();
+        if (!dev_ui_url.empty() &&
+            (frame_url == dev_ui_url || frame_url == dev_ui_url + "/" ||
+             frame_url.rfind(dev_ui_url + "/", 0) == 0)) {
+          trusted_frame = true;
+        }
+      }
+    }
+    if (!trusted_frame) {
       callback->Failure(1, "denied");
       return true;
     }
