@@ -1561,7 +1561,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!id) { callback->Failure(1, "invalid id"); return true; }
       if (handler->store_) {
         handler->store_->RemoveBookmark(*id);
-        handler->SendEvent(BuildBookmarkStateEvent(-1, "", false));
+        if (handler->tab_manager_) {
+          for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
+            handler->NotifyBookmarkStateForTab(tab_id);
+          }
+        }
       }
       callback->Success("");
       return true;
@@ -1615,7 +1619,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       handler->store_->UpdateBookmark(bookmark_id, url, title);
-      handler->SendEvent(BuildBookmarkStateEvent(-1, url, true));
+      if (handler->tab_manager_) {
+        for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
+          handler->NotifyBookmarkStateForTab(tab_id);
+        }
+      }
       callback->Success("");
       return true;
     }

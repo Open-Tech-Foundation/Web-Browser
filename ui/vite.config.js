@@ -18,6 +18,7 @@ export default defineConfig({
         findbar: resolve(__dirname, 'findbar.html'),
         zoombar: resolve(__dirname, 'zoombar.html'),
         downloadsbar: resolve(__dirname, 'downloadsbar.html'),
+        bookmarkbar: resolve(__dirname, 'bookmarkbar.html'),
         downloads: resolve(__dirname, 'downloads.html'),
         appmenu: resolve(__dirname, 'appmenu.html'),
         security: resolve(__dirname, 'security.html'),

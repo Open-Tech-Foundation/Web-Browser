@@ -16,6 +16,7 @@ constexpr int kZoomBarBrowserViewId = 1000;
 constexpr int kDownloadsBrowserViewId = 1001;
 constexpr int kAppMenuBrowserViewId = 1002;
 constexpr int kCertificateBrowserViewId = 1003;
+constexpr int kBookmarkBrowserViewId = 1004;
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {
