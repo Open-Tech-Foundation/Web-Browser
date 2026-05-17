@@ -5,6 +5,13 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Emit relative asset URLs (./assets/...) instead of root-absolute ones
+  // (/assets/...). The packaged browser loads pages via file:// (e.g.
+  // file:///opt/otf-browser/ui/index.html); a leading slash resolves to
+  // the filesystem root and the bundled JS/CSS fails to load, leaving the
+  // window empty. Relative paths resolve against the HTML's directory,
+  // which works for both file:// and the dev server.
+  base: './',
   build: {
     outDir: '../build/Release/ui',
     emptyOutDir: true,
