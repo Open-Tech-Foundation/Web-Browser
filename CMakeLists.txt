@@ -105,3 +105,14 @@ target_include_directories(otf-browser-native-tests PRIVATE include)
 target_compile_options(otf-browser-native-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
 target_link_libraries(otf-browser-native-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3)
 add_test(NAME otf-browser-native-tests COMMAND otf-browser-native-tests)
+
+add_executable(otf-browser-extra-tests
+    tests/otf_extra_tests.cc
+    src/otf_utils.cc
+    src/otf_page_policy.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-extra-tests)
+target_include_directories(otf-browser-extra-tests PRIVATE include)
+target_compile_options(otf-browser-extra-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+target_link_libraries(otf-browser-extra-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3)
+add_test(NAME otf-browser-extra-tests COMMAND otf-browser-extra-tests)
