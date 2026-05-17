@@ -86,7 +86,19 @@ jobs:
         run: bun run build:ui
 
       - name: Build C++ Engine
-        run: bun run build:cpp
+        env:
+          # The release tag minus its leading "v" is baked into the binary
+          # so `otf-browser --version` reports the published version (e.g.
+          # "0.1.0-alpha.1") rather than the bare CMakeLists base version.
+          OTF_VERSION: ${{ github.ref_name != '' && (startsWith(github.ref_name, 'v') && github.ref_name || '') || '' }}
+        run: |
+          # Strip the leading "v" if present (no-op for workflow_dispatch on
+          # a branch, which keeps the project's base version).
+          if [ -n "${OTF_VERSION}" ]; then
+            export OTF_VERSION="${OTF_VERSION#v}"
+            echo "Embedding OTF_VERSION=${OTF_VERSION}"
+          fi
+          bun run build:cpp
 
       - name: Run Tests
         run: bun run test
@@ -236,6 +248,9 @@ jobs:
             ${{ env.RPM_SHA256_PATH }}
           generate_release_notes: true
           draft: false
-          prerelease: false
+          # Auto-flag the GitHub Release as pre-release when the tag carries
+          # a -alpha / -beta / -rc suffix. Lets the same workflow ship both
+          # alpha and stable tags without manual intervention.
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.21)
-project(otf-browser)
+project(otf-browser VERSION 0.1.0 LANGUAGES C CXX)
 enable_testing()
+
+# Version string baked into the binary (--version flag + user-agent).
+# Local builds get the CMake project version. CI builds set the OTF_VERSION
+# environment variable to the release tag (stripped of leading "v") so that
+# `--version` on a packaged binary reports e.g. "0.1.0-alpha.1" instead of
+# the bare project version.
+if(DEFINED ENV{OTF_VERSION})
+    set(OTF_VERSION "$ENV{OTF_VERSION}")
+else()
+    set(OTF_VERSION "${PROJECT_VERSION}")
+endif()
+message(STATUS "OTF Browser version: ${OTF_VERSION}")
 
 # Set CMake policies
 cmake_policy(SET CMP0074 NEW)
@@ -63,6 +75,10 @@ SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser)
 
 # Use C++20 (required by CEF) but with permissive flags for GCC 14 compatibility
 target_compile_options(otf-browser PRIVATE -std=c++20 -fpermissive -Wno-error)
+
+# Embed the version so main.cc can surface it via --version and bake it
+# into the User-Agent.
+target_compile_definitions(otf-browser PRIVATE OTF_VERSION="${OTF_VERSION}")
 
 # Link libraries
 target_link_libraries(otf-browser libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3)

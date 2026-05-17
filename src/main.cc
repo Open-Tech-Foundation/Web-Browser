@@ -1,15 +1,31 @@
 #include "include/cef_app.h"
 #include "otf_app.h"
 
+#include <cstdio>
+#include <cstring>
+#include <string>
+
+// Defined by CMake via -DOTF_VERSION="…". Provide a fallback so the source
+// still compiles if someone builds bypassing CMake.
+#ifndef OTF_VERSION
+#define OTF_VERSION "0.0.0-unknown"
+#endif
+
 namespace {
 
-const char* GetOtfUserAgent() {
+std::string GetOtfUserAgent() {
 #if defined(OS_WIN)
-  return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/1.0.0";
+  return std::string("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                     "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
+         OTF_VERSION;
 #elif defined(OS_MAC)
-  return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/1.0.0";
+  return std::string("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                     "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
+         OTF_VERSION;
 #else
-  return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/1.0.0";
+  return std::string("Mozilla/5.0 (X11; Linux x86_64) "
+                     "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
+         OTF_VERSION;
 #endif
 }
 
@@ -29,6 +45,17 @@ int APIENTRY WinMain(HINSTANCE hInstance,
   CefMainArgs main_args(hInstance);
 #else
 int main(int argc, char* argv[]) {
+  // Handle --version / -v before initializing CEF so users can identify a
+  // packaged binary without launching a window. CEF sub-processes (renderer,
+  // gpu, etc.) are spawned with a --type=… flag and never pass --version,
+  // so this check is safe to do here.
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], "--version") == 0 ||
+        std::strcmp(argv[i], "-v") == 0) {
+      std::printf("OTF Browser %s\n", OTF_VERSION);
+      return 0;
+    }
+  }
   CefMainArgs main_args(argc, argv);
 #endif
 
@@ -45,7 +72,7 @@ int main(int argc, char* argv[]) {
   
   // Use a professional cache path
   // CefString(&settings.cache_path).FromASCII("./cache");
-  CefString(&settings.user_agent).FromASCII(GetOtfUserAgent());
+  CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
 
   CefInitialize(main_args, settings, app.get(), nullptr);
 
