@@ -160,7 +160,25 @@ const run = (cmd) => {
 };
 
 run(`git add ${pkgPath} ${cmakePath}`);
-run(`git commit -m ${JSON.stringify(commitMsg)}`);
+
+// If the staged content already matches HEAD (e.g. re-cutting a tag whose
+// version bump was committed in a previous attempt), skip the commit and
+// tag the current HEAD instead — `git commit` would otherwise exit 1 with
+// "nothing to commit, working tree clean".
+let needsCommit = true;
+try {
+  execSync(`git diff --cached --quiet -- ${pkgPath} ${cmakePath}`);
+  needsCommit = false;
+} catch (_) {
+  // non-zero exit from --quiet means there ARE staged changes — commit.
+}
+
+if (needsCommit) {
+  run(`git commit -m ${JSON.stringify(commitMsg)}`);
+} else {
+  console.log(`${COLOR.dim}(version files already at ${fullVersion} — tagging current commit instead of creating an empty one)${COLOR.reset}`);
+}
+
 run(`git tag -a ${tagName} -m ${JSON.stringify(`Release ${tagName}`)}`);
 run(`git push --follow-tags origin ${branch}`);
 
