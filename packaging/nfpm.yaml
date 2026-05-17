@@ -1,0 +1,76 @@
+# nfpm config — produces both .deb and .rpm from one definition.
+# Run via: nfpm package --packager deb --config packaging/nfpm.yaml
+#        nfpm package --packager rpm --config packaging/nfpm.yaml
+#
+# Environment variables read at build time:
+#   VERSION    — package version (the release tag without the leading 'v')
+#   STAGE_DIR  — directory holding the already-built and stripped otf-browser
+#                tree (binary + libcef.so + locales/ + chrome-sandbox + .pak
+#                resources + ui/). Copied verbatim into /opt/otf-browser.
+
+name: otf-browser
+arch: amd64
+platform: linux
+version: "${VERSION}"
+section: web
+priority: optional
+maintainer: "Open Tech Foundation <noreply@opentechf.org>"
+description: |
+  OTF Browser is a privacy-focused web browser built on the
+  Chromium Embedded Framework. Bundled with hardened fingerprinting
+  defenses and a minimal native UI.
+vendor: Open Tech Foundation
+homepage: https://browser.opentechf.org/
+license: AGPL-3.0
+
+contents:
+  # Drop the whole built tree under /opt — CEF needs libcef.so, locales/, the
+  # *.pak resources and chrome-sandbox to live beside otf-browser.
+  - src: ${STAGE_DIR}/
+    dst: /opt/otf-browser/
+    type: tree
+
+  # User-facing launcher on PATH.
+  - src: /opt/otf-browser/otf-browser
+    dst: /usr/bin/otf-browser
+    type: symlink
+
+  # Desktop entry + icon for application menus.
+  - src: packaging/otf-browser.desktop
+    dst: /usr/share/applications/otf-browser.desktop
+  - src: packaging/otf-browser.png
+    dst: /usr/share/icons/hicolor/256x256/apps/otf-browser.png
+
+scripts:
+  # Sets the SUID bit on chrome-sandbox so the Chromium sandbox can launch
+  # with full privilege separation. Without it the binary aborts on startup
+  # unless the user passes --no-sandbox.
+  postinstall: packaging/postinstall.sh
+
+# Per-format runtime dependencies. We bundle libcef.so itself, but the
+# Chromium-derived code links against the host's GTK/NSS/etc. at runtime.
+overrides:
+  deb:
+    depends:
+      - libgtk-3-0 | libgtk-3-0t64
+      - libnss3
+      - libatk1.0-0 | libatk1.0-0t64
+      - libatk-bridge2.0-0 | libatk-bridge2.0-0t64
+      - libcups2 | libcups2t64
+      - libxcomposite1
+      - libxdamage1
+      - libxrandr2
+      - libxtst6
+      - libasound2 | libasound2t64
+  rpm:
+    depends:
+      - gtk3
+      - nss
+      - atk
+      - at-spi2-atk
+      - cups-libs
+      - libXcomposite
+      - libXdamage
+      - libXrandr
+      - libXtst
+      - alsa-lib

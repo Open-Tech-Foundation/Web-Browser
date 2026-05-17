@@ -190,6 +190,41 @@ jobs:
           echo "APPIMAGE_PATH=${APPIMAGE_NAME}" >> $GITHUB_ENV
           echo "APPIMAGE_SHA256_PATH=${APPIMAGE_NAME}.sha256" >> $GITHUB_ENV
 
+      - name: Build .deb and .rpm packages
+        env:
+          NFPM_VERSION: "2.46.3"
+          # SHA256 of nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz from the
+          # release's checksums.txt. Pinned so an upstream swap fails loudly.
+          NFPM_SHA256: "9170d25ea056d7329def38134b2bcad98d02d221f8331610dcd619e84d28c565"
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          # Download and verify nfpm.
+          curl -fLo /tmp/nfpm.tar.gz \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          echo "${NFPM_SHA256}  /tmp/nfpm.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/nfpm.tar.gz -C /tmp nfpm
+          chmod +x /tmp/nfpm
+
+          # The 256x256 PNG icon was already rendered for the AppImage step,
+          # so reuse it from the AppDir layout for nfpm.
+          cp "otf-browser.AppDir/usr/share/icons/hicolor/256x256/apps/otf-browser.png" \
+            packaging/otf-browser.png
+
+          # nfpm.yaml reads STAGE_DIR/VERSION from env.
+          export VERSION
+          export STAGE_DIR="${PACKAGE_NAME}"
+
+          /tmp/nfpm package --packager deb --config packaging/nfpm.yaml --target "otf-browser_${VERSION}_amd64.deb"
+          /tmp/nfpm package --packager rpm --config packaging/nfpm.yaml --target "otf-browser-${VERSION}-1.x86_64.rpm"
+
+          sha256sum "otf-browser_${VERSION}_amd64.deb" > "otf-browser_${VERSION}_amd64.deb.sha256"
+          sha256sum "otf-browser-${VERSION}-1.x86_64.rpm" > "otf-browser-${VERSION}-1.x86_64.rpm.sha256"
+
+          echo "DEB_PATH=otf-browser_${VERSION}_amd64.deb" >> $GITHUB_ENV
+          echo "DEB_SHA256_PATH=otf-browser_${VERSION}_amd64.deb.sha256" >> $GITHUB_ENV
+          echo "RPM_PATH=otf-browser-${VERSION}-1.x86_64.rpm" >> $GITHUB_ENV
+          echo "RPM_SHA256_PATH=otf-browser-${VERSION}-1.x86_64.rpm.sha256" >> $GITHUB_ENV
+
       - name: Create Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         if: startsWith(github.ref, 'refs/tags/')
@@ -199,6 +234,10 @@ jobs:
             ${{ env.ASSET_SHA256_PATH }}
             ${{ env.APPIMAGE_PATH }}
             ${{ env.APPIMAGE_SHA256_PATH }}
+            ${{ env.DEB_PATH }}
+            ${{ env.DEB_SHA256_PATH }}
+            ${{ env.RPM_PATH }}
+            ${{ env.RPM_SHA256_PATH }}
           generate_release_notes: true
           draft: false
           prerelease: false
