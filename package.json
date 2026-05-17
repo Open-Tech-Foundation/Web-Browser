@@ -8,6 +8,9 @@
     "dev:browser": "./build/Release/otf-browser --no-sandbox --dev-ui-url=http://localhost:3000 --ozone-platform=x11",
     "build:ui": "bun x vite build ui",
     "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
+    "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser-native-tests otf-browser-extra-tests && ctest --output-on-failure",
+    "test:js": "node --test ui/src/shared/search.test.js",
+    "test": "bun run test:cpp && bun run test:js",
     "setup": "./setup_deps.sh"
   },
   "dependencies": {
