@@ -72,6 +72,10 @@ bool OtfStore::Open() {
     return false;
   }
   Exec("PRAGMA foreign_keys = ON;");
+  // Zero deleted content on disk so cleared history / bookmarks / downloads
+  // can't be recovered by carving the SQLite file. Slight write cost; this
+  // database is tiny so the tradeoff is fine.
+  Exec("PRAGMA secure_delete = ON;");
   return RunMigrations();
 }
 
