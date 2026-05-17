@@ -84,7 +84,13 @@ std::string ToLowerCopy(const std::string& value) {
 }
 
 bool IsLoopbackHost(const std::string& host) {
-  const std::string lower_host = ToLowerCopy(host);
+  std::string lower_host = ToLowerCopy(host);
+  // CEF reports IPv6 hosts wrapped in brackets ("[::1]"). Strip them so the
+  // bare-address comparison matches.
+  if (lower_host.size() >= 2 && lower_host.front() == '[' &&
+      lower_host.back() == ']') {
+    lower_host = lower_host.substr(1, lower_host.size() - 2);
+  }
   return lower_host == "localhost" || lower_host == "127.0.0.1" ||
          lower_host == "::1";
 }
