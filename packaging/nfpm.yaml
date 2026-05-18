@@ -74,6 +74,16 @@ overrides:
       - libxrandr2
       - libxtst6
       - libasound2 | libasound2t64
+      # Graphics loader shims. Chromium dlopen's these to probe the host's
+      # GL/Vulkan stack; the actual drivers (mesa, nvidia-*) come from the
+      # user's system. Without the loaders present the GPU probe fails in
+      # ways the built-in blocklist can't correct.
+      - libgl1
+      - libegl1
+      - libgles2
+      - libvulkan1
+      - libxkbcommon0
+      - libxshmfence1
   rpm:
     depends:
       - gtk3
@@ -86,3 +96,11 @@ overrides:
       - libXrandr
       - libXtst
       - alsa-lib
+      # See deb section — Chromium needs GL/Vulkan loader shims present so
+      # the GPU process can probe and negotiate a backend.
+      - mesa-libGL
+      - mesa-libEGL
+      - libglvnd-gles
+      - vulkan-loader
+      - libxkbcommon
+      - libxshmfence
