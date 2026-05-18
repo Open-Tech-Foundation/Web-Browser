@@ -36,7 +36,14 @@ export default function FingerprintsPage() {
 
     const updateReportScore = () => {
       const items = [...document.querySelectorAll('[data-report-item]')];
-      const scoredItems = items.filter((item) => item.dataset.status && item.dataset.status !== 'checking');
+      // 'pending' is a real status for tests that need a user gesture
+      // (e.g. local-font-api). Treat it the same as 'checking' — not yet
+      // complete, doesn't count toward the score, holds back the export
+      // button until the user actually runs it.
+      const scoredItems = items.filter((item) =>
+        item.dataset.status &&
+        item.dataset.status !== 'checking' &&
+        item.dataset.status !== 'pending');
       const total = items.length;
       const current = scoredItems.reduce((sum, item) => sum + (scoreValue[item.dataset.status] ?? 0), 0);
       const score = total ? Math.round((current / total) * 100) : 0;
@@ -77,7 +84,10 @@ export default function FingerprintsPage() {
       const detailNode = item.querySelector('.report-detail');
       item.dataset.status = status;
       icon.className = 'report-icon ' + status;
-      icon.textContent = status === 'ok' ? '✓' : status === 'fail' ? '×' : '!';
+      icon.textContent = status === 'ok' ? '✓'
+        : status === 'fail' ? '×'
+        : status === 'pending' ? '?'
+        : '!';
       behaviorNode.textContent = behavior;
       detailNode.textContent = detail || '';
       updateReportScore();
@@ -813,18 +823,14 @@ export default function FingerprintsPage() {
         }
       };
 
-      let localFontsResult = 'unavailable';
-      try {
-        if (typeof globalThis.queryLocalFonts === 'function') {
-          const fonts = await Promise.race([
-            globalThis.queryLocalFonts(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
-          ]);
-          localFontsResult = `available:${fonts.length}`;
-        }
-      } catch (error) {
-        localFontsResult = `${error.name}: ${error.message}`;
-      }
+      // The Local Font Access API requires a user gesture and a permission
+      // grant. Auto-running it here from the test harness produces
+      // misleading results: with no gesture the call rejects or returns
+      // empty regardless of whether the browser would actually protect a
+      // legitimate caller. Set up a manual "Run check" button instead so
+      // the user clicks it, the prompt fires, they Allow, and we measure
+      // what the browser does *after* a real grant — the only state where
+      // a protection claim is meaningful. See setupLocalFontApiCheck below.
 
       const rangeMetrics = probeFonts.map((font) => [font, measureRange(`"${font}"`)]);
       const svgMetrics = probeFonts.map((font) => [font, measureSvg(`"${font}"`)]);
@@ -838,21 +844,12 @@ export default function FingerprintsPage() {
       const uniqueSvgBBoxes = new Set(svgMetrics.map(([, value]) => value.bbox)).size;
       const uniqueSvgLengths = new Set(svgMetrics.map(([, value]) => value.computedLength)).size;
       const fontFaceLoaded = fontFaceResults.filter(([, value]) => value === 'loaded').length;
-      const localFontsBlocked = localFontsResult === 'unavailable' ||
-        /^SecurityError:/.test(localFontsResult) ||
-        /timeout/i.test(localFontsResult) ||
-        localFontsResult === 'available:0';
-      setReportItem('local-font-api',
-        localFontsBlocked ? 'ok' : 'fail',
-        localFontsBlocked ? 'queryLocalFonts unavailable or denied' : 'queryLocalFonts exposed font list',
-        localFontsResult);
       const leaks = [
         uniqueRangeRects > 1,
         uniqueRangeClientRects > 1,
         uniqueSvgBBoxes > 1,
         uniqueSvgLengths > 1,
         fontFaceLoaded > 0,
-        !localFontsBlocked
       ].filter(Boolean).length;
       const status = leaks === 0 ? 'ok' : leaks <= 2 ? 'warn' : 'fail';
       const caseRows = [
@@ -884,13 +881,6 @@ export default function FingerprintsPage() {
           current: `${fontFaceLoaded} local font loads succeeded.`,
           why: 'local() can directly test whether a font exists.'
         },
-        {
-          title: 'Local Font Access API',
-          status: localFontsBlocked ? 'PASS' : 'FAIL',
-          expected: 'Unavailable, denied, or empty result.',
-          current: localFontsResult,
-          why: 'queryLocalFonts can enumerate installed fonts directly.'
-        }
       ];
       const failedCases = caseRows.filter((item) => item.status === 'FAIL').map((item) => item.title);
       const behavior = failedCases.length === 0
@@ -916,7 +906,6 @@ export default function FingerprintsPage() {
           ['SVG unique text lengths', String(uniqueSvgLengths)],
           ['SVG probes', svgMetrics.map(([font, value]) => `${font}: bbox ${value.bbox}, len ${value.computedLength}`).join(' || ')],
           ['FontFace local() results', fontFaceResults.map(([font, value]) => `${font}: ${value}`).join(' | ')],
-          ['queryLocalFonts', localFontsResult]
         ]);
     };
 
@@ -1252,6 +1241,51 @@ export default function FingerprintsPage() {
       }
     };
 
+    // Kick off the Local Font Access API check. Must run synchronously
+    // inside the Start-button click handler so transient user activation
+    // is still valid when queryLocalFonts asks Chromium to show the
+    // permission prompt. We don't await — the prompt resolves in parallel
+    // with the rest of the suite; whenever the user responds (or the
+    // 30-second timeout fires), the report row updates.
+    const triggerLocalFontApiCheck = () => {
+      if (typeof globalThis.queryLocalFonts !== 'function') {
+        setReportItem('local-font-api', 'ok',
+          'Local Font Access API not exposed',
+          'globalThis.queryLocalFonts is undefined in this runtime.');
+        return;
+      }
+      const TIMEOUT_MS = 30000;
+      Promise.race([
+        globalThis.queryLocalFonts(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('user-no-response')), TIMEOUT_MS)),
+      ]).then((fonts) => {
+        const count = Array.isArray(fonts) ? fonts.length : 0;
+        if (count > 0) {
+          const sample = fonts.slice(0, 3)
+            .map((f) => f.fullName || f.postscriptName || f.family || '?')
+            .join(', ');
+          setReportItem('local-font-api', 'fail',
+            `queryLocalFonts exposed ${count} fonts after permission grant`,
+            `Sample: ${sample}`);
+        } else {
+          setReportItem('local-font-api', 'ok',
+            'queryLocalFonts returned empty list',
+            'Browser refuses to enumerate fonts even when the user granted permission.');
+        }
+      }).catch((error) => {
+        if (error && error.message === 'user-no-response') {
+          setReportItem('local-font-api', 'warn',
+            'Local Font Access prompt unanswered',
+            'User did not respond to the Chromium permission prompt within 30s.');
+        } else {
+          setReportItem('local-font-api', 'ok',
+            'queryLocalFonts denied or threw',
+            `${error.name}: ${error.message}`);
+        }
+      });
+    };
+
     const runAllTests = () => {
       runSideEffectsTest();
       runInjectionTest();
@@ -1268,6 +1302,11 @@ export default function FingerprintsPage() {
     const startBtn = document.getElementById('start-tests-btn');
     if (startBtn) {
       startBtn.addEventListener('click', () => {
+        // queryLocalFonts must be invoked synchronously inside this click
+        // handler — Chromium consumes the transient activation here. If
+        // we ran the rest of the suite first the prompt would silently
+        // fail to appear.
+        triggerLocalFontApiCheck();
         startBtn.disabled = true;
         startBtn.textContent = 'Running…';
         setActiveSection('privacy');
