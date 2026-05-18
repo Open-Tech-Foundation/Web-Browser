@@ -110,6 +110,7 @@ const Settings = () => {
   const [httpsOnly, setHttpsOnly] = useState(false);
   const [blockInsecure, setBlockInsecure] = useState(true);
   const [appearanceMode, setAppearanceMode] = useState('auto');
+  const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '', cef: '' });
 
   // Reset Section State
   const [resetItems, setResetItems] = useState({
@@ -182,6 +183,17 @@ const Settings = () => {
       window.cefQuery({
         request: 'get-my-tab-id',
         onSuccess: (id) => setTabId(parseInt(id))
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: 'get-version-info',
+        onSuccess: (response) => {
+          try { setVersionInfo(JSON.parse(response)); } catch (_) {}
+        }
       });
     }
   }, []);
@@ -812,15 +824,15 @@ const Settings = () => {
                     <div className="grid grid-cols-1 gap-4">
                       <div className="py-4 border-b border-main">
                         <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Browser Version</div>
-                        <div className="text-main font-mono text-sm">1.0.0 (Official Build)</div>
+                        <div className="text-main font-mono text-sm">{versionInfo.browser || '—'}</div>
                       </div>
                       <div className="py-4 border-b border-main">
                         <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Chromium Version</div>
-                        <div className="text-main font-mono text-sm">147.0.7727.118</div>
+                        <div className="text-main font-mono text-sm">{versionInfo.chromium || '—'}</div>
                       </div>
                       <div className="py-4">
                         <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">CEF Version</div>
-                        <div className="text-main font-mono text-sm break-all leading-relaxed">147.0.10+gd58e84d+chromium-147.0.7727.118</div>
+                        <div className="text-main font-mono text-sm break-all leading-relaxed">{versionInfo.cef || '—'}</div>
                       </div>
                     </div>
                   </section>

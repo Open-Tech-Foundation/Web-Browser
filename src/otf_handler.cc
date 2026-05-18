@@ -32,6 +32,11 @@
 
 #include "include/base/cef_callback.h"
 #include "include/cef_app.h"
+#include "include/cef_version.h"
+
+#ifndef OTF_VERSION
+#define OTF_VERSION "0.0.0-unknown"
+#endif
 #include "include/cef_cookie.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_context.h"
@@ -1237,6 +1242,18 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "get-my-tab-id") {
       CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
       callback->Success(view ? std::to_string(view->GetID()) : "0");
+      return true;
+    }
+
+    if (msg == "get-version-info") {
+      const std::string chromium = std::to_string(CHROME_VERSION_MAJOR) + "." +
+                                   std::to_string(CHROME_VERSION_MINOR) + "." +
+                                   std::to_string(CHROME_VERSION_BUILD) + "." +
+                                   std::to_string(CHROME_VERSION_PATCH);
+      std::string json = std::string("{\"browser\":\"") + OTF_VERSION +
+                         "\",\"chromium\":\"" + chromium +
+                         "\",\"cef\":\"" + CEF_VERSION + "\"}";
+      callback->Success(json);
       return true;
     }
 
