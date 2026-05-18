@@ -12,6 +12,7 @@
 #include <libgen.h>
 #include <limits.h>
 #include <pwd.h>
+#include <mutex>
 #include <sstream>
 #include <sys/types.h>
 #include <unistd.h>
@@ -23,6 +24,7 @@
 
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
+#include <vips/vips.h>
 
 namespace otf {
 
@@ -190,6 +192,15 @@ std::optional<int> ParseIntStrict(std::string_view s) {
 std::optional<uint32_t> ParseUint32Strict(std::string_view s) {
   if (s.empty()) return std::nullopt;
   uint32_t value = 0;
+  const auto* end = s.data() + s.size();
+  auto [ptr, ec] = std::from_chars(s.data(), end, value);
+  if (ec != std::errc{} || ptr != end) return std::nullopt;
+  return value;
+}
+
+std::optional<uint64_t> ParseUint64Strict(std::string_view s) {
+  if (s.empty()) return std::nullopt;
+  uint64_t value = 0;
   const auto* end = s.data() + s.size();
   auto [ptr, ec] = std::from_chars(s.data(), end, value);
   if (ec != std::errc{} || ptr != end) return std::nullopt;
@@ -742,21 +753,19 @@ bool IsInternalBrowserUiUrl(const std::string& url) {
   if (url.rfind("browser://", 0) == 0) {
     return true;
   }
-  // Only file:// is trusted by this check. Web origins (http/https) match
-  // separately via the dev-ui-url gate at the call site — never here. The
-  // previous implementation did a substring search for "/newtab.html" with
-  // no scheme restriction, which let an attacker page at
-  // http://evil.com/newtab.html (or even http://evil.com/?x=/newtab.html)
-  // be classified as a trusted internal UI URL.
-  if (url.rfind("file://", 0) != 0) {
-    return false;
-  }
-  return IsInternalUiPagePath(url);
+  // Web origins (http/https) match separately via the dev-ui-url gate at the
+  // call site — never here. file:// is also never trusted; production UI is
+  // served through browser:// so local files cannot gain bridge privileges by
+  // using an allowlisted filename like /tmp/index.html.
+  return false;
 }
 
 bool IsInternalUiUrl(const std::string& url) {
   if (url.rfind("browser://", 0) == 0) {
     return true;
+  }
+  if (url.rfind("file://", 0) == 0) {
+    return false;
   }
   return IsInternalUiPagePath(url);
 }
@@ -872,6 +881,94 @@ double ZoomOut(double current_zoom_level) {
 
 double ZoomReset() {
   return 0.0;  // 0.0 corresponds to 100 %
+}
+
+namespace {
+
+// 32 MB cap on encoded PNG output — anything larger gets rejected before we
+// base64-encode and ship it across the message router.
+constexpr size_t kMaxTiffPngBytes = 32 * 1024 * 1024;
+
+bool EnsureVipsInit() {
+  static std::once_flag flag;
+  static bool ok = false;
+  std::call_once(flag, []() {
+    ok = (VIPS_INIT("otf-browser") == 0);
+  });
+  return ok;
+}
+
+bool FinishVipsToBase64(VipsImage* in, int page, std::string& out_png_base64, int& out_page_count) {
+  int n_pages = 1;
+  if (vips_image_get_typeof(in, "n-pages") == G_TYPE_INT) {
+    vips_image_get_int(in, "n-pages", &n_pages);
+  }
+  out_page_count = n_pages;
+
+  void* buf = nullptr;
+  size_t len = 0;
+  if (vips_pngsave_buffer(in, &buf, &len, NULL)) {
+    vips_error_clear();
+    g_object_unref(in);
+    return false;
+  }
+  if (len > kMaxTiffPngBytes) {
+    g_free(buf);
+    g_object_unref(in);
+    return false;
+  }
+
+  CefString base64_str = CefBase64Encode(buf, len);
+  out_png_base64 = "data:image/png;base64," + base64_str.ToString();
+
+  g_free(buf);
+  g_object_unref(in);
+  return true;
+}
+
+}  // namespace
+
+bool IsTiffUrl(const std::string& url) {
+  // Strip query/fragment then test the lowercase suffix.
+  size_t end = url.find_first_of("?#");
+  std::string path = (end == std::string::npos) ? url : url.substr(0, end);
+  std::transform(path.begin(), path.end(), path.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  auto ends_with = [](const std::string& s, const char* suf) {
+    size_t n = std::strlen(suf);
+    return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
+  };
+  return ends_with(path, ".tif") || ends_with(path, ".tiff");
+}
+
+bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& out_png_base64, int& out_page_count) {
+  if (!EnsureVipsInit()) return false;
+  VipsImage* in = vips_image_new_from_file(tiff_path.c_str(), "page", page, NULL);
+  if (!in) {
+    vips_error_clear();
+    return false;
+  }
+  return FinishVipsToBase64(in, page, out_png_base64, out_page_count);
+}
+
+bool DecodeTiffBufferToPngBase64(const void* data, size_t size, int page, std::string& out_png_base64, int& out_page_count) {
+  if (!EnsureVipsInit() || !data || size == 0) return false;
+  VipsImage* in = vips_image_new_from_buffer(data, size, "", "page", page, NULL);
+  if (!in) {
+    vips_error_clear();
+    return false;
+  }
+  return FinishVipsToBase64(in, page, out_png_base64, out_page_count);
+}
+
+ImagePreviewPayload BuildImagePreviewPayload(const std::string& url, int page) {
+  ImagePreviewPayload payload;
+  payload.display_url = url;
+  payload.page_count = 1;
+  if (!IsTiffUrl(url)) return payload;
+  // Local file access is intentionally disabled for browser content. Remote
+  // TIFFs are decoded by the renderer-driven async path.
+  return payload;
 }
 
 } // namespace otf

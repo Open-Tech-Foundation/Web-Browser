@@ -4,10 +4,12 @@
 #include <map>
 #include <list>
 #include <memory>
+#include <cstdint>
 #include "include/cef_client.h"
 #include "include/cef_download_handler.h"
 #include "include/wrapper/cef_message_router.h"
 #include "otf_browser_shell.h"
+#include "otf_devtools_bridge.h"
 #include "otf_store.h"
 
 namespace otf {
@@ -173,15 +175,32 @@ class OtfHandler : public CefClient,
   // producer attached to the PopupOverlay. The producer reads this field,
   // which is set by the show-clear-site-data:<origin> handler.
   std::string pending_cleardata_origin_;
+
+  // Async DevTools-protocol callback router. Attached to the UI shell
+  // browser in OnAfterCreated. Used by get-storage-for-site to call
+  // Storage.getUsageAndQuota and route the response back to the
+  // originating cefQuery callback.
+  CefRefPtr<DevToolsBridge> devtools_bridge_;
   std::map<int, CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback>> tab_image_preview_subscriptions_;
 
   std::map<int, std::string> tab_image_preview_urls_;
+  // Trusted local files selected from persisted download records. The
+  // renderer only receives browser://image-preview/... tokens; it never gets
+  // a file:// URL or raw filesystem path.
+  std::map<int, std::string> tab_image_preview_local_files_;
   // Per-tab TIFF navigation state. Persisted in C++ so tab switches and
   // re-subscribes restore the page the user was viewing.
   std::map<int, int> tab_image_preview_pages_;
   std::map<int, int> tab_image_preview_page_counts_;
+  std::map<int, uint64_t> tab_image_preview_decode_nonces_;
   void SetImagePreviewUrlForTab(int tab_id, const std::string& url);
+  void SetImagePreviewLocalFileForTab(int tab_id,
+                                      const std::string& public_url,
+                                      const std::string& file_path);
   std::string GetImagePreviewUrlForTab(int tab_id) const;
+  std::string GetImagePreviewLocalFileForTab(int tab_id) const;
+  uint64_t BumpImagePreviewDecodeNonceForTab(int tab_id);
+  uint64_t GetImagePreviewDecodeNonceForTab(int tab_id) const;
   void SetImagePreviewPageForTab(int tab_id, int page);
   int GetImagePreviewPageForTab(int tab_id) const;
   void SetImagePreviewPageCountForTab(int tab_id, int count);
@@ -241,6 +260,12 @@ class OtfHandler : public CefClient,
   // expects to mean "use the global context".
   CefRefPtr<CefRequestContext> GetActiveWorkspaceRequestContext();
   CefRefPtr<CefRequestContext> GetWorkspaceRequestContext(int workspace_id);
+  // Snapshot the live state of every tab in a workspace and replace the
+  // persisted workspace_tabs rows for it. Called from per-tab change hooks
+  // (address/title/favicon) and lifecycle events (new/close/switch) so a
+  // crash or quit never loses more than the most recent change.
+  void PersistWorkspaceTabs(int workspace_id);
+  void PersistWorkspaceForTab(int tab_id);
 
  private:
   const bool use_alloy_style_;

@@ -98,6 +98,15 @@ void TestParseUint32Strict() {
     std::cout << "TestParseUint32Strict passed" << std::endl;
 }
 
+void TestParseUint64Strict() {
+    assert(otf::ParseUint64Strict("0").value() == 0ull);
+    assert(otf::ParseUint64Strict("18446744073709551615").value() ==
+           18446744073709551615ull);
+    assert(!otf::ParseUint64Strict("").has_value());
+    assert(!otf::ParseUint64Strict("12abc").has_value());
+    std::cout << "TestParseUint64Strict passed" << std::endl;
+}
+
 void TestIsAllowedSearchEngineId() {
     for (const char* id : {"google", "bing", "yahoo", "duckduckgo", "baidu",
                             "yandex", "ecosia", "naver", "startpage"}) {
@@ -118,6 +127,7 @@ int main() {
     TestHtmlAttrEscape();
     TestParseIntStrict();
     TestParseUint32Strict();
+    TestParseUint64Strict();
     TestIsAllowedSearchEngineId();
     std::cout << "All extra native tests passed!" << std::endl;
     return 0;

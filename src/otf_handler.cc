@@ -104,6 +104,9 @@ OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
 const int MENU_ID_SEARCH_SELECTION = 10002;
 const int MENU_ID_PREVIEW_IMAGE = 10003;
+const int MENU_ID_TAB_CLOSE = 10004;
+const int MENU_ID_TAB_CLOSE_OTHERS = 10005;
+const int MENU_ID_TAB_NEW = 10006;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -113,6 +116,9 @@ constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
 
 using ::otf::ParseIntStrict;
 using ::otf::ParseUint32Strict;
+using ::otf::ParseUint64Strict;
+
+constexpr size_t kMaxTiffInputBytes = 64 * 1024 * 1024;
 
 std::string TrimWhitespaceCopy(const std::string& value) {
   size_t start = 0;
@@ -451,6 +457,25 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
   return builder.Build();
 }
 
+std::string BuildWorkspacesJson(const std::vector<Workspace>& workspaces,
+                                int active_workspace_id) {
+  std::stringstream ss;
+  ss << "[";
+  for (size_t i = 0; i < workspaces.size(); ++i) {
+    const auto& w = workspaces[i];
+    ss << JsonObjectBuilder()
+              .AddInt("id", w.id)
+              .AddString("name", w.name)
+              .AddString("color", w.color)
+              .AddInt("position", w.position)
+              .AddBool("active", w.id == active_workspace_id)
+              .Build();
+    if (i + 1 < workspaces.size()) ss << ",";
+  }
+  ss << "]";
+  return ss.str();
+}
+
 std::string BuildTabPropertyEvent(int tab_id,
                                   const std::string& key,
                                   const std::string& value) {
@@ -661,6 +686,51 @@ std::string DownloadDisplayName(const std::string& suggested_name,
     }
   }
   return "download";
+}
+
+bool IsTiffFileWithinInputLimit(const std::string& file_path,
+                                std::string* error_reason) {
+  std::error_code ec;
+  const uint64_t file_size = std::filesystem::file_size(file_path, ec);
+  if (ec) {
+    if (error_reason) {
+      *error_reason = "Could not read TIFF file";
+    }
+    return false;
+  }
+  if (file_size > kMaxTiffInputBytes) {
+    if (error_reason) {
+      *error_reason = "TIFF exceeds 64 MB size limit";
+    }
+    return false;
+  }
+  return true;
+}
+
+bool DecodeLocalTiffPreview(const std::string& file_path,
+                            int page_index,
+                            std::string* png_base64,
+                            int* page_count,
+                            std::string* error_reason) {
+  if (!IsTiffFileWithinInputLimit(file_path, error_reason)) {
+    return false;
+  }
+  std::string local_png;
+  int local_page_count = 1;
+  if (!otf::DecodeTiffToPngBase64(file_path, page_index, local_png,
+                                  local_page_count)) {
+    if (error_reason && error_reason->empty()) {
+      *error_reason = "Failed to decode TIFF image";
+    }
+    return false;
+  }
+  if (png_base64) {
+    *png_base64 = std::move(local_png);
+  }
+  if (page_count) {
+    *page_count = local_page_count;
+  }
+  return true;
 }
 
 int FindDownloadRecordId(const std::map<int, OtfHandler::DownloadState>& downloads,
@@ -1195,16 +1265,25 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
  public:
   OtfTiffDecodeClient(int page,
                       int tab_id,
+                      uint64_t decode_nonce,
                       CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback)
-      : page_(page), tab_id_(tab_id), callback_(callback) {}
+      : page_(page), tab_id_(tab_id), decode_nonce_(decode_nonce), callback_(callback) {}
 
   void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+    if (rejected_) {
+      callback_->Failure(1, reject_reason_);
+      return;
+    }
+    OtfHandler* h = OtfHandler::GetInstance();
+    if (h && tab_id_ != -1 && h->GetImagePreviewDecodeNonceForTab(tab_id_) != decode_nonce_) {
+      callback_->Success(JsonObjectBuilder().AddBool("stale", true).Build());
+      return;
+    }
     if (request->GetRequestStatus() == UR_SUCCESS && !data_buffer_.empty()) {
       std::string png_base64;
       int page_count = 1;
       if (otf::DecodeTiffBufferToPngBase64(data_buffer_.data(), data_buffer_.size(),
                                            page_, png_base64, page_count)) {
-        OtfHandler* h = OtfHandler::GetInstance();
         if (h && tab_id_ != -1) {
           h->SetImagePreviewPageForTab(tab_id_, page_);
           h->SetImagePreviewPageCountForTab(tab_id_, page_count);
@@ -1222,9 +1301,21 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
   }
 
   void OnUploadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
-  void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+  void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {
+    if (total > 0 && static_cast<uint64_t>(total) > kMaxTiffInputBytes) {
+      RejectAndCancel(request);
+    }
+  }
   
   void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t data_length) override {
+    if (rejected_) {
+      return;
+    }
+    if (data_length > kMaxTiffInputBytes ||
+        data_buffer_.size() > kMaxTiffInputBytes - data_length) {
+      RejectAndCancel(request);
+      return;
+    }
     const char* bytes = static_cast<const char*>(data);
     data_buffer_.insert(data_buffer_.end(), bytes, bytes + data_length);
   }
@@ -1239,10 +1330,25 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
   }
 
  private:
+  void RejectAndCancel(CefRefPtr<CefURLRequest> request) {
+    if (rejected_) {
+      return;
+    }
+    rejected_ = true;
+    reject_reason_ = "Remote TIFF exceeds 64 MB size limit";
+    data_buffer_.clear();
+    if (request) {
+      request->Cancel();
+    }
+  }
+
   int page_;
   int tab_id_;
+  uint64_t decode_nonce_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback_;
   std::vector<char> data_buffer_;
+  bool rejected_ = false;
+  std::string reject_reason_;
 
   IMPLEMENT_REFCOUNTING(OtfTiffDecodeClient);
 };
@@ -1260,7 +1366,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                CefRefPtr<Callback> callback) override {
     // The cefQuery bridge exposes privileged operations (settings I/O, tab
     // navigation, downloads, restart, etc.). Only the internal UI surface
-    // (browser://, file://.../ui/*.html, or the dev-ui server) is trusted to
+    // (browser:// or the dev-ui server) is trusted to
     // call it — any other frame is denied outright. Web content should never
     // see this API even though CEF injects the JS function globally.
     const std::string frame_url = frame ? frame->GetURL().ToString() : "";
@@ -1411,14 +1517,59 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("download-image:", 0) == 0) {
       std::string download_url = msg.substr(15);
+      int tab_id = -1;
+      std::string local_path;
       if (download_url.rfind("browser://image-preview/", 0) == 0 || download_url.empty()) {
         if (handler && handler->tab_manager_) {
-          int tab_id = handler->tab_manager_->GetId(browser);
+          tab_id = handler->tab_manager_->GetId(browser);
           std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
           if (!mapped_url.empty()) {
             download_url = mapped_url;
           }
+          local_path = handler->GetImagePreviewLocalFileForTab(tab_id);
         }
+      }
+      if (!local_path.empty()) {
+        std::error_code ec;
+        const std::filesystem::path source_path(local_path);
+        const std::string suggested_name =
+            source_path.filename().empty()
+                ? "download.tiff"
+                : SanitizeFilename(source_path.filename().string());
+        const std::string target_path = otf::BuildDownloadPath(suggested_name);
+        std::filesystem::copy_file(local_path, target_path,
+                                   std::filesystem::copy_options::none, ec);
+        if (ec) {
+          callback->Failure(0, "Could not save TIFF file");
+          return true;
+        }
+        if (handler->store_) {
+          const auto file_size = std::filesystem::file_size(local_path, ec);
+          const int download_id = handler->store_->CreateDownload(
+              download_url, local_path, target_path, suggested_name,
+              "image/tiff", "completed");
+          if (download_id > 0) {
+            PersistedDownload download;
+            download.id = download_id;
+            download.url = download_url;
+            download.original_url = local_path;
+            download.target_path = target_path;
+            download.filename = suggested_name;
+            download.total_bytes = ec ? 0 : static_cast<int64_t>(file_size);
+            download.received_bytes = ec ? 0 : static_cast<int64_t>(file_size);
+            download.status = "completed";
+            download.mime_type = "image/tiff";
+            handler->store_->UpdateDownload(download);
+            handler->NotifyDownloadsChanged();
+            handler->NotifyDownloadBadge();
+          }
+        }
+        callback->Success("");
+        return true;
+      }
+      if (download_url.rfind("file://", 0) == 0) {
+        callback->Failure(1, "file scheme is disabled");
+        return true;
       }
       browser->GetHost()->StartDownload(download_url);
       callback->Success("");
@@ -1434,31 +1585,34 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           if (!mapped_url.empty()) {
             img_url = mapped_url;
           }
+          const std::string local_path =
+              handler->GetImagePreviewLocalFileForTab(tab_id);
+          if (!local_path.empty()) {
+            std::error_code ec;
+            const auto size = std::filesystem::file_size(local_path, ec);
+            if (!ec) {
+              callback->Success(std::to_string(size));
+            } else {
+              callback->Failure(0, "Could not read downloaded file size");
+            }
+            return true;
+          }
         }
       }
 
       if (img_url.rfind("file://", 0) == 0) {
-        std::string file_path = img_url.substr(7);
-#if defined(_WIN32)
-        if (file_path.length() > 2 && file_path[0] == '/' && file_path[2] == ':') {
-          file_path = file_path.substr(1);
-        }
-#endif
-        std::ifstream file(file_path, std::ios::binary | std::ios::ate);
-        if (file.is_open()) {
-          std::streamsize size = file.tellg();
-          callback->Success(std::to_string(size));
-        } else {
-          callback->Failure(0, "Could not open local file");
-        }
+        callback->Failure(1, "file scheme is disabled");
         return true;
       }
       if (img_url.rfind("http://", 0) == 0 || img_url.rfind("https://", 0) == 0) {
+        CefRefPtr<CefRequestContext> request_context =
+            browser ? browser->GetHost()->GetRequestContext()
+                    : CefRequestContext::GetGlobalContext();
         CefRefPtr<CefRequest> request = CefRequest::Create();
         request->SetURL(img_url);
         request->SetMethod("HEAD");
         CefRefPtr<OtfSizeRequestClient> client = new OtfSizeRequestClient(callback);
-        CefURLRequest::Create(request, client, nullptr);
+        CefURLRequest::Create(request, client, request_context);
         return true;
       }
       callback->Failure(0, "Unsupported scheme");
@@ -1466,20 +1620,47 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.rfind("decode-tiff:", 0) == 0) {
+      uint64_t decode_nonce = 0;
       int page_index = 0;
       std::string tiff_url;
-      size_t first_colon = msg.find(':', 12);
+      const size_t nonce_start = 12;
+      const size_t first_colon = msg.find(':', nonce_start);
       if (first_colon != std::string::npos) {
-        std::string page_str = msg.substr(12, first_colon - 12);
-        bool is_numeric = !page_str.empty() && std::all_of(page_str.begin(), page_str.end(), ::isdigit);
-        if (is_numeric) {
-          page_index = std::stoi(page_str);
-          tiff_url = msg.substr(first_colon + 1);
+        const auto nonce_opt = ParseUint64Strict(
+            std::string_view(msg).substr(nonce_start, first_colon - nonce_start));
+        if (nonce_opt) {
+          decode_nonce = *nonce_opt;
+          const size_t page_start = first_colon + 1;
+          const size_t second_colon = msg.find(':', page_start);
+          if (second_colon != std::string::npos) {
+            const auto page_opt = ParseIntStrict(
+                std::string_view(msg).substr(page_start, second_colon - page_start));
+            if (page_opt && *page_opt >= 0) {
+              page_index = *page_opt;
+              tiff_url = msg.substr(second_colon + 1);
+            } else {
+              tiff_url = msg.substr(page_start);
+            }
+          } else {
+            tiff_url = msg.substr(page_start);
+          }
         } else {
-          tiff_url = msg.substr(12);
+          const size_t second_colon = msg.find(':', first_colon + 1);
+          if (second_colon != std::string::npos) {
+            const auto page_opt = ParseIntStrict(
+                std::string_view(msg).substr(first_colon + 1, second_colon - first_colon - 1));
+            if (page_opt && *page_opt >= 0) {
+              page_index = *page_opt;
+              tiff_url = msg.substr(second_colon + 1);
+            } else {
+              tiff_url = msg.substr(first_colon + 1);
+            }
+          } else {
+            tiff_url = msg.substr(first_colon + 1);
+          }
         }
       } else {
-        tiff_url = msg.substr(12);
+        tiff_url = msg.substr(nonce_start);
       }
 
       // Resolve the active tab id (overlay browser is not in tab_manager;
@@ -1502,38 +1683,46 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
 
-      if (tiff_url.rfind("file://", 0) == 0) {
-        std::string file_path = tiff_url.substr(7);
-#if defined(_WIN32)
-        if (file_path.length() > 2 && file_path[0] == '/' && file_path[2] == ':') {
-          file_path = file_path.substr(1);
-        }
-#endif
-        std::string png_base64;
-        int page_count = 1;
-        if (otf::DecodeTiffToPngBase64(file_path, page_index, png_base64, page_count)) {
-          if (handler && preview_tab_id != -1) {
+      if (handler && preview_tab_id != -1) {
+        const std::string local_path =
+            handler->GetImagePreviewLocalFileForTab(preview_tab_id);
+        if (!local_path.empty()) {
+          std::string png_base64;
+          int page_count = 1;
+          std::string error_reason;
+          if (DecodeLocalTiffPreview(local_path, page_index, &png_base64,
+                                     &page_count, &error_reason)) {
             handler->SetImagePreviewPageForTab(preview_tab_id, page_index);
             handler->SetImagePreviewPageCountForTab(preview_tab_id, page_count);
+            callback->Success(JsonObjectBuilder()
+                                  .AddString("displayUrl", png_base64)
+                                  .AddInt("pageCount", page_count)
+                                  .AddInt("currentPage", page_index)
+                                  .Build());
+          } else {
+            callback->Failure(0, error_reason.empty()
+                                   ? "Failed to decode downloaded TIFF file"
+                                   : error_reason);
           }
-          std::string response = JsonObjectBuilder()
-            .AddString("displayUrl", png_base64)
-            .AddInt("pageCount", page_count)
-            .AddInt("currentPage", page_index)
-            .Build();
-          callback->Success(response);
-        } else {
-          callback->Failure(0, "Failed to decode local TIFF file");
+          return true;
         }
+      }
+
+      if (tiff_url.rfind("file://", 0) == 0) {
+        callback->Failure(1, "file scheme is disabled");
         return true;
       }
       if (tiff_url.rfind("http://", 0) == 0 || tiff_url.rfind("https://", 0) == 0) {
+        CefRefPtr<CefRequestContext> request_context =
+            browser ? browser->GetHost()->GetRequestContext()
+                    : CefRequestContext::GetGlobalContext();
         CefRefPtr<CefRequest> request = CefRequest::Create();
         request->SetURL(tiff_url);
         request->SetMethod("GET");
         request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_NO_RETRY_ON_5XX);
-        CefRefPtr<OtfTiffDecodeClient> client = new OtfTiffDecodeClient(page_index, preview_tab_id, callback);
-        CefURLRequest::Create(request, client, nullptr);
+        CefRefPtr<OtfTiffDecodeClient> client =
+            new OtfTiffDecodeClient(page_index, preview_tab_id, decode_nonce, callback);
+        CefURLRequest::Create(request, client, request_context);
         return true;
       }
       callback->Failure(0, "Unsupported TIFF scheme");
@@ -1566,6 +1755,126 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "get-active-tab") {
       OtfApp* app = OtfApp::GetInstance();
       callback->Success(app ? std::to_string(app->GetCurrentTabId()) : "-1");
+      return true;
+    }
+
+    if (msg == "get-workspaces") {
+      if (!handler->store_) { callback->Success("[]"); return true; }
+      callback->Success(BuildWorkspacesJson(handler->store_->GetWorkspaces(),
+                                            handler->active_workspace_id_));
+      return true;
+    }
+
+    if (msg.rfind("create-workspace:", 0) == 0) {
+      if (!handler->store_) { callback->Failure(1, "store unavailable"); return true; }
+      std::string name = msg.substr(17);
+      if (name.empty()) name = "Workspace";
+      const int new_id = handler->store_->CreateWorkspace(name, "");
+      if (new_id <= 0) { callback->Failure(1, "create failed"); return true; }
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "workspaces-updated")
+                             .Build());
+      callback->Success(std::to_string(new_id));
+      return true;
+    }
+
+    if (msg.rfind("rename-workspace:", 0) == 0) {
+      const std::string payload = msg.substr(17);
+      const size_t colon = payload.find(':');
+      if (colon == std::string::npos) { callback->Failure(1, "bad payload"); return true; }
+      const auto id_opt = ParseIntStrict(std::string_view(payload).substr(0, colon));
+      if (!id_opt) { callback->Failure(1, "bad id"); return true; }
+      const std::string name = payload.substr(colon + 1);
+      if (!handler->store_ || !handler->store_->RenameWorkspace(*id_opt, name)) {
+        callback->Failure(1, "rename failed");
+        return true;
+      }
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "workspaces-updated")
+                             .Build());
+      callback->Success("");
+      return true;
+    }
+
+    if (msg.rfind("delete-workspace:", 0) == 0) {
+      const auto id_opt = ParseIntStrict(std::string_view(msg).substr(17));
+      if (!id_opt) { callback->Failure(1, "bad id"); return true; }
+      const int target = *id_opt;
+      if (!handler->store_) { callback->Failure(1, "store unavailable"); return true; }
+      const auto workspaces = handler->store_->GetWorkspaces();
+      if (workspaces.size() <= 1) { callback->Failure(1, "cannot delete last"); return true; }
+
+      // Close every tab that belongs to the doomed workspace. Done before
+      // deleting the workspace row so the renderer sees tab-closed events
+      // and prunes its state. If the active workspace is being deleted,
+      // fall back to the first remaining workspace.
+      if (handler->tab_manager_) {
+        const auto tab_ids = handler->tab_manager_->GetTabIdsForWorkspace(target);
+        OtfApp* app = OtfApp::GetInstance();
+        for (int tid : tab_ids) {
+          if (app) app->CloseTab(tid);
+          handler->SendEvent(JsonObjectBuilder()
+                                 .AddString("key", "tab-closed")
+                                 .AddInt("id", tid)
+                                 .Build());
+        }
+      }
+
+      if (handler->active_workspace_id_ == target) {
+        int fallback = 1;
+        for (const auto& w : workspaces) {
+          if (w.id != target) { fallback = w.id; break; }
+        }
+        handler->active_workspace_id_ = fallback;
+        handler->store_->SetActiveWorkspace(fallback);
+      }
+
+      handler->store_->DeleteWorkspace(target);
+      handler->workspace_contexts_.erase(target);
+
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "workspaces-updated")
+                             .Build());
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "workspace-changed")
+                             .AddInt("id", handler->active_workspace_id_)
+                             .Build());
+      callback->Success("");
+      return true;
+    }
+
+    if (msg.rfind("switch-workspace:", 0) == 0) {
+      const auto id_opt = ParseIntStrict(std::string_view(msg).substr(17));
+      if (!id_opt) { callback->Failure(1, "bad id"); return true; }
+      const int target = *id_opt;
+      if (target == handler->active_workspace_id_) { callback->Success(""); return true; }
+      if (!handler->store_) { callback->Failure(1, "store unavailable"); return true; }
+
+      handler->active_workspace_id_ = target;
+      handler->store_->SetActiveWorkspace(target);
+
+      // Surface a tab from the new workspace. If it has none yet, open a
+      // fresh new-tab page — CreateTab tags it with the now-active
+      // workspace id and routes it through that workspace's request
+      // context.
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && handler->tab_manager_) {
+        auto tab_ids = handler->tab_manager_->GetTabIdsForWorkspace(target);
+        if (tab_ids.empty()) {
+          const int new_id = app->CreateTab("browser://newtab");
+          handler->NotifyNewTab(new_id, -1);
+          app->SwitchTab(new_id);
+        } else {
+          app->SwitchTab(tab_ids.front());
+        }
+      }
+
+      handler->PersistWorkspaceTabs(target);
+      handler->SendEvent(JsonObjectBuilder()
+                             .AddString("key", "workspace-changed")
+                             .AddInt("id", target)
+                             .Build());
+      callback->Success("");
       return true;
     }
 
@@ -2000,6 +2309,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int id = app->CreateTab("browser://newtab");
       handler->NotifyNewTab(id, -1);
       app->SwitchTab(id);
+      handler->PersistWorkspaceForTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("new-tab:") == 0) {
       std::string url = msg.substr(8);
@@ -2008,12 +2318,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       int id = app->CreateTab(url);
       handler->NotifyNewTab(id, -1);
       app->SwitchTab(id);
+      handler->PersistWorkspaceForTab(id);
       callback->Success(std::to_string(id));
     } else if (msg.find("close-tab:") == 0) {
       const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
       const int tab_id = *tab_id_opt;
       OtfApp* app = OtfApp::GetInstance();
+      const int ws =
+          handler->tab_manager_ ? handler->tab_manager_->GetWorkspaceId(tab_id) : 0;
       if (app) {
         app->CloseTab(tab_id);
         handler->SendEvent(JsonObjectBuilder()
@@ -2021,6 +2334,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                                .AddInt("id", tab_id)
                                .Build());
       }
+      if (ws > 0) handler->PersistWorkspaceTabs(ws);
       callback->Success("");
     } else if (msg.find("switch-tab:") == 0) {
       const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
@@ -2028,6 +2342,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const int tab_id = *tab_id_opt;
       OtfApp* app = OtfApp::GetInstance();
       if (app) app->SwitchTab(tab_id);
+      // Persist so was_active is up to date on next restore.
+      handler->PersistWorkspaceForTab(tab_id);
       callback->Success("");
     } else if (msg.find("back:") == 0) {
       const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5));
@@ -2222,6 +2538,24 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->SwitchTab(id);
       }
       callback->Success("");
+      return true;
+    } else if (msg.rfind("get-storage-for-site:", 0) == 0) {
+      const std::string origin = msg.substr(21);
+      if (!handler->devtools_bridge_) {
+        callback->Failure(1, "devtools bridge not attached");
+        return true;
+      }
+      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+      params->SetString("origin", origin);
+      // Storage.getUsageAndQuota returns {usage, quota, usageBreakdown:[]}
+      // — pass the result JSON straight through; the React side formats
+      // the numbers.
+      handler->devtools_bridge_->Execute(
+          "Storage.getUsageAndQuota", params,
+          [callback](bool ok, const std::string& result_json) {
+            if (ok) callback->Success(result_json);
+            else callback->Failure(1, result_json);
+          });
       return true;
     } else if (msg.rfind("get-cookies-for-site:", 0) == 0) {
       const std::string origin = msg.substr(21);
@@ -2464,9 +2798,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         if (otf::IsTiffUrl(path)) {
           OtfApp* app = OtfApp::GetInstance();
           if (app) {
-            std::string file_url = "file://" + path;
+            const std::string name = SanitizeFilename(
+                DownloadDisplayName(it->second.suggested_name,
+                                    it->second.full_path, it->second.url));
+            const std::string public_url =
+                "browser://image-preview/download/" +
+                std::to_string(*download_id) + "/" + name;
             int new_id = app->CreateTab("browser://imagepreview");
-            handler->SetImagePreviewUrlForTab(new_id, file_url);
+            handler->SetImagePreviewLocalFileForTab(new_id, public_url, path);
             handler->NotifyNewTab(new_id, -1);
             app->SwitchTab(new_id);
           }
@@ -2637,6 +2976,10 @@ OtfHandler::OtfHandler(bool use_alloy_style)
   tab_manager_ = nullptr;
   store_ = std::make_unique<OtfStore>();
   if (store_ && store_->IsReady()) {
+    const int persisted_active = store_->GetActiveWorkspace();
+    if (persisted_active > 0) {
+      active_workspace_id_ = persisted_active;
+    }
     for (const auto& item : store_->GetDownloads()) {
       DownloadState state;
       state.id = item.id;
@@ -2686,6 +3029,37 @@ OtfHandler* OtfHandler::GetInstance() {
 
 CefRefPtr<CefRequestContext> OtfHandler::GetActiveWorkspaceRequestContext() {
   return GetWorkspaceRequestContext(active_workspace_id_);
+}
+
+void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
+  if (!store_ || !tab_manager_ || workspace_id <= 0) return;
+  std::vector<WorkspaceTab> snapshot;
+  const auto tab_ids = tab_manager_->GetTabIdsForWorkspace(workspace_id);
+  OtfApp* app = OtfApp::GetInstance();
+  const int active_tab = app ? app->GetCurrentTabId() : -1;
+  for (int tab_id : tab_ids) {
+    WorkspaceTab t;
+    t.workspace_id = workspace_id;
+    t.url = tab_manager_->GetUrl(tab_id);
+    // Don't persist transient browser:// shells or the dev-ui URL —
+    // restore should land users on a fresh new-tab page, not a
+    // bare browser-internal page that the user wasn't actually viewing.
+    if (t.url.empty() || t.url == "browser://newtab" ||
+        t.url.rfind("browser://", 0) == 0) {
+      t.url = "";
+    }
+    t.title = tab_manager_->GetTitle(tab_id);
+    t.favicon = tab_manager_->GetFaviconUrl(tab_id);
+    t.was_active = (tab_id == active_tab);
+    snapshot.push_back(t);
+  }
+  store_->ReplaceWorkspaceTabs(workspace_id, snapshot);
+}
+
+void OtfHandler::PersistWorkspaceForTab(int tab_id) {
+  if (!tab_manager_) return;
+  const int ws = tab_manager_->GetWorkspaceId(tab_id);
+  if (ws > 0) PersistWorkspaceTabs(ws);
 }
 
 CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspace_id) {
@@ -2796,6 +3170,7 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
       store_->UpdateHistoryTitle(url, title.ToString());
     }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
+    PersistWorkspaceForTab(view->GetID());
   }
 }
 
@@ -2852,6 +3227,7 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
             view->GetID(), url_str,
             store_->IsBookmarked(NormalizeBookmarkUrl(url_str))));
       }
+      PersistWorkspaceForTab(view->GetID());
     }
   }
 }
@@ -2875,6 +3251,7 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
       tab_manager_->SetFaviconUrl(tab_id, favicon_url);
     }
     SendEvent(BuildTabPropertyEvent(tab_id, "favicon", favicon_url));
+    PersistWorkspaceForTab(tab_id);
   }
 }
 
@@ -2958,6 +3335,13 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   if (browser_view) {
     if (browser_view->GetID() == kUiBrowserViewId) {
       ui_browser_ = browser;
+      // Lazily build the DevTools bridge and attach it to the UI shell
+      // browser. The bridge routes async CDP responses back to per-call
+      // callbacks (Storage.getUsageAndQuota and friends).
+      if (!devtools_bridge_) {
+        devtools_bridge_ = new DevToolsBridge();
+      }
+      devtools_bridge_->Attach(browser);
     } else if (browser_view->GetID() == kFindBarBrowserViewId ||
                browser_view->GetID() == kZoomBarBrowserViewId ||
                browser_view->GetID() == kDownloadsBrowserViewId ||
@@ -3284,9 +3668,21 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   SanitizeContextMenu(model);
   
   if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    if (link_url.rfind("tab-context-menu:", 0) == 0) {
+      model->Clear();
+      model->AddItem(MENU_ID_TAB_CLOSE, "Close Tab");
+      model->AddItem(MENU_ID_TAB_CLOSE_OTHERS, "Close Other Tabs");
+      model->AddSeparator();
+      model->AddItem(MENU_ID_TAB_NEW, "New Tab");
+      return;
+    }
+  }
+
+  if (!params->GetLinkUrl().empty()) {
     // Insert our custom background-tab opener at the top
     model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
-    
+
     // CEF Alloy does not add IDC_CONTENT_CONTEXT_COPYLINKLOCATION to the
     // default link context menu. Add it only if it isn't already present
     // (safe: we never remove then re-insert it, so routing stays intact).
@@ -3370,6 +3766,44 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
 
   if (IsBlockedContextMenuCommand(command_id)) {
     return true;
+  }
+
+  if (command_id == MENU_ID_TAB_CLOSE || command_id == MENU_ID_TAB_CLOSE_OTHERS) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    if (link_url.rfind("tab-context-menu:", 0) == 0) {
+      std::string tab_id_str = link_url.substr(17);
+      const auto tab_id_opt = ParseIntStrict(tab_id_str);
+      if (!tab_id_opt) {
+        return true;
+      }
+      int tab_id = *tab_id_opt;
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && tab_manager_) {
+        if (command_id == MENU_ID_TAB_CLOSE) {
+          app->CloseTab(tab_id);
+        } else if (command_id == MENU_ID_TAB_CLOSE_OTHERS) {
+          // Close other tabs in the active workspace
+          int active_workspace_id = active_workspace_id_;
+          std::vector<int> ids = tab_manager_->GetTabIdsForWorkspace(active_workspace_id);
+          for (int id : ids) {
+            if (id != tab_id) {
+              app->CloseTab(id);
+            }
+          }
+        }
+        return true;
+      }
+    }
+  }
+
+  if (command_id == MENU_ID_TAB_NEW) {
+    OtfApp* app = OtfApp::GetInstance();
+    if (app) {
+      int new_id = app->CreateTab("", -1);
+      NotifyNewTab(new_id, -1);
+      app->FocusCurrentTabContent();
+      return true;
+    }
   }
   
   if (command_id == MENU_ID_OPEN_IN_NEW_TAB) {
@@ -3514,10 +3948,10 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
     return true;
   }
 
-  // Block file:// for all browsers except the UI shell
+  // Block file:// everywhere. The app UI is served through browser://; local
+  // files must not be reachable as browser content or privileged UI frames.
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (url.rfind("file://", 0) == 0 &&
-      (!view || view->GetID() != kUiBrowserViewId)) {
+  if (url.rfind("file://", 0) == 0) {
     return true;
   }
 
@@ -3869,8 +4303,21 @@ bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
 
 void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
   tab_image_preview_urls_[tab_id] = url;
+  tab_image_preview_local_files_.erase(tab_id);
+  tab_image_preview_decode_nonces_.erase(tab_id);
   // Setting (or clearing) the URL resets navigation state — a different
   // image was loaded, page index from the previous TIFF is meaningless.
+  tab_image_preview_pages_[tab_id] = 0;
+  tab_image_preview_page_counts_[tab_id] = 1;
+}
+
+void OtfHandler::SetImagePreviewLocalFileForTab(
+    int tab_id,
+    const std::string& public_url,
+    const std::string& file_path) {
+  tab_image_preview_urls_[tab_id] = public_url;
+  tab_image_preview_local_files_[tab_id] = file_path;
+  tab_image_preview_decode_nonces_.erase(tab_id);
   tab_image_preview_pages_[tab_id] = 0;
   tab_image_preview_page_counts_[tab_id] = 1;
 }
@@ -3881,6 +4328,29 @@ std::string OtfHandler::GetImagePreviewUrlForTab(int tab_id) const {
     return it->second;
   }
   return "";
+}
+
+std::string OtfHandler::GetImagePreviewLocalFileForTab(int tab_id) const {
+  auto it = tab_image_preview_local_files_.find(tab_id);
+  if (it != tab_image_preview_local_files_.end()) {
+    return it->second;
+  }
+  return "";
+}
+
+uint64_t OtfHandler::BumpImagePreviewDecodeNonceForTab(int tab_id) {
+  uint64_t& nonce = tab_image_preview_decode_nonces_[tab_id];
+  if (nonce == 0) {
+    nonce = 1;
+  } else {
+    ++nonce;
+  }
+  return nonce;
+}
+
+uint64_t OtfHandler::GetImagePreviewDecodeNonceForTab(int tab_id) const {
+  auto it = tab_image_preview_decode_nonces_.find(tab_id);
+  return it != tab_image_preview_decode_nonces_.end() ? it->second : 0;
 }
 
 void OtfHandler::SetImagePreviewPageForTab(int tab_id, int page) {
@@ -3906,10 +4376,40 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id) {
   if (url.empty()) return "";
 
   int page = GetImagePreviewPageForTab(tab_id);
+  const uint64_t decode_nonce = BumpImagePreviewDecodeNonceForTab(tab_id);
   otf::ImagePreviewPayload payload = otf::BuildImagePreviewPayload(url, page);
-  // Refresh stored page_count from the decoder (may have changed if the file
-  // was swapped on disk, or wasn't known yet on first load).
-  SetImagePreviewPageCountForTab(tab_id, payload.page_count);
+  const std::string local_path = GetImagePreviewLocalFileForTab(tab_id);
+  if (!local_path.empty()) {
+    std::string png_base64;
+    int decoded_page_count = 1;
+    std::string error_reason;
+    if (DecodeLocalTiffPreview(local_path, page, &png_base64,
+                               &decoded_page_count, &error_reason)) {
+      payload.display_url = png_base64;
+      payload.page_count = decoded_page_count;
+    } else {
+      payload.display_url.clear();
+      payload.page_count = 1;
+      return JsonObjectBuilder()
+          .AddString("key", "load-image")
+          .AddString("url", url)
+          .AddString("displayUrl", "")
+          .AddInt("pageCount", 1)
+          .AddInt("currentPage", page)
+          .AddString("decodeNonce", std::to_string(decode_nonce))
+          .AddString("error", error_reason.empty() ? "Failed to decode downloaded TIFF file" : error_reason)
+          .Build();
+    }
+  }
+
+  // Refresh stored page_count from the decoder if the new payload page count is larger
+  // (may have changed if the file was swapped on disk, or wasn't known yet on first load).
+  // This avoids clobbering asynchronously-fetched remote TIFF page counts back to 1.
+  int page_count = GetImagePreviewPageCountForTab(tab_id);
+  if (payload.page_count > page_count) {
+    page_count = payload.page_count;
+    SetImagePreviewPageCountForTab(tab_id, page_count);
+  }
 
   std::string secure_name = "OTF_PREVIEW_IMAGE";
   size_t last_slash = url.find_last_of("/\\");
@@ -3922,8 +4422,9 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id) {
       .AddString("key", "load-image")
       .AddString("url", secure_url)
       .AddString("displayUrl", payload.display_url)
-      .AddInt("pageCount", payload.page_count)
+      .AddInt("pageCount", page_count)
       .AddInt("currentPage", page)
+      .AddString("decodeNonce", std::to_string(decode_nonce))
       .Build();
 }
 

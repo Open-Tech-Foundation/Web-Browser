@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 
 const ImagePreview = () => {
   const [url, setUrl] = useState('');
+  const [displayUrl, setDisplayUrl] = useState('');
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -11,30 +12,85 @@ const ImagePreview = () => {
   const [showInfo, setShowInfo] = useState(true);
   const [toast, setToast] = useState('');
   const [fileSize, setFileSize] = useState('');
+  const [pageCount, setPageCount] = useState(1);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [decodeNonce, setDecodeNonce] = useState(0);
+  const [isDecoding, setIsDecoding] = useState(false);
+  const [previewError, setPreviewError] = useState('');
 
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef(null);
+  // Page index the current displayUrl was decoded for. Lets the decode
+  // effect skip the round-trip when the server already shipped a matching
+  // data: URL (initial load and tab switches both come pre-decoded).
+  const displayedPageRef = useRef(-1);
 
   useEffect(() => {
     if (!window.cefQuery) return;
+
+    // Apply a load-image event snapshot. C++ owns authoritative tab state
+    // (url, current page, page count), so we treat every event as a full
+    // snapshot — never a delta — so tab switches restore the exact page
+    // the user was last viewing instead of resetting to page 0.
+    const applyLoadImage = (ev) => {
+      if (!ev || ev.key !== 'load-image') return;
+      if (ev.error) {
+        setPreviewError(ev.error);
+        setToast(ev.error);
+        setTimeout(() => setToast(''), 3000);
+      } else {
+        setPreviewError('');
+      }
+      const incomingPage = typeof ev.currentPage === 'number' && ev.currentPage >= 0 ? ev.currentPage : 0;
+      const incomingDisplay = ev.error ? '' : (ev.displayUrl || ev.url || '');
+      displayedPageRef.current = incomingDisplay.startsWith('data:') ? incomingPage : -1;
+      setUrl(ev.url || '');
+      setDisplayUrl(incomingDisplay);
+      setPageCount(typeof ev.pageCount === 'number' && ev.pageCount > 0 ? ev.pageCount : 1);
+      setCurrentPage(incomingPage);
+      setDecodeNonce(typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
+        ? Number(ev.decodeNonce)
+        : 0);
+      setIsDecoding(false);
+      setScale(1);
+      setRotation(0);
+      setPosition({ x: 0, y: 0 });
+      setNaturalWidth(0);
+      setNaturalHeight(0);
+    };
+
+    // Expose for direct push from C++ (SwitchTab). CEF may cancel the
+    // persistent subscription when the BrowserView is hidden, so we can't
+    // rely on it for tab-switch updates — the C++ side calls this directly.
+    window.__otfApplyImagePreview = applyLoadImage;
 
     const sub = window.cefQuery({
       request: 'image-preview-subscribe',
       persistent: true,
       onSuccess: (json) => {
-        try {
-          const ev = JSON.parse(json);
-          if (ev.key === 'load-image') {
-            setUrl(ev.url);
-            setScale(1);
-            setRotation(0);
-            setPosition({ x: 0, y: 0 });
-            setNaturalWidth(0);
-            setNaturalHeight(0);
-          }
-        } catch (_) {}
+        try { applyLoadImage(JSON.parse(json)); } catch (_) {}
       },
     });
+
+    // The dedicated preview tab's BrowserView may be hidden by CEF when
+    // the user switches tabs; on switch-back, the persistent subscription
+    // may have been cancelled or the renderer may have been reloaded. Pull
+    // a fresh snapshot whenever we become visible so the page is never
+    // left blank.
+    const refresh = () => {
+      if (!window.cefQuery) return;
+      window.cefQuery({
+        request: 'image-preview-refresh',
+        onSuccess: (json) => {
+          try {
+            const ev = JSON.parse(json);
+            if (ev && ev.key === 'load-image') applyLoadImage(ev);
+          } catch (_) {}
+        },
+      });
+    };
+    const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVis);
 
     const onKeyDown = (event) => {
       if (event.key === 'Escape' && window.cefQuery) {
@@ -46,6 +102,10 @@ const ImagePreview = () => {
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('visibilitychange', onVis);
+      if (window.__otfApplyImagePreview === applyLoadImage) {
+        delete window.__otfApplyImagePreview;
+      }
       if (sub && typeof sub.cancel === 'function') sub.cancel();
     };
   }, []);
@@ -123,10 +183,82 @@ const ImagePreview = () => {
     }
   }, [url]);
 
+  useEffect(() => {
+    if (!url) return;
+    const lowerUrl = url.toLowerCase().split('?')[0].split('#')[0];
+    const isTiff = lowerUrl.endsWith('.tiff') || lowerUrl.endsWith('.tif');
+    if (!isTiff) return;
+    if (previewError) return;
+    // Server pre-decodes the current page and ships it as a data URL in the
+    // load-image event (initial subscribe + tab switch). Skip the redundant
+    // re-decode when displayUrl already matches currentPage.
+    if (displayedPageRef.current === currentPage && displayUrl.startsWith('data:')) return;
+    if (!window.cefQuery) return;
+    let cancelled = false;
+    let toastTimer = null;
+    setIsDecoding(true);
+    window.cefQuery({
+      request: `decode-tiff:${decodeNonce}:${currentPage}:${url}`,
+      onSuccess: (json) => {
+        if (cancelled) return;
+        try {
+          const res = JSON.parse(json);
+          if (res && res.stale) {
+            setIsDecoding(false);
+            return;
+          }
+          if (res && res.error) {
+            setPreviewError(res.error);
+            setToast(res.error);
+            toastTimer = setTimeout(() => setToast(''), 3000);
+            setIsDecoding(false);
+            return;
+          }
+          const newPage = typeof res.currentPage === 'number' ? res.currentPage : currentPage;
+          displayedPageRef.current = newPage;
+          setDisplayUrl(res.displayUrl);
+          setPageCount(res.pageCount || 1);
+          setCurrentPage(newPage);
+          setIsDecoding(false);
+        } catch (e) {
+          console.error("Failed to parse TIFF response:", e);
+          setIsDecoding(false);
+        }
+      },
+      onFailure: (_, msg) => {
+        if (cancelled) return;
+        console.error("TIFF decoding failed:", msg);
+        setToast(msg || "Failed to render TIFF page");
+        toastTimer = setTimeout(() => setToast(''), 3000);
+        setIsDecoding(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+      if (toastTimer) clearTimeout(toastTimer);
+    };
+  }, [url, currentPage, decodeNonce, previewError]);
+
   const handleClose = () => {
     setUrl('');
+    setDisplayUrl('');
+    setPageCount(1);
+    setCurrentPage(0);
+    setPreviewError('');
     if (window.cefQuery) {
       window.cefQuery({ request: 'hide-imagepreview' });
+    }
+  };
+
+  const nextPage = () => {
+    if (currentPage < pageCount - 1) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const prevPage = () => {
+    if (currentPage > 0) {
+      setCurrentPage(prev => prev - 1);
     }
   };
 
@@ -190,14 +322,15 @@ const ImagePreview = () => {
 
   const handleCopyImage = async () => {
     try {
-      const response = await fetch(url);
+      const source = displayUrl || url;
+      const response = await fetch(source);
       const blob = await response.blob();
       await navigator.clipboard.write([
         new ClipboardItem({ [blob.type]: blob })
       ]);
       showToast("Copied image to clipboard!");
     } catch (err) {
-      navigator.clipboard.writeText(url);
+      navigator.clipboard.writeText(displayUrl || url);
       showToast("Copied image URL to clipboard!");
     }
   };
@@ -260,6 +393,33 @@ const ImagePreview = () => {
           border-color: rgba(239, 68, 68, 0.5);
           color: white;
         }
+        .btn-nav-page {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          color: rgba(255, 255, 255, 0.85);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .btn-nav-page:hover:not(:disabled) {
+          background: #f97316;
+          border-color: #fdba74;
+          color: white;
+          box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+          transform: scale(1.05);
+        }
+        .btn-nav-page:active:not(:disabled) {
+          transform: scale(0.95);
+        }
+        .btn-nav-page:disabled {
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
         @keyframes fadeIn {
           from { opacity: 0; transform: translate(-50%, 10px); }
           to { opacity: 1; transform: translate(-50%, 0); }
@@ -316,10 +476,10 @@ const ImagePreview = () => {
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
       >
-        <img 
+        <img
           ref={imgRef}
-          src={url} 
-          alt="Preview" 
+          src={displayUrl}
+          alt="Preview"
           onLoad={handleImageLoad}
           style={{
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotation}deg)`,
@@ -328,7 +488,7 @@ const ImagePreview = () => {
             maxHeight: '100%',
             objectFit: 'contain',
             pointerEvents: 'none'
-          }} 
+          }}
           draggable="false"
         />
       </div>
@@ -344,6 +504,12 @@ const ImagePreview = () => {
             <strong>Resolution:</strong> {naturalWidth} × {naturalHeight} px<br />
             <strong>Size:</strong> {fileSize}<br />
             <strong>Format:</strong> {url.split('.').pop().split('?')[0].toUpperCase()}<br />
+            {pageCount > 1 && (
+              <>
+                <strong>Pages:</strong> {pageCount}<br />
+                <strong>Current Page:</strong> {currentPage + 1}<br />
+              </>
+            )}
             <strong>Source:</strong> {url.length > 45 ? url.substring(0, 45) + '...' : url}
           </div>
         </div>
@@ -355,14 +521,74 @@ const ImagePreview = () => {
         </button>
       )}
 
+      {/* Bottom Page Controls Overlay */}
+      {pageCount > 1 && (
+        <div style={bottomOverlayStyle}>
+          <button
+            onClick={prevPage}
+            disabled={currentPage === 0 || isDecoding}
+            className="btn-nav-page"
+            title="Previous Page"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+
+          <span style={pageInfoStyle}>
+            {isDecoding ? 'Rendering...' : `${currentPage + 1} / ${pageCount}`}
+          </span>
+
+          <button
+            onClick={nextPage}
+            disabled={currentPage === pageCount - 1 || isDecoding}
+            className="btn-nav-page"
+            title="Next Page"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toast && (
         <div style={toastStyle}>
           {toast}
         </div>
       )}
+
+      {isDecoding && (
+        <div style={decodeOverlayStyle}>
+          Rendering page...
+        </div>
+      )}
     </div>
   );
+};
+
+const bottomOverlayStyle = {
+  position: 'absolute',
+  bottom: '32px',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  background: 'rgba(15, 23, 42, 0.75)',
+  backdropFilter: 'blur(16px)',
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+  padding: '6px 12px',
+  borderRadius: '9999px',
+  zIndex: 30,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  boxShadow: '0 12px 24px rgba(0, 0, 0, 0.5)',
+  animation: 'fadeIn 0.25s ease-out',
+};
+
+const pageInfoStyle = {
+  color: 'rgba(255, 255, 255, 0.9)',
+  fontSize: '12px',
+  fontWeight: '700',
+  padding: '0 4px',
+  userSelect: 'none',
+  fontFamily: 'system-ui, -apple-system, sans-serif',
 };
 
 const infoPanelStyle = {
@@ -414,7 +640,7 @@ const infoOpenBtnStyle = {
 
 const toastStyle = {
   position: 'fixed',
-  bottom: '24px',
+  bottom: '96px',
   left: '50%',
   transform: 'translateX(-50%)',
   background: 'rgba(0,0,0,0.85)',
@@ -427,6 +653,21 @@ const toastStyle = {
   backdropFilter: 'blur(8px)',
   boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
   animation: 'fadeIn 0.2s ease-out',
+};
+
+const decodeOverlayStyle = {
+  position: 'absolute',
+  inset: '50% auto auto 50%',
+  transform: 'translate(-50%, -50%)',
+  padding: '10px 14px',
+  borderRadius: '9999px',
+  background: 'rgba(15, 23, 42, 0.82)',
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+  color: 'rgba(255, 255, 255, 0.9)',
+  fontSize: '12px',
+  fontWeight: '700',
+  zIndex: 40,
+  boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
 };
 
 const btnStyle = {};

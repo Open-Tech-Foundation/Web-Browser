@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Popup, { usePopupRestore } from '../components/Popup';
+import { formatBytes } from '../shared/format';
 
 const callQuery = (request) => new Promise((resolve) => {
   if (!window.cefQuery) {
@@ -33,14 +34,27 @@ const ClearSiteData = () => {
   // 'idle' | 'running' | 'done'
   const [phase, setPhase] = useState('idle');
   const [cookieCount, setCookieCount] = useState(null);
+  const [storageBytes, setStorageBytes] = useState(null);
   const [selection, setSelection] = useState(defaultSelection);
 
   const refreshCounts = async (forOrigin) => {
     const target = forOrigin || origin;
     if (!target) return;
-    const { ok, response } = await callQuery(`get-cookies-for-site:${target}`);
-    if (ok) {
-      try { setCookieCount(JSON.parse(response).length); } catch (_) {}
+    // Run both queries in parallel — they're independent.
+    const [cookies, storage] = await Promise.all([
+      callQuery(`get-cookies-for-site:${target}`),
+      callQuery(`get-storage-for-site:${target}`),
+    ]);
+    if (cookies.ok) {
+      try { setCookieCount(JSON.parse(cookies.response).length); } catch (_) {}
+    }
+    if (storage.ok) {
+      try {
+        const parsed = JSON.parse(storage.response);
+        setStorageBytes(typeof parsed.usage === 'number' ? parsed.usage : null);
+      } catch (_) { setStorageBytes(null); }
+    } else {
+      setStorageBytes(null);
     }
   };
 
@@ -53,6 +67,7 @@ const ClearSiteData = () => {
       setPhase('idle');
       setSelection(defaultSelection());
       setCookieCount(null);
+      setStorageBytes(null);
       refreshCounts(payload.origin);
     }
   });
@@ -93,9 +108,11 @@ const ClearSiteData = () => {
             {cookieCount === null ? '…' : cookieCount}
           </div>
         </div>
-        <div className="px-2 py-1.5" title="Detailed counts coming next iteration.">
+        <div className="px-2 py-1.5">
           <div className="text-slate-500 dark:text-slate-400">Storage</div>
-          <div className="font-mono text-sm text-slate-400">—</div>
+          <div className="font-mono text-sm text-slate-900 dark:text-slate-100">
+            {storageBytes === null ? '…' : formatBytes(storageBytes)}
+          </div>
         </div>
         <div className="px-2 py-1.5" title="Detailed counts coming next iteration.">
           <div className="text-slate-500 dark:text-slate-400">Perms</div>

@@ -22,6 +22,7 @@ std::string HtmlAttrEscape(const std::string& s);
 // matters when parsing untrusted strings from the cefQuery bridge.
 std::optional<int> ParseIntStrict(std::string_view s);
 std::optional<uint32_t> ParseUint32Strict(std::string_view s);
+std::optional<uint64_t> ParseUint64Strict(std::string_view s);
 
 class JsonObjectBuilder {
  public:
@@ -70,9 +71,9 @@ bool IsPersistableWebUrl(const std::string& url);
 bool IsAllowedHttpUrl(const std::string& url);
 bool IsAllowedStartupUrl(const std::string& url);
 // True when the URL is one of the bundled UI pages (security-critical):
-// requires browser:// scheme, OR file:// scheme whose path ends with one of
-// the allowlisted *.html files. Web origins (http/https) are NEVER trusted
-// by this check — dev-mode callers must validate dev-ui-url separately.
+// requires browser:// scheme. Web origins (http/https) are NEVER trusted by
+// this check — dev-mode callers must validate dev-ui-url separately.
+// file:// is never trusted; the app UI is served via browser://.
 bool IsInternalBrowserUiUrl(const std::string& url);
 
 // Path-suffix match against the same allowlist, ignoring scheme. Use this
@@ -81,8 +82,8 @@ bool IsInternalBrowserUiUrl(const std::string& url);
 // a bundled UI page.
 bool IsInternalUiPagePath(const std::string& url);
 
-// True for any URL that points at an internal UI page in *any* environment
-// (browser:// scheme, file:// production path, or http(s):// dev-server URL).
+// True for any URL that points at an internal UI page in *any* browser-owned
+// environment (browser:// scheme or http(s):// dev-server URL).
 // Use this for history/bookmark filtering — internal pages shouldn't be
 // recorded regardless of how they were loaded. Do NOT use for security
 // gates: those need the strict IsInternalBrowserUiUrl above.
@@ -112,6 +113,28 @@ double ZoomOut(double current_zoom_level);
 
 // Returns the default zoom level (100%).
 double ZoomReset();
+
+// True if `url`/`path` ends with .tif or .tiff (case-insensitive),
+// ignoring query string and fragment.
+bool IsTiffUrl(const std::string& url);
+
+// Decode a local TIFF file using libvips (supporting page index) and convert it into a PNG Base64 data URL.
+bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& out_png_base64, int& out_page_count);
+
+// Decode an in-memory TIFF buffer to a PNG Base64 data URL.
+bool DecodeTiffBufferToPngBase64(const void* data, size_t size, int page, std::string& out_png_base64, int& out_page_count);
+
+// Payload for the renderer's `load-image` event.
+struct ImagePreviewPayload {
+  std::string display_url;  // data: URL for decoded TIFF page, or original URL.
+  int page_count = 1;       // total pages (>=1; 1 for non-multipage formats).
+};
+
+// Build the renderer payload for `url` at `page` (0-based). Local TIFFs are
+// decoded natively here so the renderer never has to wait for the first paint.
+// Remote TIFFs are left to the async decode-tiff path — display_url is the
+// original url and page_count is 1 until the renderer round-trips.
+ImagePreviewPayload BuildImagePreviewPayload(const std::string& url, int page);
 
 } // namespace otf
 
