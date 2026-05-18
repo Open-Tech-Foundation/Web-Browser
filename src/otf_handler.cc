@@ -1191,6 +1191,62 @@ class OtfSizeRequestClient : public CefURLRequestClient {
   IMPLEMENT_REFCOUNTING(OtfSizeRequestClient);
 };
 
+class OtfTiffDecodeClient : public CefURLRequestClient {
+ public:
+  OtfTiffDecodeClient(int page,
+                      int tab_id,
+                      CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback)
+      : page_(page), tab_id_(tab_id), callback_(callback) {}
+
+  void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+    if (request->GetRequestStatus() == UR_SUCCESS && !data_buffer_.empty()) {
+      std::string png_base64;
+      int page_count = 1;
+      if (otf::DecodeTiffBufferToPngBase64(data_buffer_.data(), data_buffer_.size(),
+                                           page_, png_base64, page_count)) {
+        OtfHandler* h = OtfHandler::GetInstance();
+        if (h && tab_id_ != -1) {
+          h->SetImagePreviewPageForTab(tab_id_, page_);
+          h->SetImagePreviewPageCountForTab(tab_id_, page_count);
+        }
+        std::string response = JsonObjectBuilder()
+          .AddString("displayUrl", png_base64)
+          .AddInt("pageCount", page_count)
+          .AddInt("currentPage", page_)
+          .Build();
+        callback_->Success(response);
+        return;
+      }
+    }
+    callback_->Failure(0, "Failed to download or decode TIFF image");
+  }
+
+  void OnUploadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+  void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+  
+  void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t data_length) override {
+    const char* bytes = static_cast<const char*>(data);
+    data_buffer_.insert(data_buffer_.end(), bytes, bytes + data_length);
+  }
+
+  bool GetAuthCredentials(bool isProxy,
+                          const CefString& host,
+                          int port,
+                          const CefString& realm,
+                          const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override {
+    return false;
+  }
+
+ private:
+  int page_;
+  int tab_id_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback_;
+  std::vector<char> data_buffer_;
+
+  IMPLEMENT_REFCOUNTING(OtfTiffDecodeClient);
+};
+
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
  public:
@@ -1299,20 +1355,46 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+
     if (msg == "image-preview-subscribe") {
-      handler->image_preview_subscription_ = callback;
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
-        int tab_id = app->GetCurrentTabId();
-        std::string tab_url = handler->GetImagePreviewUrlForTab(tab_id);
-        if (!tab_url.empty()) {
-          std::string event = JsonObjectBuilder()
-            .AddString("key", "load-image")
-            .AddString("url", tab_url)
-            .Build();
+        int tab_id = -1;
+        if (handler->tab_manager_) {
+          tab_id = handler->tab_manager_->GetId(browser);
+        }
+        if (tab_id != -1) {
+          handler->tab_image_preview_subscriptions_[tab_id] = callback;
+        } else {
+          handler->image_preview_subscription_ = callback;
+          tab_id = app->GetCurrentTabId();
+        }
+
+        std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
+        if (!event.empty()) {
           callback->Success(event);
         }
       }
+      return true;
+    }
+
+    if (msg == "image-preview-refresh") {
+      // One-shot fetch of the current preview state. Used by the renderer
+      // when document.visibilityState flips back to "visible" so the JSX
+      // can recover even if CEF cancelled the persistent subscription
+      // (or the renderer was reloaded) while the tab was hidden.
+      OtfApp* app = OtfApp::GetInstance();
+      int tab_id = -1;
+      if (handler && handler->tab_manager_) {
+        tab_id = handler->tab_manager_->GetId(browser);
+      }
+      if (tab_id == -1 && app) {
+        tab_id = app->GetCurrentTabId();
+      }
+      std::string event = (handler && tab_id != -1)
+                              ? handler->BuildImagePreviewLoadEvent(tab_id)
+                              : std::string();
+      callback->Success(event.empty() ? "{}" : event);
       return true;
     }
 
@@ -1329,6 +1411,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("download-image:", 0) == 0) {
       std::string download_url = msg.substr(15);
+      if (download_url.rfind("browser://image-preview/", 0) == 0 || download_url.empty()) {
+        if (handler && handler->tab_manager_) {
+          int tab_id = handler->tab_manager_->GetId(browser);
+          std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
+          if (!mapped_url.empty()) {
+            download_url = mapped_url;
+          }
+        }
+      }
       browser->GetHost()->StartDownload(download_url);
       callback->Success("");
       return true;
@@ -1336,6 +1427,16 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("get-image-size:", 0) == 0) {
       std::string img_url = msg.substr(15);
+      if (img_url.rfind("browser://image-preview/", 0) == 0 || img_url.empty()) {
+        if (handler && handler->tab_manager_) {
+          int tab_id = handler->tab_manager_->GetId(browser);
+          std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
+          if (!mapped_url.empty()) {
+            img_url = mapped_url;
+          }
+        }
+      }
+
       if (img_url.rfind("file://", 0) == 0) {
         std::string file_path = img_url.substr(7);
 #if defined(_WIN32)
@@ -1364,6 +1465,81 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg.rfind("decode-tiff:", 0) == 0) {
+      int page_index = 0;
+      std::string tiff_url;
+      size_t first_colon = msg.find(':', 12);
+      if (first_colon != std::string::npos) {
+        std::string page_str = msg.substr(12, first_colon - 12);
+        bool is_numeric = !page_str.empty() && std::all_of(page_str.begin(), page_str.end(), ::isdigit);
+        if (is_numeric) {
+          page_index = std::stoi(page_str);
+          tiff_url = msg.substr(first_colon + 1);
+        } else {
+          tiff_url = msg.substr(12);
+        }
+      } else {
+        tiff_url = msg.substr(12);
+      }
+
+      // Resolve the active tab id (overlay browser is not in tab_manager;
+      // fall back to the current tab so we still persist navigation state).
+      int preview_tab_id = -1;
+      if (handler && handler->tab_manager_) {
+        preview_tab_id = handler->tab_manager_->GetId(browser);
+      }
+      if (preview_tab_id == -1) {
+        OtfApp* app = OtfApp::GetInstance();
+        if (app) preview_tab_id = app->GetCurrentTabId();
+      }
+
+      if (tiff_url.rfind("browser://image-preview/", 0) == 0 || tiff_url.empty()) {
+        if (handler && preview_tab_id != -1) {
+          std::string mapped_url = handler->GetImagePreviewUrlForTab(preview_tab_id);
+          if (!mapped_url.empty()) {
+            tiff_url = mapped_url;
+          }
+        }
+      }
+
+      if (tiff_url.rfind("file://", 0) == 0) {
+        std::string file_path = tiff_url.substr(7);
+#if defined(_WIN32)
+        if (file_path.length() > 2 && file_path[0] == '/' && file_path[2] == ':') {
+          file_path = file_path.substr(1);
+        }
+#endif
+        std::string png_base64;
+        int page_count = 1;
+        if (otf::DecodeTiffToPngBase64(file_path, page_index, png_base64, page_count)) {
+          if (handler && preview_tab_id != -1) {
+            handler->SetImagePreviewPageForTab(preview_tab_id, page_index);
+            handler->SetImagePreviewPageCountForTab(preview_tab_id, page_count);
+          }
+          std::string response = JsonObjectBuilder()
+            .AddString("displayUrl", png_base64)
+            .AddInt("pageCount", page_count)
+            .AddInt("currentPage", page_index)
+            .Build();
+          callback->Success(response);
+        } else {
+          callback->Failure(0, "Failed to decode local TIFF file");
+        }
+        return true;
+      }
+      if (tiff_url.rfind("http://", 0) == 0 || tiff_url.rfind("https://", 0) == 0) {
+        CefRefPtr<CefRequest> request = CefRequest::Create();
+        request->SetURL(tiff_url);
+        request->SetMethod("GET");
+        request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_NO_RETRY_ON_5XX);
+        CefRefPtr<OtfTiffDecodeClient> client = new OtfTiffDecodeClient(page_index, preview_tab_id, callback);
+        CefURLRequest::Create(request, client, nullptr);
+        return true;
+      }
+      callback->Failure(0, "Unsupported TIFF scheme");
+      return true;
+    }
+
     if (msg == "hide-bookmarkbar") {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
@@ -1376,7 +1552,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "get-tabs") {
       std::stringstream ss;
       ss << "[";
-      std::vector<int> ids = handler->tab_manager_->GetAllTabIds();
+      std::vector<int> ids = handler->tab_manager_->GetTabIdsForWorkspace(
+          handler->active_workspace_id_);
       for (size_t i = 0; i < ids.size(); ++i) {
         ss << BuildTabJson(handler->tab_manager_, handler->store_.get(), ids[i]);
         if (i < ids.size() - 1) ss << ",";
@@ -1977,6 +2154,257 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->HideCertificateOverlay();
       }
       callback->Success("");
+    } else if (msg.rfind("show-popup:", 0) == 0) {
+      const std::string name = msg.substr(11);
+      OtfApp* app = OtfApp::GetInstance();
+      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
+      if (popup) popup->Show();
+      callback->Success(popup ? "ok" : "no-such-popup");
+      return true;
+    } else if (msg.rfind("hide-popup:", 0) == 0) {
+      const std::string name = msg.substr(11);
+      OtfApp* app = OtfApp::GetInstance();
+      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
+      if (popup) popup->Hide();
+      callback->Success(popup ? "ok" : "no-such-popup");
+      return true;
+    } else if (msg.rfind("toggle-popup:", 0) == 0) {
+      const std::string name = msg.substr(13);
+      OtfApp* app = OtfApp::GetInstance();
+      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
+      if (popup) popup->Toggle();
+      callback->Success(popup ? "ok" : "no-such-popup");
+      return true;
+    } else if (msg.rfind("popup-restore:", 0) == 0) {
+      const std::string name = msg.substr(14);
+      OtfApp* app = OtfApp::GetInstance();
+      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
+      if (popup) popup->SetRestoreSubscriber(callback);
+      return true;
+    } else if (msg.rfind("show-clear-site-data:", 0) == 0) {
+      const std::string origin = msg.substr(21);
+      handler->pending_cleardata_origin_ = origin;
+      OtfApp* app = OtfApp::GetInstance();
+      otf::PopupOverlay* popup = app ? app->GetPopup("cleardata") : nullptr;
+      if (popup) {
+        // Wire the restore producer so PopupOverlay::Show() publishes the
+        // current origin to the renderer. Producer reads the pending field
+        // by pointer so the popup always reflects the latest show request.
+        std::string* pending = &handler->pending_cleardata_origin_;
+        popup->SetRestoreProducer([pending]() {
+          return JsonObjectBuilder().AddString("origin", *pending).Build();
+        });
+        popup->Show();
+      }
+      callback->Success("");
+      return true;
+    } else if (msg.rfind("open-site-data-page:", 0) == 0) {
+      const std::string origin = msg.substr(20);
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        otf::PopupOverlay* popup = app->GetPopup("cleardata");
+        if (popup) popup->Hide();
+        // Encode the origin so colons/slashes survive the query string.
+        std::string encoded;
+        for (char c : origin) {
+          if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' ||
+              c == '.' || c == '_' || c == '~') {
+            encoded += c;
+          } else {
+            char buf[4];
+            std::snprintf(buf, sizeof(buf), "%%%02X",
+                          static_cast<unsigned char>(c));
+            encoded += buf;
+          }
+        }
+        int id = app->CreateTab("browser://sitedata?origin=" + encoded);
+        handler->NotifyNewTab(id, handler->tab_manager_->GetId(browser));
+        app->SwitchTab(id);
+      }
+      callback->Success("");
+      return true;
+    } else if (msg.rfind("get-cookies-for-site:", 0) == 0) {
+      const std::string origin = msg.substr(21);
+      // Visitor accumulates rows into a JSON array. CEF docs warn that Visit
+      // is never called when zero cookies match, so we schedule a delayed
+      // fallback task that resolves to "[]" if the visitor hasn't already
+      // resolved. The visitor self-disables once it resolves so the late
+      // fallback no-ops.
+      class CookieListVisitor : public CefCookieVisitor {
+       public:
+        CookieListVisitor(CefRefPtr<Callback> cb) : callback_(cb) {}
+        bool Visit(const CefCookie& cookie, int count, int total,
+                   bool& delete_cookie) override {
+          if (resolved_) return false;
+          if (!rows_.empty()) rows_ += ",";
+          rows_ += JsonObjectBuilder()
+                       .AddString("name", CefString(&cookie.name).ToString())
+                       .AddString("domain", CefString(&cookie.domain).ToString())
+                       .AddString("path", CefString(&cookie.path).ToString())
+                       .AddBool("secure", cookie.secure != 0)
+                       .AddBool("httpOnly", cookie.httponly != 0)
+                       .Build();
+          if (count + 1 >= total) Resolve();
+          return true;
+        }
+        void Resolve() {
+          if (resolved_) return;
+          resolved_ = true;
+          callback_->Success("[" + rows_ + "]");
+        }
+       private:
+        CefRefPtr<Callback> callback_;
+        bool resolved_ = false;
+        std::string rows_;
+        IMPLEMENT_REFCOUNTING(CookieListVisitor);
+      };
+      CefRefPtr<CookieListVisitor> visitor = new CookieListVisitor(callback);
+      CefRefPtr<CefCookieManager> mgr =
+          CefCookieManager::GetGlobalManager(nullptr);
+      if (mgr) {
+        mgr->VisitUrlCookies(origin, false, visitor);
+      }
+      // 250ms fallback: if zero cookies were found, Visit never fired —
+      // resolve to "[]" so the UI doesn't hang on a missing response.
+      class FallbackTask : public CefTask {
+       public:
+        FallbackTask(CefRefPtr<CookieListVisitor> v) : visitor_(v) {}
+        void Execute() override { visitor_->Resolve(); }
+       private:
+        CefRefPtr<CookieListVisitor> visitor_;
+        IMPLEMENT_REFCOUNTING(FallbackTask);
+      };
+      CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 250);
+      return true;
+    } else if (msg.rfind("clear-cookies-for-site:", 0) == 0) {
+      const std::string origin = msg.substr(23);
+      // CEF's DeleteCookies(url, "") only removes host cookies (not domain
+      // cookies). Most sites set Domain=.example.com, which means a naive
+      // call leaves them untouched. The reliable path: visit all cookies
+      // matching the URL and set delete_cookie=true on each.
+      class CookiePurgeVisitor : public CefCookieVisitor {
+       public:
+        CookiePurgeVisitor(CefRefPtr<Callback> cb) : callback_(cb) {}
+        bool Visit(const CefCookie& cookie, int count, int total,
+                   bool& delete_cookie) override {
+          delete_cookie = true;
+          ++deleted_;
+          if (count + 1 >= total) Resolve();
+          return true;
+        }
+        void Resolve() {
+          if (resolved_) return;
+          resolved_ = true;
+          callback_->Success(std::to_string(deleted_));
+        }
+       private:
+        CefRefPtr<Callback> callback_;
+        int deleted_ = 0;
+        bool resolved_ = false;
+        IMPLEMENT_REFCOUNTING(CookiePurgeVisitor);
+      };
+      class FallbackTask : public CefTask {
+       public:
+        FallbackTask(CefRefPtr<CookiePurgeVisitor> v) : visitor_(v) {}
+        void Execute() override { visitor_->Resolve(); }
+       private:
+        CefRefPtr<CookiePurgeVisitor> visitor_;
+        IMPLEMENT_REFCOUNTING(FallbackTask);
+      };
+      CefRefPtr<CookiePurgeVisitor> visitor = new CookiePurgeVisitor(callback);
+      CefRefPtr<CefCookieManager> mgr =
+          CefCookieManager::GetGlobalManager(nullptr);
+      if (mgr) {
+        mgr->VisitUrlCookies(origin, true, visitor);
+      } else {
+        visitor->Resolve();
+      }
+      // Same 250ms fallback as the cookie-list visitor — covers the
+      // zero-cookies case where Visit is never called.
+      CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 250);
+      return true;
+    } else if (msg.rfind("clear-storage-for-site:", 0) == 0) {
+      const std::string origin = msg.substr(23);
+      if (browser) {
+        CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+        params->SetString("origin", origin);
+        params->SetString(
+            "storageTypes",
+            "appcache,file_systems,indexeddb,local_storage,"
+            "shader_cache,websql,service_workers,cache_storage");
+        browser->GetHost()->ExecuteDevToolsMethod(
+            0, "Storage.clearDataForOrigin", params);
+      }
+      callback->Success("ok");
+      return true;
+    } else if (msg.rfind("clear-permissions-for-site:", 0) == 0) {
+      const std::string origin = msg.substr(27);
+      if (browser) {
+        CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+        params->SetString("origin", origin);
+        browser->GetHost()->ExecuteDevToolsMethod(
+            0, "Browser.resetPermissions", params);
+      }
+      callback->Success("ok");
+      return true;
+    } else if (msg.rfind("clear-all-for-site:", 0) == 0) {
+      const std::string origin = msg.substr(19);
+      // Fire storage + permissions clears (CDP, fire-and-forget). Then do
+      // a per-cookie visitor purge so domain cookies are caught — see
+      // clear-cookies-for-site for the why.
+      if (browser) {
+        CefRefPtr<CefDictionaryValue> storage_params =
+            CefDictionaryValue::Create();
+        storage_params->SetString("origin", origin);
+        storage_params->SetString("storageTypes", "all");
+        browser->GetHost()->ExecuteDevToolsMethod(
+            0, "Storage.clearDataForOrigin", storage_params);
+
+        CefRefPtr<CefDictionaryValue> perm_params =
+            CefDictionaryValue::Create();
+        perm_params->SetString("origin", origin);
+        browser->GetHost()->ExecuteDevToolsMethod(
+            0, "Browser.resetPermissions", perm_params);
+      }
+      class CookiePurgeVisitor : public CefCookieVisitor {
+       public:
+        CookiePurgeVisitor(CefRefPtr<Callback> cb) : callback_(cb) {}
+        bool Visit(const CefCookie& cookie, int count, int total,
+                   bool& delete_cookie) override {
+          delete_cookie = true;
+          ++deleted_;
+          if (count + 1 >= total) Resolve();
+          return true;
+        }
+        void Resolve() {
+          if (resolved_) return;
+          resolved_ = true;
+          callback_->Success(std::to_string(deleted_));
+        }
+       private:
+        CefRefPtr<Callback> callback_;
+        int deleted_ = 0;
+        bool resolved_ = false;
+        IMPLEMENT_REFCOUNTING(CookiePurgeVisitor);
+      };
+      class FallbackTask : public CefTask {
+       public:
+        FallbackTask(CefRefPtr<CookiePurgeVisitor> v) : visitor_(v) {}
+        void Execute() override { visitor_->Resolve(); }
+       private:
+        CefRefPtr<CookiePurgeVisitor> visitor_;
+        IMPLEMENT_REFCOUNTING(FallbackTask);
+      };
+      CefRefPtr<CookiePurgeVisitor> visitor = new CookiePurgeVisitor(callback);
+      CefRefPtr<CefCookieManager> mgr =
+          CefCookieManager::GetGlobalManager(nullptr);
+      if (mgr) {
+        mgr->VisitUrlCookies(origin, true, visitor);
+      } else {
+        visitor->Resolve();
+      }
+      CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 250);
+      return true;
     } else if (msg == "open-downloads-page") {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
@@ -2032,7 +2460,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!download_id) { callback->Failure(1, "invalid id"); return true; }
       auto it = handler->downloads_.find(*download_id);
       if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
-        OpenPathWithSystemApp(it->second.full_path);
+        std::string path = it->second.full_path;
+        if (otf::IsTiffUrl(path)) {
+          OtfApp* app = OtfApp::GetInstance();
+          if (app) {
+            std::string file_url = "file://" + path;
+            int new_id = app->CreateTab("browser://imagepreview");
+            handler->SetImagePreviewUrlForTab(new_id, file_url);
+            handler->NotifyNewTab(new_id, -1);
+            app->SwitchTab(new_id);
+          }
+        } else {
+          OpenPathWithSystemApp(path);
+        }
       }
       callback->Success("");
     } else if (msg.find("show-download-in-folder:") == 0) {
@@ -2242,6 +2682,41 @@ OtfHandler::~OtfHandler() {
 // static
 OtfHandler* OtfHandler::GetInstance() {
   return g_instance;
+}
+
+CefRefPtr<CefRequestContext> OtfHandler::GetActiveWorkspaceRequestContext() {
+  return GetWorkspaceRequestContext(active_workspace_id_);
+}
+
+CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspace_id) {
+  // The default workspace shares the global context so we don't have to
+  // migrate existing on-disk state, and so that "no workspaces created"
+  // behaves identically to the pre-workspaces build.
+  if (workspace_id <= 1) {
+    return nullptr;
+  }
+  auto it = workspace_contexts_.find(workspace_id);
+  if (it != workspace_contexts_.end() && it->second) {
+    return it->second;
+  }
+  std::filesystem::path base;
+  const std::string home = GetHomeDir();
+  if (!home.empty()) {
+    base = std::filesystem::path(home) / GetUserDataDirName();
+  } else {
+    base = std::filesystem::temp_directory_path() / "otf-browser";
+  }
+  base /= "workspaces";
+  base /= std::to_string(workspace_id);
+  std::error_code ec;
+  std::filesystem::create_directories(base, ec);
+
+  CefRequestContextSettings settings;
+  CefString(&settings.cache_path).FromString(base.string());
+  CefRefPtr<CefRequestContext> ctx =
+      CefRequestContext::CreateContext(settings, nullptr);
+  workspace_contexts_[workspace_id] = ctx;
+  return ctx;
 }
 
 bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
@@ -2499,6 +2974,10 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
           }
         }
       }
+    } else if (OtfApp* app = OtfApp::GetInstance();
+               app && app->DispatchPopupBrowserCreated(browser_view->GetID(),
+                                                      browser)) {
+      // Routed to a PopupOverlay (cleardata, etc.). Nothing else to do.
     } else if (tab_manager_) {
       int tab_id = browser_view->GetID();
       tab_manager_->SetBrowser(tab_id, browser);
@@ -2919,12 +3398,19 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
         int tab_id = app->GetCurrentTabId();
         this->SetImagePreviewUrlForTab(tab_id, image_url);
         app->ShowImagePreviewOverlay();
-        if (this->image_preview_subscription_) {
-          std::string event = JsonObjectBuilder()
-            .AddString("key", "load-image")
-            .AddString("url", image_url)
-            .Build();
-          this->image_preview_subscription_->Success(event);
+
+        // Prefer the per-tab subscription; fall back to the legacy single
+        // subscriber for older renderers that haven't migrated.
+        CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> sub;
+        auto it = this->tab_image_preview_subscriptions_.find(tab_id);
+        if (it != this->tab_image_preview_subscriptions_.end()) {
+          sub = it->second;
+        } else {
+          sub = this->image_preview_subscription_;
+        }
+        if (sub) {
+          std::string event = this->BuildImagePreviewLoadEvent(tab_id);
+          if (!event.empty()) sub->Success(event);
         }
       }
     }
@@ -3134,6 +3620,19 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     }
     if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
       app->HideCertificateOverlay();
+      return true;
+    }
+    if (app->appmenu_overlay_ && app->appmenu_overlay_->IsVisible()) {
+      app->HideAppMenuOverlay();
+      return true;
+    }
+    if (app->bookmark_overlay_ && app->bookmark_overlay_->IsVisible()) {
+      app->HideBookmarkOverlay();
+      return true;
+    }
+    if (otf::PopupOverlay* p = app->GetPopup("cleardata");
+        p && p->IsVisible()) {
+      p->Hide();
       return true;
     }
     if (app->findbar_overlay_ && app->findbar_overlay_->IsVisible()) {
@@ -3370,6 +3869,10 @@ bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
 
 void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
   tab_image_preview_urls_[tab_id] = url;
+  // Setting (or clearing) the URL resets navigation state — a different
+  // image was loaded, page index from the previous TIFF is meaningless.
+  tab_image_preview_pages_[tab_id] = 0;
+  tab_image_preview_page_counts_[tab_id] = 1;
 }
 
 std::string OtfHandler::GetImagePreviewUrlForTab(int tab_id) const {
@@ -3378,6 +3881,50 @@ std::string OtfHandler::GetImagePreviewUrlForTab(int tab_id) const {
     return it->second;
   }
   return "";
+}
+
+void OtfHandler::SetImagePreviewPageForTab(int tab_id, int page) {
+  tab_image_preview_pages_[tab_id] = page < 0 ? 0 : page;
+}
+
+int OtfHandler::GetImagePreviewPageForTab(int tab_id) const {
+  auto it = tab_image_preview_pages_.find(tab_id);
+  return it != tab_image_preview_pages_.end() ? it->second : 0;
+}
+
+void OtfHandler::SetImagePreviewPageCountForTab(int tab_id, int count) {
+  tab_image_preview_page_counts_[tab_id] = count < 1 ? 1 : count;
+}
+
+int OtfHandler::GetImagePreviewPageCountForTab(int tab_id) const {
+  auto it = tab_image_preview_page_counts_.find(tab_id);
+  return it != tab_image_preview_page_counts_.end() ? it->second : 1;
+}
+
+std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id) {
+  std::string url = GetImagePreviewUrlForTab(tab_id);
+  if (url.empty()) return "";
+
+  int page = GetImagePreviewPageForTab(tab_id);
+  otf::ImagePreviewPayload payload = otf::BuildImagePreviewPayload(url, page);
+  // Refresh stored page_count from the decoder (may have changed if the file
+  // was swapped on disk, or wasn't known yet on first load).
+  SetImagePreviewPageCountForTab(tab_id, payload.page_count);
+
+  std::string secure_name = "OTF_PREVIEW_IMAGE";
+  size_t last_slash = url.find_last_of("/\\");
+  if (last_slash != std::string::npos) {
+    secure_name = url.substr(last_slash + 1);
+  }
+  std::string secure_url = "browser://image-preview/" + secure_name;
+
+  return JsonObjectBuilder()
+      .AddString("key", "load-image")
+      .AddString("url", secure_url)
+      .AddString("displayUrl", payload.display_url)
+      .AddInt("pageCount", payload.page_count)
+      .AddInt("currentPage", page)
+      .Build();
 }
 
 } // namespace otf

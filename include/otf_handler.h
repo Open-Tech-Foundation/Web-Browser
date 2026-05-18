@@ -169,10 +169,27 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> certificate_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> bookmark_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> image_preview_subscription_;
+  // The cleardata popup ships its origin to the renderer via a restore
+  // producer attached to the PopupOverlay. The producer reads this field,
+  // which is set by the show-clear-site-data:<origin> handler.
+  std::string pending_cleardata_origin_;
+  std::map<int, CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback>> tab_image_preview_subscriptions_;
 
   std::map<int, std::string> tab_image_preview_urls_;
+  // Per-tab TIFF navigation state. Persisted in C++ so tab switches and
+  // re-subscribes restore the page the user was viewing.
+  std::map<int, int> tab_image_preview_pages_;
+  std::map<int, int> tab_image_preview_page_counts_;
   void SetImagePreviewUrlForTab(int tab_id, const std::string& url);
   std::string GetImagePreviewUrlForTab(int tab_id) const;
+  void SetImagePreviewPageForTab(int tab_id, int page);
+  int GetImagePreviewPageForTab(int tab_id) const;
+  void SetImagePreviewPageCountForTab(int tab_id, int count);
+  int GetImagePreviewPageCountForTab(int tab_id) const;
+  // Build a JSON `load-image` event for a tab using stored url/page state.
+  // Also refreshes the stored page_count from the decode result. Returns ""
+  // if the tab has no preview url.
+  std::string BuildImagePreviewLoadEvent(int tab_id);
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation
@@ -211,6 +228,19 @@ class OtfHandler : public CefClient,
   std::map<int, CefRefPtr<CefDownloadItemCallback>> download_callbacks_;
   std::map<uint32_t, int> runtime_download_ids_;
   std::unique_ptr<OtfStore> store_;
+
+  // Workspace state. active_workspace_id_ is the workspace whose tabs are
+  // currently surfaced in the UI; new tabs join it. workspace_contexts_ is
+  // populated lazily — the default workspace (id 1) uses the global
+  // request context (nullptr sentinel), while subsequent workspaces get a
+  // per-workspace CefRequestContext with its own cache_path.
+  int active_workspace_id_ = 1;
+  std::map<int, CefRefPtr<CefRequestContext>> workspace_contexts_;
+  // Returns the request context for the active workspace. Returns nullptr
+  // for the default workspace, which is the signal the BrowserView API
+  // expects to mean "use the global context".
+  CefRefPtr<CefRequestContext> GetActiveWorkspaceRequestContext();
+  CefRefPtr<CefRequestContext> GetWorkspaceRequestContext(int workspace_id);
 
  private:
   const bool use_alloy_style_;

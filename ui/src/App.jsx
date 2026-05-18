@@ -285,6 +285,20 @@ const App = () => {
     });
   };
 
+  // Send the current tab's origin so the overlay knows which site to act
+  // on. Use URL parsing rather than substring slicing so credentials/ports
+  // are stripped cleanly. If parsing fails (about:blank, data:, etc.), we
+  // skip — the icon is already gated on a regular http(s) URL upstream.
+  const handleShowClearSiteData = () => {
+    const raw = currentActiveTab?.url || '';
+    let origin = '';
+    try { origin = new URL(raw).origin; } catch (_) {}
+    if (!origin) return;
+    window.cefQuery({
+      request: `show-clear-site-data:${origin}`,
+    });
+  };
+
   const currentActiveTab = state.tabs.find(t => t.id === state.activeTabId);
   const downloadButtonClass = downloadBadge > 0 ? 'animate-download-pulse text-brand-orange' : '';
 
@@ -337,6 +351,7 @@ const App = () => {
             onToggleBookmark={handleToggleBookmark}
             sslError={currentActiveTab?.sslError}
             onShowCertificate={handleShowCertificate}
+            onShowClearSiteData={handleShowClearSiteData}
           />
           <div className="flex items-center ml-1 gap-1">
             <NavButton

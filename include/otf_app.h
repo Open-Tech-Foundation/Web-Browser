@@ -1,10 +1,15 @@
 #ifndef OTF_BROWSER_APP_H_
 #define OTF_BROWSER_APP_H_
 
+#include <map>
+#include <memory>
+#include <string>
+
 #include "include/cef_app.h"
 #include "include/wrapper/cef_message_router.h"
 #include "include/views/cef_window.h"
 #include "otf_browser_shell.h"
+#include "otf_popup_overlay.h"
 
 namespace otf {
 
@@ -51,6 +56,29 @@ class OtfApp : public CefApp,
   // create from the main process. Currently carries the resolved screen
   // profile JSON; can grow over time. Main-process-only.
   CefRefPtr<CefDictionaryValue> MakeBrowserExtraInfo() const;
+
+  // Build a BrowserView configured for use inside a PopupOverlay (transparent
+  // background, ALLOY runtime, the standard OtfViewDelegate with the given
+  // height hint). Factored out so PopupOverlay doesn't need access to the
+  // OtfViewDelegate type which is file-local to otf_app.cc.
+  CefRefPtr<CefBrowserView> BuildOverlayBrowserView(const std::string& url,
+                                                   int view_id,
+                                                   int height_hint);
+
+  // Generic popup registry. New popups should be authored against this API
+  // instead of bespoke Create/Show/Hide methods.
+  PopupOverlay* GetPopup(const std::string& name);
+  // Iterate registered popups — used on tab switch to hide any visible
+  // popups so they don't leak into the new tab's context.
+  void HideAllPopups();
+  // Build the CefBrowserView + overlay controller for each registered popup
+  // and attach it to the window. Called once from OnWindowCreated.
+  void CreateAllPopups(CefRefPtr<CefWindow> window);
+  // Re-anchor every registered popup. Called from window OnLayoutChanged.
+  void RepositionAllPopups();
+  // Route an OnAfterCreated browser event to whichever popup owns the
+  // matching view id. Returns true if handled.
+  bool DispatchPopupBrowserCreated(int view_id, CefRefPtr<CefBrowser> browser);
 
   int CreateTab(const std::string& url, int parent_id = -1);
   void SwitchTab(int tab_id);
@@ -106,6 +134,7 @@ class OtfApp : public CefApp,
   std::vector<std::string> startup_urls_;
   bool startup_tabs_opened_ = false;
   CefRefPtr<CefMessageRouterRendererSide> renderer_side_router_;
+  std::map<std::string, std::unique_ptr<PopupOverlay>> popups_;
 
   // Resolved screen profile JSON.
   //

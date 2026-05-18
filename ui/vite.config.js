@@ -32,7 +32,9 @@ export default defineConfig({
         security: resolve(__dirname, 'security.html'),
         'insecure-blocked': resolve(__dirname, 'insecure-blocked.html'),
         fingerprints: resolve(__dirname, 'fingerprints.html'),
-        certificate: resolve(__dirname, 'certificate.html')
+        certificate: resolve(__dirname, 'certificate.html'),
+        cleardata: resolve(__dirname, 'cleardata.html'),
+        sitedata: resolve(__dirname, 'sitedata.html')
       }
     }
   }

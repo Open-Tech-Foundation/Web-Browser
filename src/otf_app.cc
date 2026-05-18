@@ -214,6 +214,8 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateAppMenuOverlay();
     app->CreateBookmarkOverlay();
     app->CreateImagePreviewOverlay();
+    // Build any popup registered against the PopupOverlay framework.
+    app->CreateAllPopups(window);
 
     if (content_view_) {
       app->SwitchTab(content_view_->GetID());
@@ -237,6 +239,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionAppMenuOverlay();
       app->PositionBookmarkOverlay();
       app->PositionImagePreviewOverlay();
+      app->RepositionAllPopups();
     }
   }
 
@@ -527,15 +530,21 @@ void OtfApp::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) {
 
 int OtfApp::CreateTab(const std::string& url, int parent_id) {
   CEF_REQUIRE_UI_THREAD();
-  
+
   CefBrowserSettings browser_settings;
+  OtfHandler* handler = OtfHandler::GetInstance();
+  CefRefPtr<CefRequestContext> request_context =
+      handler ? handler->GetActiveWorkspaceRequestContext() : nullptr;
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, browser_settings, MakeBrowserExtraInfo(), nullptr,
+      OtfHandler::GetInstance(), url, browser_settings, MakeBrowserExtraInfo(), request_context,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
-  
+
   int tab_id = tab_manager_.AddTab(content_view, parent_id);
   content_view->SetID(tab_id);
   tab_manager_.SetUrl(tab_id, url);
+  if (handler) {
+    tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
+  }
 
   if (content_panel_) {
     content_panel_->AddChildView(content_view);
@@ -552,24 +561,38 @@ void OtfApp::SwitchTab(int tab_id) {
   
   OtfHandler* handler = OtfHandler::GetInstance();
   if (handler) {
+    bool is_dedicated_preview_tab = (tab_manager_.GetSchemeUrl(tab_id) == "browser://imagepreview" ||
+                                     tab_manager_.GetUrl(tab_id) == "browser://imagepreview");
+
     std::string tab_img_url = handler->GetImagePreviewUrlForTab(tab_id);
-    if (tab_img_url.empty()) {
+    if (is_dedicated_preview_tab) {
+      // Dedicated preview tab manages its own BrowserView; the floating
+      // overlay must not double-render on top of it. Re-fire load-image to
+      // that tab's per-tab subscription so its JSX restores from C++ state
+      // (page index, page count) instead of whatever stale state the
+      // renderer happens to hold.
       HideImagePreviewOverlay();
-      if (handler->image_preview_subscription_) {
-        std::string event = JsonObjectBuilder()
-          .AddString("key", "load-image")
-          .AddString("url", "")
-          .Build();
-        handler->image_preview_subscription_->Success(event);
+      auto it = handler->tab_image_preview_subscriptions_.find(tab_id);
+      if (it != handler->tab_image_preview_subscriptions_.end() && it->second) {
+        std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
+        if (!event.empty()) it->second->Success(event);
       }
     } else {
-      ShowImagePreviewOverlay();
-      if (handler->image_preview_subscription_) {
-        std::string event = JsonObjectBuilder()
-          .AddString("key", "load-image")
-          .AddString("url", tab_img_url)
-          .Build();
-        handler->image_preview_subscription_->Success(event);
+      if (tab_img_url.empty()) {
+        HideImagePreviewOverlay();
+        if (handler->image_preview_subscription_) {
+          std::string event = JsonObjectBuilder()
+            .AddString("key", "load-image")
+            .AddString("url", "")
+            .Build();
+          handler->image_preview_subscription_->Success(event);
+        }
+      } else {
+        ShowImagePreviewOverlay();
+        if (handler->image_preview_subscription_) {
+          std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
+          if (!event.empty()) handler->image_preview_subscription_->Success(event);
+        }
       }
     }
   }
@@ -602,6 +625,12 @@ void OtfApp::SwitchTab(int tab_id) {
     if (certificate_overlay_ && certificate_overlay_->IsVisible()) {
       DestroyCertificateOverlay();
     }
+
+    // Hide any PopupOverlay-managed popups so they don't bleed into the
+    // new tab's context. As more popups migrate to PopupOverlay, the
+    // bespoke "if (X_overlay_ && IsVisible) Hide()" calls above can be
+    // removed.
+    HideAllPopups();
 
     if (handler) {
       handler->SendEvent(JsonObjectBuilder()
@@ -652,6 +681,11 @@ int OtfApp::CloseTab(int tab_id) {
     content_panel_->Layout();
   }
   tab_manager_.RemoveTab(tab_id);
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (handler) {
+    handler->tab_image_preview_subscriptions_.erase(tab_id);
+    handler->SetImagePreviewUrlForTab(tab_id, "");
+  }
   if (current_tab_id_ == tab_id) {
     current_tab_id_ = -1;
   }
@@ -1136,6 +1170,15 @@ void OtfApp::OnContextInitialized() {
   // abort it on startup.
   screen_profile_json_ = otf::ResolveScreenProfileJson();
 
+  // Register popups backed by the shared PopupOverlay framework. Each
+  // entry: name + browser view id + size. The popup's content URL is
+  // derived from the name (browser://<name> in prod, dev server in dev).
+  // RestoreProducer fields are wired by OtfHandler when it has the
+  // payload to ship — e.g. show-clear-site-data:<origin> stores the
+  // origin in handler state, and cleardata's producer reads it back.
+  popups_["cleardata"] = std::make_unique<PopupOverlay>(
+      "cleardata", kClearSiteDataBrowserViewId, /*width=*/340, /*height=*/400);
+
   CefRegisterSchemeHandlerFactory("browser", "", new BrowserSchemeHandlerFactory());
 
   CefRefPtr<CefCommandLine> command_line =
@@ -1208,6 +1251,52 @@ void OtfApp::OnContextInitialized() {
 
 CefRefPtr<CefClient> OtfApp::GetDefaultClient() {
   return OtfHandler::GetInstance();
+}
+
+PopupOverlay* OtfApp::GetPopup(const std::string& name) {
+  auto it = popups_.find(name);
+  return it == popups_.end() ? nullptr : it->second.get();
+}
+
+void OtfApp::HideAllPopups() {
+  for (auto& [_, popup] : popups_) {
+    if (popup && popup->IsVisible()) popup->Hide();
+  }
+}
+
+void OtfApp::CreateAllPopups(CefRefPtr<CefWindow> window) {
+  for (auto& [_, popup] : popups_) {
+    if (popup) popup->Create(window, this);
+  }
+}
+
+void OtfApp::RepositionAllPopups() {
+  for (auto& [_, popup] : popups_) {
+    if (popup) popup->Reposition();
+  }
+}
+
+bool OtfApp::DispatchPopupBrowserCreated(int view_id,
+                                         CefRefPtr<CefBrowser> browser) {
+  for (auto& [_, popup] : popups_) {
+    if (popup && popup->view_id() == view_id) {
+      popup->OnBrowserCreated(browser);
+      return true;
+    }
+  }
+  return false;
+}
+
+CefRefPtr<CefBrowserView> OtfApp::BuildOverlayBrowserView(
+    const std::string& url, int view_id, int height_hint) {
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, height_hint));
+  view->SetID(view_id);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  return view;
 }
 
 CefRefPtr<CefDictionaryValue> OtfApp::MakeBrowserExtraInfo() const {

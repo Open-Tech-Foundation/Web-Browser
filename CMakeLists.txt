@@ -39,6 +39,8 @@ set(CEF_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cef")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CEF_ROOT}/cmake")
 find_package(CEF REQUIRED)
 find_package(SQLite3 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(VIPS REQUIRED vips)
 
 # Remove -Werror from CEF standard flags to prevent build failure on warnings with GCC 14
 list(REMOVE_ITEM CEF_COMPILER_FLAGS -Werror)
@@ -54,6 +56,7 @@ set(OTF_BROWSER_SRCS
     src/otf_app.cc
     src/otf_handler.cc
     src/otf_page_policy.cc
+    src/otf_popup_overlay.cc
     src/otf_store.cc
     src/otf_utils.cc
 )
@@ -63,13 +66,14 @@ set(OTF_BROWSER_HEADERS
     include/otf_app.h
     include/otf_handler.h
     include/otf_page_policy.h
+    include/otf_popup_overlay.h
     include/otf_browser_shell.h
     include/otf_store.h
     include/otf_utils.h
 )
 
 # Include directories
-include_directories(include)
+include_directories(include ${VIPS_INCLUDE_DIRS})
 
 # Logical target used to link the libcef library
 ADD_LOGICAL_TARGET("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
@@ -91,7 +95,7 @@ target_compile_options(otf-browser PRIVATE -std=c++20 -fpermissive -Wno-error)
 target_compile_definitions(otf-browser PRIVATE OTF_VERSION="${OTF_VERSION}")
 
 # Link libraries
-target_link_libraries(otf-browser libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3)
+target_link_libraries(otf-browser libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
 
 # Set rpath so that libraries can be placed next to the executable
 if(OS_LINUX)
@@ -139,7 +143,7 @@ add_executable(otf-browser-native-tests
 SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-native-tests)
 target_include_directories(otf-browser-native-tests PRIVATE include)
 target_compile_options(otf-browser-native-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
-target_link_libraries(otf-browser-native-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3)
+target_link_libraries(otf-browser-native-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
 add_test(NAME otf-browser-native-tests COMMAND otf-browser-native-tests)
 
 add_executable(otf-browser-extra-tests
@@ -150,5 +154,5 @@ add_executable(otf-browser-extra-tests
 SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-extra-tests)
 target_include_directories(otf-browser-extra-tests PRIVATE include)
 target_compile_options(otf-browser-extra-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
-target_link_libraries(otf-browser-extra-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3)
+target_link_libraries(otf-browser-extra-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
 add_test(NAME otf-browser-extra-tests COMMAND otf-browser-extra-tests)

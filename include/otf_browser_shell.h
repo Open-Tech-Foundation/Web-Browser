@@ -18,6 +18,7 @@ constexpr int kAppMenuBrowserViewId = 1002;
 constexpr int kCertificateBrowserViewId = 1003;
 constexpr int kBookmarkBrowserViewId = 1004;
 constexpr int kImagePreviewBrowserViewId = 1005;
+constexpr int kClearSiteDataBrowserViewId = 1006;
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {
@@ -65,6 +66,7 @@ class TabManager {
     find_text_map_.erase(tab_id);
     find_case_map_.erase(tab_id);
     history_suppressed_url_map_.erase(tab_id);
+    workspace_map_.erase(tab_id);
     
     auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
     if (it != tab_order_.end()) {
@@ -242,6 +244,26 @@ class TabManager {
     return "";
   }
 
+  void SetWorkspaceId(int tab_id, int workspace_id) {
+    workspace_map_[tab_id] = workspace_id;
+  }
+
+  int GetWorkspaceId(int tab_id) const {
+    auto it = workspace_map_.find(tab_id);
+    if (it != workspace_map_.end()) return it->second;
+    return 0;
+  }
+
+  std::vector<int> GetTabIdsForWorkspace(int workspace_id) const {
+    std::vector<int> out;
+    for (int id : tab_order_) {
+      auto it = workspace_map_.find(id);
+      const int ws = (it != workspace_map_.end()) ? it->second : 0;
+      if (ws == workspace_id) out.push_back(id);
+    }
+    return out;
+  }
+
  private:
   std::map<int, CefRefPtr<CefBrowserView>> view_map_;
   std::map<int, CefRefPtr<CefBrowser>> browser_map_;
@@ -258,6 +280,7 @@ class TabManager {
   std::map<int, bool> ssl_error_map_;
   std::map<int, std::string> ssl_error_url_map_;
   std::map<int, std::string> history_suppressed_url_map_;
+  std::map<int, int> workspace_map_;
   std::vector<int> tab_order_;
   int next_tab_id_;
 };
