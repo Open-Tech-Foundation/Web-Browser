@@ -47,6 +47,15 @@ export default function FingerprintsPage() {
       scoreNode.textContent = `${score}`;
       labelNode.textContent = `${scoredItems.length}/${total} tests complete`;
       fillNode.style.width = `${score}%`;
+      if (total > 0 && scoredItems.length === total) {
+        const exportBtn = document.getElementById('export-json-btn');
+        if (exportBtn) exportBtn.hidden = false;
+        const startBtn = document.getElementById('start-tests-btn');
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.textContent = 'Re-run Test Suite';
+        }
+      }
     };
 
     const setActiveSection = (section) => {
@@ -1265,6 +1274,43 @@ export default function FingerprintsPage() {
         runAllTests();
       });
     }
+
+    // ── JSON export ────────────────────────────────────────────────────
+    // Minimal universal report: per-test status + a one-line summary, plus
+    // the user agent so the host can be identified. No card dumps, no
+    // hash histories — those are evidence of protections working, not the
+    // protection state itself.
+    const buildJsonExport = () => {
+      const scoreNode = document.getElementById('fingerprint-score-value');
+      const tests = [...document.querySelectorAll('[data-report-item]')].map((item) => {
+        const behaviorEl = item.querySelector('.report-behavior');
+        return {
+          id: item.dataset.reportItem || null,
+          section: item.dataset.testSection || null,
+          status: item.dataset.status || null,
+          summary: behaviorEl ? behaviorEl.textContent.trim() : '',
+        };
+      });
+      return {
+        schema: 'otf-protection-report',
+        schemaVersion: 2,
+        capturedAt: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        score: scoreNode ? Number(scoreNode.textContent) : null,
+        tests,
+      };
+    };
+
+    const exportBtn = document.getElementById('export-json-btn');
+    const exportOut = document.getElementById('export-json-output');
+    if (exportBtn && exportOut) {
+      exportBtn.addEventListener('click', () => {
+        exportOut.value = JSON.stringify(buildJsonExport(), null, 2);
+        exportOut.hidden = false;
+        exportOut.focus();
+        exportOut.select();
+      });
+    }
   });
 
   return (
@@ -1705,6 +1751,33 @@ export default function FingerprintsPage() {
             width: fit-content;
           }
 
+          #fingerprints-container .header-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+          }
+
+          #fingerprints-container #export-json-btn {
+            background: transparent;
+            color: #16110b;
+            border: 1px solid #16110b;
+          }
+
+          #fingerprints-container #export-json-output {
+            margin-top: 12px;
+            width: 100%;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            color: var(--ink);
+            resize: vertical;
+          }
+
           @media (max-width: 760px) {
             #fingerprints-container .grid {
               grid-template-columns: 1fr;
@@ -1733,7 +1806,18 @@ export default function FingerprintsPage() {
           <p className="eyebrow">Browser Protection Test Center</p>
           <h1>Privacy, Security, and Abuse Resistance Tests</h1>
           <p>Run this page in any browser to inspect fingerprinting exposure, security-sensitive API behavior, and protection gaps. More modules such as cookies, ads, tracking, and abuse flows can be added here.</p>
-          <button id="start-tests-btn">Start Test Suite</button>
+          <div className="header-actions">
+            <button id="start-tests-btn">Start Test Suite</button>
+            <button id="export-json-btn" type="button" hidden>Export JSON</button>
+          </div>
+          <textarea
+            id="export-json-output"
+            readOnly
+            hidden
+            spellCheck="false"
+            aria-label="Exported JSON report"
+            rows="12"
+          ></textarea>
         </header>
 
         <section className="card wide report-card">
