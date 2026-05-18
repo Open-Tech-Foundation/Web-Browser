@@ -54,6 +54,7 @@ std::string BuildDownloadPath(const std::string& suggested_name);
 std::string GetDefaultSettingsJson();
 std::optional<std::string> GetCurrentSearchEngineId();
 bool IsHistoryEnabled();
+bool IsDownloadsEnabled();
 bool IsAllowedSearchEngineId(const std::string& search_engine_id);
 std::string BuildSearchUrl(const std::string& search_engine_id,
                            const std::string& query);

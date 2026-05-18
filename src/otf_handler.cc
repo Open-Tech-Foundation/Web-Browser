@@ -2646,7 +2646,7 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
 
   const uint32_t runtime_id = download_item->GetId();
   int record_id = static_cast<int>(runtime_id);
-  if (store_) {
+  if (store_ && otf::IsDownloadsEnabled()) {
     const int persisted_id = store_->CreateDownload(download_item->GetURL(),
                                                      download_item->GetOriginalUrl(),
                                                      target_path, resolved_name, "", "starting");
@@ -2751,7 +2751,7 @@ void OtfHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
     download_callbacks_.erase(record_id);
   }
 
-  if (store_ && state.id > 0) {
+  if (store_ && state.id > 0 && otf::IsDownloadsEnabled()) {
     PersistedDownload item;
     item.id = state.id;
     item.url = state.url;

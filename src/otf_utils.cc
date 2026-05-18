@@ -416,6 +416,21 @@ bool IsHistoryEnabled() {
   return dict->GetBool("historyEnabled");
 }
 
+bool IsDownloadsEnabled() {
+  CefRefPtr<CefValue> root =
+      CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return false;
+  }
+
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey("downloadsEnabled") ||
+      dict->GetType("downloadsEnabled") != VTYPE_BOOL) {
+    return false;
+  }
+  return dict->GetBool("downloadsEnabled");
+}
+
 bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
   for (const char* allowed : kAllowedSearchEngines) {
     if (search_engine_id == allowed) {
