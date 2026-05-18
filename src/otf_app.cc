@@ -498,8 +498,21 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   // which is registered as STANDARD|SECURE|CORS_ENABLED and behaves like
   // a proper HTTP origin.)
 
+  // Force X11 Ozone. CEF's Alloy runtime (which we use for the embedded UI
+  // surface) does not support Wayland — only the Chrome runtime does. On a
+  // Wayland session, XWayland transparently bridges X11 clients, so this is
+  // the correct, documented configuration for Alloy, not a workaround.
+  // Do not "fix" this to auto/wayland without first switching to
+  // CEF_RUNTIME_STYLE_CHROME everywhere.
+  if (!command_line->HasSwitch("ozone-platform")) {
+    command_line->AppendSwitchWithValue("ozone-platform", "x11");
+  }
+
 #if defined(__linux__)
-  AppendCommaSeparatedSwitchValue(command_line, "enable-features", "Vulkan");
+  // Set the window class and desktop name so that X11/Wayland task monitors
+  // map the process to our .desktop file instead of falling back to Chromium.
+  command_line->AppendSwitchWithValue("class", "otf-browser");
+  command_line->AppendSwitchWithValue("desktop-name", "otf-browser.desktop");
 #endif
 
 }
@@ -517,7 +530,7 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   
   CefBrowserSettings browser_settings;
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, browser_settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, browser_settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
   
   int tab_id = tab_manager_.AddTab(content_view, parent_id);
@@ -664,7 +677,7 @@ void OtfApp::CreateFindBarOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 34));
   view->SetID(kFindBarBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -683,7 +696,7 @@ void OtfApp::CreateZoomBarOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 40));
   view->SetID(kZoomBarBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -702,7 +715,7 @@ void OtfApp::CreateDownloadsOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 380));
   view->SetID(kDownloadsBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -721,7 +734,7 @@ void OtfApp::CreateCertificateOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 420));
   view->SetID(kCertificateBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -740,7 +753,7 @@ void OtfApp::CreateAppMenuOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 140));
   view->SetID(kAppMenuBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -1013,7 +1026,7 @@ void OtfApp::CreateBookmarkOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 200));
   view->SetID(kBookmarkBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -1070,7 +1083,7 @@ void OtfApp::CreateImagePreviewOverlay() {
   CefBrowserSettings settings;
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
-      OtfHandler::GetInstance(), url, settings, nullptr, nullptr,
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 0));
   view->SetID(kImagePreviewBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
@@ -1113,6 +1126,15 @@ void OtfApp::HideImagePreviewOverlay() {
 
 void OtfApp::OnContextInitialized() {
   CEF_REQUIRE_UI_THREAD();
+
+  // Resolve the screen-fingerprint profile once, here in the main process,
+  // where filesystem access and CefDisplay are both available. The value
+  // is attached to every CefBrowserView via extra_info (see
+  // MakeBrowserExtraInfo) so the sandboxed renderer can read it through
+  // OnBrowserCreated rather than touching the filesystem itself — that
+  // path used to throw std::filesystem_error EPERM in the renderer and
+  // abort it on startup.
+  screen_profile_json_ = otf::ResolveScreenProfileJson();
 
   CefRegisterSchemeHandlerFactory("browser", "", new BrowserSchemeHandlerFactory());
 
@@ -1167,12 +1189,12 @@ void OtfApp::OnContextInitialized() {
   }
 
   CefRefPtr<CefBrowserView> ui_view = CefBrowserView::CreateBrowserView(
-      handler, ui_url, browser_settings, nullptr, nullptr,
+      handler, ui_url, browser_settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(runtime_style, 65));
   ui_view->SetID(kUiBrowserViewId);
 
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
-      handler, start_url, browser_settings, nullptr, nullptr,
+      handler, start_url, browser_settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(runtime_style));
   
   int tab_id = tab_manager_.AddTab(content_view);
@@ -1188,6 +1210,24 @@ CefRefPtr<CefClient> OtfApp::GetDefaultClient() {
   return OtfHandler::GetInstance();
 }
 
+CefRefPtr<CefDictionaryValue> OtfApp::MakeBrowserExtraInfo() const {
+  CefRefPtr<CefDictionaryValue> info = CefDictionaryValue::Create();
+  if (!screen_profile_json_.empty()) {
+    info->SetString("otf_screen_profile", screen_profile_json_);
+  }
+  return info;
+}
+
+void OtfApp::OnBrowserCreated(CefRefPtr<CefBrowser> browser,
+                              CefRefPtr<CefDictionaryValue> extra_info) {
+  // Runs in the renderer. Cache the screen-profile JSON the main process
+  // sent so OnContextCreated can substitute it into the page-policy script
+  // without doing any filesystem I/O of its own.
+  if (extra_info && extra_info->HasKey("otf_screen_profile")) {
+    screen_profile_json_ = extra_info->GetString("otf_screen_profile").ToString();
+  }
+}
+
 void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
                                CefRefPtr<CefFrame> frame,
                                CefRefPtr<CefV8Context> context) {
@@ -1200,7 +1240,12 @@ void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
   if (ShouldInjectPagePolicyForFrame(frame)) {
     CefRefPtr<CefV8Value> retval;
     CefRefPtr<CefV8Exception> exception;
-    const std::string policy_script = otf::BuildPagePolicyScript();
+    // screen_profile_json_ was populated by OnBrowserCreated above; if it's
+    // somehow empty (extra_info missing — shouldn't happen given the main
+    // process always sends it), BuildPagePolicyScript will substitute a
+    // hard-coded fallback profile so the JS remains valid.
+    const std::string policy_script =
+        otf::BuildPagePolicyScript(screen_profile_json_);
     const std::string frame_url = frame->GetURL().ToString();
     if (context && context->Enter()) {
       context->Eval(policy_script, frame_url, 0, retval, exception);

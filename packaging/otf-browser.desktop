@@ -7,6 +7,7 @@ Exec=otf-browser %U
 Icon=otf-browser
 Terminal=false
 StartupNotify=true
+StartupWMClass=otf-browser
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;
 Keywords=web;browser;internet;privacy;

@@ -45,6 +45,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
   CefMainArgs main_args(hInstance);
 #else
 int main(int argc, char* argv[]) {
+
   // Handle --version / -v before initializing CEF so users can identify a
   // packaged binary without launching a window. CEF sub-processes (renderer,
   // gpu, etc.) are spawned with a --type=… flag and never pass --version,

@@ -30,6 +30,12 @@ class OtfApp : public CefApp,
   CefRefPtr<CefClient> GetDefaultClient() override;
 
   // CefRenderProcessHandler methods:
+  // OnBrowserCreated receives the extra_info dictionary the main process
+  // attached when calling CefBrowserView::CreateBrowserView — we use it to
+  // ship the resolved screen profile across the process boundary so the
+  // sandboxed renderer doesn't have to touch the filesystem.
+  void OnBrowserCreated(CefRefPtr<CefBrowser> browser,
+                        CefRefPtr<CefDictionaryValue> extra_info) override;
   void OnContextCreated(CefRefPtr<CefBrowser> browser,
                         CefRefPtr<CefFrame> frame,
                         CefRefPtr<CefV8Context> context) override;
@@ -40,6 +46,11 @@ class OtfApp : public CefApp,
                                 CefRefPtr<CefFrame> frame,
                                 CefProcessId source_process,
                                 CefRefPtr<CefProcessMessage> message) override;
+
+  // Build the extra_info dictionary to attach to every BrowserView we
+  // create from the main process. Currently carries the resolved screen
+  // profile JSON; can grow over time. Main-process-only.
+  CefRefPtr<CefDictionaryValue> MakeBrowserExtraInfo() const;
 
   int CreateTab(const std::string& url, int parent_id = -1);
   void SwitchTab(int tab_id);
@@ -95,6 +106,19 @@ class OtfApp : public CefApp,
   std::vector<std::string> startup_urls_;
   bool startup_tabs_opened_ = false;
   CefRefPtr<CefMessageRouterRendererSide> renderer_side_router_;
+
+  // Resolved screen profile JSON.
+  //
+  // In the MAIN process this is populated once during OnContextInitialized
+  // via otf::ResolveScreenProfileJson() (which reads ~/.otf-browser/ and
+  // queries CefDisplay) and then attached to every CefBrowserView via
+  // extra_info.
+  //
+  // In a RENDERER process this is populated by OnBrowserCreated from the
+  // extra_info dictionary the main process sent, and read by
+  // OnContextCreated when building the per-page policy script. The
+  // renderer never resolves or persists anything — strictly read-only.
+  std::string screen_profile_json_;
 
   IMPLEMENT_REFCOUNTING(OtfApp);
 };

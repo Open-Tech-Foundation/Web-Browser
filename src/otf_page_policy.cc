@@ -164,7 +164,15 @@ bool ShouldInjectPagePolicy(const std::string& url) {
   return url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
 }
 
-std::string BuildPagePolicyScript() {
+std::string ResolveScreenProfileJson() {
+  // Main-process-only. Reads ~/.otf-browser/fingerprint_profile (or picks
+  // the nearest match for the primary display) and serializes the result
+  // so the renderer can be handed a static JSON blob without ever touching
+  // the filesystem itself.
+  return BuildScreenProfileJson(GetStableScreenProfile());
+}
+
+std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   std::string script = R"JS(
 (() => {
   // Defined as a function so we can both invoke it in this realm and stringify
@@ -1225,8 +1233,15 @@ std::string BuildPagePolicyScript() {
   wrapWorkerCtor('SharedWorker');
 })();
 )JS";
-  ReplaceAll(script, "__OTF_SCREEN_PROFILE__",
-             BuildScreenProfileJson(GetStableScreenProfile()));
+  // Substitute the caller-provided profile JSON. If empty (e.g. a renderer
+  // that didn't receive extra_info — defensive only, shouldn't happen),
+  // fall back to a known-good profile so the script is still valid JS.
+  // ChooseNearestScreenProfile() returns null-display defaults safely.
+  std::string profile_json = screen_profile_json;
+  if (profile_json.empty()) {
+    profile_json = BuildScreenProfileJson(kScreenProfiles[0]);
+  }
+  ReplaceAll(script, "__OTF_SCREEN_PROFILE__", profile_json);
   return script;
 }
 

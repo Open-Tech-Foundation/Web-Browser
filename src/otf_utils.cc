@@ -239,7 +239,8 @@ std::string JsonObjectBuilder::Build() const {
 std::string GetExecutableDir() {
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
-  if (count != -1) {
+  if (count > 0 && count < PATH_MAX) {
+    result[count] = '\0';
     return std::string(dirname(result));
   }
   return "";
@@ -286,8 +287,18 @@ std::string GetSettingsFilePath() {
 
   std::filesystem::path settings_dir =
       std::filesystem::path(home) / GetUserDataDirName();
-  if (!std::filesystem::exists(settings_dir)) {
-    std::filesystem::create_directories(settings_dir);
+
+  // Use the non-throwing error_code overloads. This helper is reached from
+  // multiple processes — the chrome-sandbox-confined renderer in particular
+  // gets EPERM on stat() against the user-data dir, and the throwing
+  // overloads would propagate up through GetStableScreenProfile (called
+  // from OnContextCreated) and crash the renderer. Best effort: try to
+  // make the dir; if we can't, return the path anyway. Callers that try
+  // to actually read or write will get an empty file or a failed write,
+  // which they're already prepared to handle.
+  std::error_code ec;
+  if (!std::filesystem::exists(settings_dir, ec)) {
+    std::filesystem::create_directories(settings_dir, ec);
   }
 
   return (settings_dir / "settings.json").string();

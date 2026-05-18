@@ -22,7 +22,11 @@ std::string GetDatabasePath() {
   } else {
     base = std::filesystem::temp_directory_path() / "otf-browser";
   }
-  std::filesystem::create_directories(base);
+  // Non-throwing overload — see GetSettingsFilePath for context. The
+  // sandboxed renderer hits this transitively too and would crash on the
+  // throwing overload's EPERM.
+  std::error_code ec;
+  std::filesystem::create_directories(base, ec);
   return (base / "browser.db").string();
 }
 
