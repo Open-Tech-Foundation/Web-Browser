@@ -75,11 +75,16 @@ jobs:
             libxtst6 \
             libgtk-3-dev \
             libfuse2t64
-          # linuxdeploy ships as a "continuous" AppImage with no tagged
-          # release. Pin the binary's SHA256 so an upstream swap fails loudly.
-          curl -fLo /tmp/linuxdeploy-x86_64.AppImage \
-            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
-          chmod +x /tmp/linuxdeploy-x86_64.AppImage
+          # Download AppImageKit appimagetool to package the AppDir
+          # We use this instead of linuxdeploy to avoid bundling host graphics libraries.
+          curl -fLo /tmp/appimagetool-x86_64.AppImage \
+            "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x /tmp/appimagetool-x86_64.AppImage
+
+          # Download the official standard AppRun binary
+          curl -fLo /tmp/AppRun-x86_64 \
+            "https://github.com/AppImage/AppImageKit/releases/download/continuous/AppRun-x86_64"
+          chmod +x /tmp/AppRun-x86_64
 
       - name: Set CC/CXX to GCC 14
         run: |
@@ -201,21 +206,16 @@ jobs:
           # Desktop entry + AppRun launcher come from packaging/.
           cp packaging/otf-browser.desktop "${APPDIR}/otf-browser.desktop"
           cp packaging/otf-browser.desktop "${APPDIR}/usr/share/applications/"
-          cp packaging/AppRun "${APPDIR}/AppRun"
-          chmod +x "${APPDIR}/AppRun"
+          # Symlink the binary to usr/bin so the standard AppRun can execute it via the Exec= desktop entry
+          ln -s ../lib/otf-browser/otf-browser "${APPDIR}/usr/bin/otf-browser"
+          cp /tmp/AppRun-x86_64 "${APPDIR}/AppRun"
 
           export VERSION
-          /tmp/linuxdeploy-x86_64.AppImage --appdir "${APPDIR}" --output appimage
+          # Ubuntu 24.04 restricts unprivileged user namespaces via AppArmor.
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          /tmp/appimagetool-x86_64.AppImage "${APPDIR}" "otf-browser-linux-x64-${GITHUB_REF_NAME}.AppImage"
 
-          # linuxdeploy names the output with version + arch. Normalize the
-          # filename to match the rest of the release assets.
-          APPIMAGE_OUT=$(ls OTF_Browser-*.AppImage 2>/dev/null | head -1)
-          if [ -z "${APPIMAGE_OUT}" ]; then
-            # Fallback: linuxdeploy uses the Name from the .desktop file
-            APPIMAGE_OUT=$(ls *.AppImage 2>/dev/null | grep -v linuxdeploy | head -1)
-          fi
           APPIMAGE_NAME="otf-browser-linux-x64-${GITHUB_REF_NAME}.AppImage"
-          mv "${APPIMAGE_OUT}" "${APPIMAGE_NAME}"
           sha256sum "${APPIMAGE_NAME}" > "${APPIMAGE_NAME}.sha256"
           echo "APPIMAGE_PATH=${APPIMAGE_NAME}" >> $GITHUB_ENV
           echo "APPIMAGE_SHA256_PATH=${APPIMAGE_NAME}.sha256" >> $GITHUB_ENV
