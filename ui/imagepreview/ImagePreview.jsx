@@ -20,6 +20,7 @@ const ImagePreview = () => {
 
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef(null);
+  const hasSnapshotRef = useRef(false);
   // Page index the current displayUrl was decoded for. Lets the decode
   // effect skip the round-trip when the server already shipped a matching
   // data: URL (initial load and tab switches both come pre-decoded).
@@ -44,6 +45,7 @@ const ImagePreview = () => {
       const incomingPage = typeof ev.currentPage === 'number' && ev.currentPage >= 0 ? ev.currentPage : 0;
       const incomingDisplay = ev.error ? '' : (ev.displayUrl || ev.url || '');
       displayedPageRef.current = incomingDisplay.startsWith('data:') ? incomingPage : -1;
+      hasSnapshotRef.current = !!incomingDisplay;
       setUrl(ev.url || '');
       setDisplayUrl(incomingDisplay);
       setPageCount(typeof ev.pageCount === 'number' && ev.pageCount > 0 ? ev.pageCount : 1);
@@ -78,6 +80,7 @@ const ImagePreview = () => {
     // a fresh snapshot whenever we become visible so the page is never
     // left blank.
     const refresh = () => {
+      if (hasSnapshotRef.current) return;
       if (!window.cefQuery) return;
       window.cefQuery({
         request: 'image-preview-refresh',
@@ -106,6 +109,7 @@ const ImagePreview = () => {
       if (window.__otfApplyImagePreview === applyLoadImage) {
         delete window.__otfApplyImagePreview;
       }
+      hasSnapshotRef.current = false;
       if (sub && typeof sub.cancel === 'function') sub.cancel();
     };
   }, []);
@@ -216,6 +220,7 @@ const ImagePreview = () => {
           }
           const newPage = typeof res.currentPage === 'number' ? res.currentPage : currentPage;
           displayedPageRef.current = newPage;
+          hasSnapshotRef.current = true;
           setDisplayUrl(res.displayUrl);
           setPageCount(res.pageCount || 1);
           setCurrentPage(newPage);
@@ -242,6 +247,7 @@ const ImagePreview = () => {
   const handleClose = () => {
     setUrl('');
     setDisplayUrl('');
+    hasSnapshotRef.current = false;
     setPageCount(1);
     setCurrentPage(0);
     setPreviewError('');

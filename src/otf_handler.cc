@@ -1694,6 +1694,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                                      &page_count, &error_reason)) {
             handler->SetImagePreviewPageForTab(preview_tab_id, page_index);
             handler->SetImagePreviewPageCountForTab(preview_tab_id, page_count);
+            handler->tab_image_preview_render_cache_[preview_tab_id] =
+                OtfHandler::ImagePreviewRenderCache{local_path, png_base64, page_index, page_count};
             callback->Success(JsonObjectBuilder()
                                   .AddString("displayUrl", png_base64)
                                   .AddInt("pageCount", page_count)
@@ -4304,6 +4306,7 @@ bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
 void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
   tab_image_preview_urls_[tab_id] = url;
   tab_image_preview_local_files_.erase(tab_id);
+  tab_image_preview_render_cache_.erase(tab_id);
   tab_image_preview_decode_nonces_.erase(tab_id);
   // Setting (or clearing) the URL resets navigation state — a different
   // image was loaded, page index from the previous TIFF is meaningless.
@@ -4317,6 +4320,7 @@ void OtfHandler::SetImagePreviewLocalFileForTab(
     const std::string& file_path) {
   tab_image_preview_urls_[tab_id] = public_url;
   tab_image_preview_local_files_[tab_id] = file_path;
+  tab_image_preview_render_cache_.erase(tab_id);
   tab_image_preview_decode_nonces_.erase(tab_id);
   tab_image_preview_pages_[tab_id] = 0;
   tab_image_preview_page_counts_[tab_id] = 1;
@@ -4380,6 +4384,14 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id) {
   otf::ImagePreviewPayload payload = otf::BuildImagePreviewPayload(url, page);
   const std::string local_path = GetImagePreviewLocalFileForTab(tab_id);
   if (!local_path.empty()) {
+    auto cache_it = tab_image_preview_render_cache_.find(tab_id);
+    if (cache_it != tab_image_preview_render_cache_.end() &&
+        cache_it->second.file_path == local_path &&
+        cache_it->second.page == page &&
+        !cache_it->second.display_url.empty()) {
+      payload.display_url = cache_it->second.display_url;
+      payload.page_count = cache_it->second.page_count;
+    } else {
     std::string png_base64;
     int decoded_page_count = 1;
     std::string error_reason;
@@ -4387,6 +4399,8 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id) {
                                &decoded_page_count, &error_reason)) {
       payload.display_url = png_base64;
       payload.page_count = decoded_page_count;
+      tab_image_preview_render_cache_[tab_id] =
+          ImagePreviewRenderCache{local_path, png_base64, page, decoded_page_count};
     } else {
       payload.display_url.clear();
       payload.page_count = 1;
@@ -4399,6 +4413,7 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id) {
           .AddString("decodeNonce", std::to_string(decode_nonce))
           .AddString("error", error_reason.empty() ? "Failed to decode downloaded TIFF file" : error_reason)
           .Build();
+    }
     }
   }
 

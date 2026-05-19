@@ -24,6 +24,13 @@ class OtfHandler : public CefClient,
                    public CefKeyboardHandler,
                    public CefFindHandler {
  public:
+  struct ImagePreviewRenderCache {
+    std::string file_path;
+    std::string display_url;
+    int page = 0;
+    int page_count = 1;
+  };
+
   explicit OtfHandler(bool use_alloy_style);
   ~OtfHandler() override;
 
@@ -188,6 +195,7 @@ class OtfHandler : public CefClient,
   // renderer only receives browser://image-preview/... tokens; it never gets
   // a file:// URL or raw filesystem path.
   std::map<int, std::string> tab_image_preview_local_files_;
+  std::map<int, ImagePreviewRenderCache> tab_image_preview_render_cache_;
   // Per-tab TIFF navigation state. Persisted in C++ so tab switches and
   // re-subscribes restore the page the user was viewing.
   std::map<int, int> tab_image_preview_pages_;
