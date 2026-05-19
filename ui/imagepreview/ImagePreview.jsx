@@ -182,7 +182,10 @@ const ImagePreview = () => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape' && window.cefQuery) {
         event.preventDefault();
-        window.cefQuery({ request: 'close-imagepreview' });
+        const request = previewTabIdRef.current >= 0
+          ? `close-imagepreview:${previewTabIdRef.current}`
+          : 'close-imagepreview';
+        window.cefQuery({ request });
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -365,6 +368,7 @@ const ImagePreview = () => {
   }, [url, currentPage, decodeNonce, previewError, isTiffPreview]);
 
   const handleClose = () => {
+    const sourceTabId = previewTabIdRef.current;
     setUrl('');
     setDisplayUrl('');
     hasSnapshotRef.current = false;
@@ -379,8 +383,8 @@ const ImagePreview = () => {
     decodeNonceRef.current = 0;
     previewTabIdRef.current = -1;
     if (window.cefQuery) {
-      const request = previewTabIdRef.current >= 0
-        ? `close-imagepreview:${previewTabIdRef.current}`
+      const request = sourceTabId >= 0
+        ? `close-imagepreview:${sourceTabId}`
         : 'close-imagepreview';
       window.cefQuery({ request });
     }

@@ -8,9 +8,10 @@ const S = {
     padding: '0 10px',
     gap: 6,
     background: 'var(--bg, #ffffff)',
-    border: '1px solid var(--accent, #FF7A00)',
-    borderRadius: '0 0 8px 8px',
-    boxShadow: '0 4px 12px rgba(255,122,0,0.18)',
+    border: '1px solid var(--sep)',
+    borderTop: 'none',
+    borderRadius: '0 0 16px 16px',
+    boxShadow: '0 8px 20px rgba(15,23,42,0.12)',
     fontFamily: "'Inter', system-ui, sans-serif",
   },
   input: {

@@ -44,23 +44,25 @@ const AppMenu = () => {
   }, []);
 
   return (
-    <div className="w-full h-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl p-5 flex flex-col overflow-hidden relative">
-      <div className="grid grid-cols-3 gap-4 relative z-10">
-        <AppMenuItem 
-          name="Downloads" 
-          icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/></svg>}
-          onClick={() => handleNavigate('browser://downloads')}
-        />
-        <AppMenuItem 
-          name="Bookmarks" 
-          icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>}
-          onClick={() => handleNavigate('browser://bookmarks')}
-        />
-        <AppMenuItem 
-          name="History" 
-          icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>}
-          onClick={() => handleNavigate('browser://history')}
-        />
+    <div className="w-full h-full p-2 bg-transparent box-border">
+      <div className="w-full h-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl p-5 flex flex-col overflow-hidden relative">
+        <div className="grid grid-cols-3 gap-4 relative z-10">
+          <AppMenuItem 
+            name="Downloads" 
+            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/></svg>}
+            onClick={() => handleNavigate('browser://downloads')}
+          />
+          <AppMenuItem 
+            name="Bookmarks" 
+            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>}
+            onClick={() => handleNavigate('browser://bookmarks')}
+          />
+          <AppMenuItem 
+            name="History" 
+            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>}
+            onClick={() => handleNavigate('browser://history')}
+          />
+        </div>
       </div>
     </div>
   );

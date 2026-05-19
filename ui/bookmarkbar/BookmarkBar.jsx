@@ -1,14 +1,21 @@
 import React, { useEffect, useState } from 'react';
 
 const S = {
+  wrapper: {
+    padding: '8px',
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    background: 'transparent',
+  },
   panel: {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
     background: 'var(--bg, #fff)',
-    border: '1px solid var(--accent, #FF7A00)',
-    borderRadius: 12,
-    boxShadow: '0 14px 34px rgba(15,23,42,0.18)',
+    border: '1px solid var(--sep)',
+    borderRadius: 16,
+    boxShadow: '0 14px 34px rgba(15,23,42,0.12)',
     overflow: 'hidden',
     fontFamily: "'Inter', system-ui, sans-serif",
   },
@@ -193,49 +200,51 @@ const BookmarkBar = () => {
   };
 
   return (
-    <div style={S.panel}>
-      <div style={S.header}>
-        <div style={{ fontSize: 13, fontWeight: 800 }}>Bookmark Added</div>
+    <div style={S.wrapper}>
+      <div style={S.panel}>
+        <div style={S.header}>
+          <div style={{ fontSize: 13, fontWeight: 800 }}>Bookmark Added</div>
+        </div>
+        
+        {loading ? (
+          <div style={S.loading}>Loading...</div>
+        ) : bookmark ? (
+          <form onSubmit={handleSave} style={S.body}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label style={S.label}>Name</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                style={S.input}
+                autoFocus
+              />
+            </div>
+            
+            <div style={S.footer}>
+              <button
+                type="button"
+                onClick={handleRemove}
+                style={S.removeBtn}
+                onMouseEnter={e => e.target.style.background = 'rgba(239,68,68,0.1)'}
+                onMouseLeave={e => e.target.style.background = 'transparent'}
+              >
+                Remove
+              </button>
+              <button
+                type="submit"
+                style={S.doneBtn}
+                onMouseEnter={e => e.target.style.transform = 'scale(1.02)'}
+                onMouseLeave={e => e.target.style.transform = 'scale(1)'}
+              >
+                Done
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div style={S.loading}>Bookmark not found.</div>
+        )}
       </div>
-      
-      {loading ? (
-        <div style={S.loading}>Loading...</div>
-      ) : bookmark ? (
-        <form onSubmit={handleSave} style={S.body}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={S.label}>Name</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              style={S.input}
-              autoFocus
-            />
-          </div>
-          
-          <div style={S.footer}>
-            <button
-              type="button"
-              onClick={handleRemove}
-              style={S.removeBtn}
-              onMouseEnter={e => e.target.style.background = 'rgba(239,68,68,0.1)'}
-              onMouseLeave={e => e.target.style.background = 'transparent'}
-            >
-              Remove
-            </button>
-            <button
-              type="submit"
-              style={S.doneBtn}
-              onMouseEnter={e => e.target.style.transform = 'scale(1.02)'}
-              onMouseLeave={e => e.target.style.transform = 'scale(1)'}
-            >
-              Done
-            </button>
-          </div>
-        </form>
-      ) : (
-        <div style={S.loading}>Bookmark not found.</div>
-      )}
     </div>
   );
 };
