@@ -83,6 +83,10 @@ const ImagePreview = () => {
       previewTabIdRef.current = typeof ev.tabId === 'number' ? ev.tabId : -1;
       setUrl(ev.url || '');
       setDisplayUrl(incomingDisplay);
+      if (incomingDisplay) {
+        setPreviewError('');
+        setToast('');
+      }
       setPageCount(typeof ev.pageCount === 'number' && ev.pageCount > 0 ? ev.pageCount : 1);
       if (typeof ev.fileSizeBytes === 'number' && ev.fileSizeBytes >= 0) {
         hasBackendInfoRef.current = true;
@@ -315,6 +319,7 @@ const ImagePreview = () => {
             return;
           }
           if (res && res.error) {
+            setDisplayUrl('');
             setPreviewError(res.error);
             setToast(res.error);
             toastTimer = setTimeout(() => setToast(''), 3000);
@@ -326,6 +331,8 @@ const ImagePreview = () => {
           hasSnapshotRef.current = true;
           setDownloadProgress(null);
           setDisplayUrl(res.displayUrl);
+          setPreviewError('');
+          setToast('');
           if (typeof res.fileSizeBytes === 'number' && res.fileSizeBytes >= 0) {
             hasBackendInfoRef.current = true;
             setFileSize(formatBytes(res.fileSizeBytes));
@@ -344,6 +351,7 @@ const ImagePreview = () => {
       onFailure: (_, msg) => {
         if (cancelled) return;
         console.error("Image preview fetch failed:", msg);
+        setDisplayUrl('');
         setDownloadProgress(null);
         setToast(msg || "Failed to render image");
         toastTimer = setTimeout(() => setToast(''), 3000);
@@ -377,12 +385,16 @@ const ImagePreview = () => {
 
   const nextPage = () => {
     if (currentPage < pageCount - 1) {
+      setPreviewError('');
+      setDisplayUrl('');
       setCurrentPage(prev => prev + 1);
     }
   };
 
   const prevPage = () => {
     if (currentPage > 0) {
+      setPreviewError('');
+      setDisplayUrl('');
       setCurrentPage(prev => prev - 1);
     }
   };
