@@ -118,6 +118,7 @@ double ZoomReset();
 // True if `url`/`path` ends with .tif or .tiff (case-insensitive),
 // ignoring query string and fragment.
 bool IsTiffUrl(const std::string& url);
+bool IsSupportedImageUrl(const std::string& url);
 
 // Decode a local TIFF file using libvips (supporting page index) and convert it into a PNG Base64 data URL.
 bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& out_png_base64, int& out_page_count);

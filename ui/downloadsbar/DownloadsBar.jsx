@@ -1,14 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 const S = {
+  wrapper: {
+    padding: '8px',
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    background: 'transparent',
+  },
   panel: {
     display: 'flex',
     flexDirection: 'column',
-    height: 360,
+    height: '100%',
     background: 'var(--bg, #fff)',
-    border: '1px solid var(--accent, #FF7A00)',
-    borderRadius: 12,
-    boxShadow: '0 14px 34px rgba(15,23,42,0.18)',
+    border: '1px solid var(--sep)',
+    borderRadius: 16,
+    boxShadow: '0 14px 34px rgba(15,23,42,0.12)',
     overflow: 'hidden',
     fontFamily: "'Inter', system-ui, sans-serif",
   },
@@ -86,6 +93,18 @@ const S = {
     fontWeight: 700,
     cursor: 'pointer',
   },
+  closeButton: {
+    width: 24,
+    height: 24,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
 };
 
 function formatBytes(bytes) {
@@ -110,6 +129,26 @@ function formatFileSize(item) {
 
 function shouldShowProgress(item) {
   return item.isInProgress || item.isPaused || (!item.isComplete && !item.isCanceled && !item.isInterrupted);
+}
+
+const SUPPORTED_IMAGE_FORMATS = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO', 'SVG', 'AVIF', 'TIFF'];
+
+function getDownloadName(item) {
+  return item?.suggestedName || item?.url || '';
+}
+
+function isImageDownload(item) {
+  const source = getDownloadName(item).split('?')[0].split('#')[0];
+  const dot = source.lastIndexOf('.');
+  if (dot === -1) return false;
+  const ext = source.slice(dot + 1).toUpperCase();
+  return SUPPORTED_IMAGE_FORMATS.includes(ext);
+}
+
+function getOpenButtonTitle(item) {
+  return isImageDownload(item)
+    ? `Open image preview. Supported formats: ${SUPPORTED_IMAGE_FORMATS.join(', ')}`
+    : 'Open downloaded file';
 }
 
 function statusChip(item) {
@@ -152,6 +191,7 @@ function statusChip(item) {
 
 const DownloadsBar = () => {
   const [downloads, setDownloads] = useState([]);
+  const [closeHovered, setCloseHovered] = useState(false);
 
   useEffect(() => {
     if (!window.cefQuery) return;
@@ -215,42 +255,67 @@ const DownloadsBar = () => {
   const run = (request) => window.cefQuery?.({ request });
 
   return (
-    <div style={S.panel}>
-      <div style={S.header}>
-        <div style={{ fontSize: 13, fontWeight: 800 }}>Downloads</div>
-      </div>
-      <div style={S.list}>
-        {latestDownloads.length === 0 ? (
-          <div style={{ color: 'var(--muted, #64748b)', fontSize: 12, padding: 12 }}>
-            No downloads yet.
-          </div>
-        ) : latestDownloads.map((item) => (
-          <div key={item.id} style={S.card}>
-            <div style={S.title}>{item.suggestedName || 'download'}</div>
-            <div style={S.meta}>
-              {statusChip(item)}
-              {formatFileSize(item) && <span>{formatFileSize(item)}</span>}
-              {!item.isComplete && !item.isCanceled && !item.isInterrupted && <span>{formatProgress(item)}</span>}
-              {item.speedBytesPerSec > 0 && <span>{formatBytes(item.speedBytesPerSec)}/s</span>}
+    <div style={S.wrapper}>
+      <div style={S.panel}>
+        <div style={S.header}>
+          <div style={{ fontSize: 13, fontWeight: 800 }}>Downloads</div>
+          <button
+            onClick={() => run('hide-downloadsbar')}
+            onMouseEnter={() => setCloseHovered(true)}
+            onMouseLeave={() => setCloseHovered(false)}
+            style={{
+              ...S.closeButton,
+              backgroundColor: closeHovered ? 'var(--surface, #f8fafc)' : 'transparent',
+              color: closeHovered ? 'var(--fg, #0f172a)' : 'var(--muted, #64748b)',
+            }}
+            aria-label="Close"
+          >
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div style={S.list}>
+          {latestDownloads.length === 0 ? (
+            <div style={{ color: 'var(--muted, #64748b)', fontSize: 12, padding: 12 }}>
+              No downloads yet.
             </div>
-            {shouldShowProgress(item) && (
-              <div style={S.progressTrack}>
-                <div style={{ ...S.progressFill, width: `${Math.max(0, item.percent >= 0 ? item.percent : 0)}%` }} />
+          ) : latestDownloads.map((item) => (
+            <div key={item.id} style={S.card}>
+              <div style={S.title}>{item.suggestedName || 'download'}</div>
+              <div style={S.meta}>
+                {statusChip(item)}
+                {formatFileSize(item) && <span>{formatFileSize(item)}</span>}
+                {!item.isComplete && !item.isCanceled && !item.isInterrupted && <span>{formatProgress(item)}</span>}
+                {item.speedBytesPerSec > 0 && <span>{formatBytes(item.speedBytesPerSec)}/s</span>}
               </div>
-            )}
-            <div style={S.actions}>
-              {item.canCancel && <button style={S.button} onClick={() => run(`cancel-download:${item.id}`)}>Cancel</button>}
-              {item.canPause && <button style={S.button} onClick={() => run(`pause-download:${item.id}`)}>Pause</button>}
-              {item.canResume && <button style={S.button} onClick={() => run(`resume-download:${item.id}`)}>Resume</button>}
-              {item.canOpen && <button style={S.button} onClick={() => run(`open-download:${item.id}`)}>Open</button>}
-              {item.canShowInFolder && <button style={S.button} onClick={() => run(`show-download-in-folder:${item.id}`)}>Show in Folder</button>}
+              {shouldShowProgress(item) && (
+                <div style={S.progressTrack}>
+                  <div style={{ ...S.progressFill, width: `${Math.max(0, item.percent >= 0 ? item.percent : 0)}%` }} />
+                </div>
+              )}
+              <div style={S.actions}>
+                {item.canCancel && <button style={S.button} onClick={() => run(`cancel-download:${item.id}`)}>Cancel</button>}
+                {item.canPause && <button style={S.button} onClick={() => run(`pause-download:${item.id}`)}>Pause</button>}
+                {item.canResume && <button style={S.button} onClick={() => run(`resume-download:${item.id}`)}>Resume</button>}
+                {item.canOpen && (
+                  <button
+                    style={S.button}
+                    onClick={() => run(`open-download:${item.id}`)}
+                    title={getOpenButtonTitle(item)}
+                  >
+                    Open
+                  </button>
+                )}
+                {item.canShowInFolder && <button style={S.button} onClick={() => run(`show-download-in-folder:${item.id}`)}>Show in Folder</button>}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-      <div style={S.footer}>
-        <button style={S.button} onClick={() => run('clear-finished-downloads')}>Clear Finished</button>
-        <button style={S.button} onClick={() => run('open-downloads-page')}>Show All Downloads</button>
+          ))}
+        </div>
+        <div style={S.footer}>
+          <button style={S.button} onClick={() => run('clear-finished-downloads')}>Clear Finished</button>
+          <button style={S.button} onClick={() => run('open-downloads-page')}>Show All Downloads</button>
+        </div>
       </div>
     </div>
   );

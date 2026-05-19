@@ -966,6 +966,22 @@ bool IsTiffUrl(const std::string& url) {
   return ends_with(path, ".tif") || ends_with(path, ".tiff");
 }
 
+bool IsSupportedImageUrl(const std::string& url) {
+  size_t end = url.find_first_of("?#");
+  std::string path = (end == std::string::npos) ? url : url.substr(0, end);
+  std::transform(path.begin(), path.end(), path.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  auto ends_with = [](const std::string& s, const char* suf) {
+    size_t n = std::strlen(suf);
+    return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
+  };
+  return ends_with(path, ".png") || ends_with(path, ".gif") ||
+         ends_with(path, ".jpg") || ends_with(path, ".jpeg") ||
+         ends_with(path, ".webp") || ends_with(path, ".bmp") ||
+         ends_with(path, ".ico") || ends_with(path, ".svg") ||
+         ends_with(path, ".avif") || IsTiffUrl(path);
+}
+
 bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& out_png_base64, int& out_page_count) {
   if (!EnsureVipsInit()) return false;
   VipsImage* in = vips_image_new_from_file(tiff_path.c_str(), "page", page, NULL);

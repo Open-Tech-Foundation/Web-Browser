@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
+const SUPPORTED_IMAGE_FORMATS = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO', 'SVG', 'AVIF', 'TIFF'];
+
 export default function Downloads() {
   const [downloads, setDownloads] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +61,22 @@ export default function Downloads() {
       },
     });
   }, []);
+
+  const getDownloadName = useCallback((item) => item?.suggestedName || item?.url || '', []);
+
+  const isImageDownload = useCallback((item) => {
+    const source = getDownloadName(item).split('?')[0].split('#')[0];
+    const dot = source.lastIndexOf('.');
+    if (dot === -1) return false;
+    const ext = source.slice(dot + 1).toUpperCase();
+    return SUPPORTED_IMAGE_FORMATS.includes(ext);
+  }, [getDownloadName]);
+
+  const getOpenButtonTitle = useCallback((item) => (
+    isImageDownload(item)
+      ? `Open image preview. Supported formats: ${SUPPORTED_IMAGE_FORMATS.join(', ')}`
+      : 'Open downloaded file'
+  ), [isImageDownload]);
 
   useEffect(() => {
     load();
@@ -223,6 +241,7 @@ export default function Downloads() {
                     {item.canOpen && (
                       <button 
                         onClick={() => handleAction('open', item.id)}
+                        title={getOpenButtonTitle(item)}
                         className="px-4 py-2 rounded-xl bg-orange-500 text-white text-xs font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20"
                       >
                         Open

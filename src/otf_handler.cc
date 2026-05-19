@@ -838,7 +838,8 @@ std::string GuessPreviewFormat(const std::string& url) {
   std::transform(ext.begin(), ext.end(), ext.begin(),
                  [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
   if (ext == "TIF" || ext == "TIFF" || ext == "PNG" || ext == "JPG" || ext == "JPEG" ||
-      ext == "GIF" || ext == "WEBP" || ext == "BMP") {
+      ext == "GIF" || ext == "WEBP" || ext == "BMP" || ext == "ICO" ||
+      ext == "SVG" || ext == "AVIF") {
     return ext;
   }
   return ext;
@@ -3232,7 +3233,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       auto it = handler->downloads_.find(*download_id);
       if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
         std::string path = it->second.full_path;
-        if (otf::IsTiffUrl(path)) {
+        if (otf::IsSupportedImageUrl(path)) {
           OtfApp* app = OtfApp::GetInstance();
           if (app) {
             const std::string name = SanitizeFilename(
@@ -5005,17 +5006,64 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
       payload.display_url = cache_it->second.display_url;
       payload.page_count = cache_it->second.page_count;
     } else {
-      std::string png_base64;
-      int decoded_page_count = 1;
-      std::string error_reason;
-      if (DecodeLocalTiffPreview(local_path, page, &png_base64,
-                                 &decoded_page_count, &error_reason)) {
-        payload.display_url = png_base64;
-        payload.page_count = decoded_page_count;
+      if (otf::IsTiffUrl(local_path)) {
+        std::string png_base64;
+        int decoded_page_count = 1;
+        std::string error_reason;
+        if (DecodeLocalTiffPreview(local_path, page, &png_base64,
+                                   &decoded_page_count, &error_reason)) {
+          payload.display_url = png_base64;
+          payload.page_count = decoded_page_count;
+          tab_image_preview_render_cache_[tab_id] =
+              ImagePreviewRenderCache{local_path, png_base64, page, decoded_page_count};
+          SetImagePreviewPageForTab(tab_id, page);
+          SetImagePreviewPageCountForTab(tab_id, decoded_page_count);
+        } else {
+          payload.display_url.clear();
+          payload.page_count = 1;
+          return JsonObjectBuilder()
+              .AddString("key", "load-image")
+              .AddString("url", url)
+              .AddString("displayUrl", "")
+              .AddInt("pageCount", 1)
+              .AddInt("currentPage", page)
+              .AddInt("tabId", tab_id)
+              .AddString("decodeNonce", std::to_string(decode_nonce))
+              .AddInt("naturalWidth", payload.natural_width)
+              .AddInt("naturalHeight", payload.natural_height)
+              .AddBool("showInfo", payload.show_info)
+              .AddString("error", error_reason.empty() ? "Failed to decode downloaded TIFF file" : error_reason)
+              .Build();
+        }
+      } else if (otf::IsSupportedImageUrl(local_path)) {
+        std::ifstream f(local_path, std::ios::binary);
+        if (!f) {
+          return JsonObjectBuilder()
+              .AddString("key", "load-image")
+              .AddString("url", url)
+              .AddString("displayUrl", "")
+              .AddInt("pageCount", 1)
+              .AddInt("currentPage", page)
+              .AddInt("tabId", tab_id)
+              .AddString("decodeNonce", std::to_string(decode_nonce))
+              .AddInt("naturalWidth", payload.natural_width)
+              .AddInt("naturalHeight", payload.natural_height)
+              .AddBool("showInfo", payload.show_info)
+              .AddString("error", "Failed to open downloaded image")
+              .Build();
+        }
+        std::string raw_bytes((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+        std::string mime_type = GuessImageMimeType(local_path);
+        const std::string data_url = GetDataURI(raw_bytes, mime_type);
+        payload.display_url = data_url;
+        payload.page_count = 1;
         tab_image_preview_render_cache_[tab_id] =
-            ImagePreviewRenderCache{local_path, png_base64, page, decoded_page_count};
-        SetImagePreviewPageForTab(tab_id, page);
-        SetImagePreviewPageCountForTab(tab_id, decoded_page_count);
+            ImagePreviewRenderCache{local_path, data_url, 0, 1};
+        SetImagePreviewPageForTab(tab_id, 0);
+        SetImagePreviewPageCountForTab(tab_id, 1);
+        SetImagePreviewFormatForTab(tab_id, GuessPreviewFormat(local_path));
+        SetImagePreviewFileSizeForTab(tab_id, static_cast<int64_t>(raw_bytes.size()));
       } else {
         payload.display_url.clear();
         payload.page_count = 1;
@@ -5030,7 +5078,7 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
             .AddInt("naturalWidth", payload.natural_width)
             .AddInt("naturalHeight", payload.natural_height)
             .AddBool("showInfo", payload.show_info)
-            .AddString("error", error_reason.empty() ? "Failed to decode downloaded TIFF file" : error_reason)
+            .AddString("error", "Unsupported image format")
             .Build();
       }
     }
