@@ -32,7 +32,8 @@ class PopupOverlay {
                int width,
                int height,
                int top_margin = 60,
-               int right_margin = 18);
+               int right_margin = 18,
+               int left_margin = -1);
 
   // Build the BrowserView + overlay controller, start hidden. Idempotent.
   void Create(CefRefPtr<CefWindow> window, OtfApp* app);
@@ -77,6 +78,7 @@ class PopupOverlay {
   const int height_;
   const int top_margin_;
   const int right_margin_;
+  const int left_margin_;
 
   CefRefPtr<CefOverlayController> overlay_;
   CefRefPtr<CefBrowser> browser_;

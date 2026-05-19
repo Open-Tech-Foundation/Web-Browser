@@ -347,23 +347,6 @@ const App = () => {
     });
   };
 
-  const handleWorkspaceSwitch = (id) => {
-    if (id === state.activeWorkspaceId) return;
-    window.cefQuery({ request: `switch-workspace:${id}` });
-  };
-
-  const handleWorkspaceCreate = (name) => {
-    window.cefQuery({ request: `create-workspace:${name}` });
-  };
-
-  const handleWorkspaceRename = (id, name) => {
-    window.cefQuery({ request: `rename-workspace:${id}:${name}` });
-  };
-
-  const handleWorkspaceDelete = (id) => {
-    window.cefQuery({ request: `delete-workspace:${id}` });
-  };
-
   const handleShowCertificate = () => {
     window.cefQuery({
       request: 'toggle-certificate'
@@ -401,10 +384,6 @@ const App = () => {
         <WorkspaceSwitcher
           workspaces={state.workspaces}
           activeId={state.activeWorkspaceId}
-          onSwitch={handleWorkspaceSwitch}
-          onCreate={handleWorkspaceCreate}
-          onRename={handleWorkspaceRename}
-          onDelete={handleWorkspaceDelete}
         />
         <div className="flex-1 min-w-0">
           <TabStrip

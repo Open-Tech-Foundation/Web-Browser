@@ -10,6 +10,7 @@
 #include "include/views/cef_window.h"
 #include "otf_browser_shell.h"
 #include "otf_popup_overlay.h"
+#include "otf_store.h"
 
 namespace otf {
 
@@ -52,6 +53,12 @@ class OtfApp : public CefApp,
                                 CefProcessId source_process,
                                 CefRefPtr<CefProcessMessage> message) override;
 
+  // Register the browser:// scheme handler factory on a specific request
+  // context. Must be called for every per-workspace context created after
+  // startup because CefRegisterSchemeHandlerFactory only covers the global
+  // context; new contexts don't inherit it.
+  void RegisterBrowserSchemeForContext(CefRefPtr<CefRequestContext> ctx);
+
   // Build the extra_info dictionary to attach to every BrowserView we
   // create from the main process. Currently carries the resolved screen
   // profile JSON; can grow over time. Main-process-only.
@@ -81,6 +88,7 @@ class OtfApp : public CefApp,
   bool DispatchPopupBrowserCreated(int view_id, CefRefPtr<CefBrowser> browser);
 
   int CreateTab(const std::string& url, int parent_id = -1);
+  int CreateRestoredTab(const WorkspaceTab& tab, int parent_id = -1);
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
@@ -115,6 +123,7 @@ class OtfApp : public CefApp,
   void HideBookmarkOverlay();
   void ShowImagePreviewOverlay();
   void HideImagePreviewOverlay();
+  void RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab);
 
   static OtfApp* GetInstance();
   CefRefPtr<CefWindow> window_;
@@ -133,6 +142,12 @@ class OtfApp : public CefApp,
   std::string startup_behavior_ = "newtab";
   std::vector<std::string> startup_urls_;
   bool startup_tabs_opened_ = false;
+  // Persisted tabs queued for restore once the window is up. Populated in
+  // OnContextInitialized after the first tab has consumed its entry, and
+  // drained by OpenPendingStartupTabs.
+  std::vector<WorkspaceTab> pending_workspace_restore_;
+  WorkspaceTab pending_workspace_restore_first_;
+  bool pending_workspace_restore_first_is_preview_ = false;
   CefRefPtr<CefMessageRouterRendererSide> renderer_side_router_;
   std::map<std::string, std::unique_ptr<PopupOverlay>> popups_;
 

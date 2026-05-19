@@ -516,6 +516,7 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   // map the process to our .desktop file instead of falling back to Chromium.
   command_line->AppendSwitchWithValue("class", "otf-browser");
   command_line->AppendSwitchWithValue("desktop-name", "otf-browser.desktop");
+  command_line->AppendSwitch("enable-transparent-visuals");
 #endif
 
 }
@@ -542,6 +543,10 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   int tab_id = tab_manager_.AddTab(content_view, parent_id);
   content_view->SetID(tab_id);
   tab_manager_.SetUrl(tab_id, url);
+  if (url == "browser://imagepreview" ||
+      url.find("/imagepreview.html") != std::string::npos) {
+    tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
+  }
   if (handler) {
     tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
   }
@@ -554,49 +559,54 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   return tab_id;
 }
 
+int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
+  CEF_REQUIRE_UI_THREAD();
+  if (tab.is_image_preview) {
+    const int tab_id = CreateTab("browser://imagepreview", parent_id);
+    RestoreImagePreviewStateForTab(tab_id, tab);
+    return tab_id;
+  }
+  if (tab.url == "browser://imagepreview" ||
+      tab.url.find("/imagepreview.html") != std::string::npos) {
+    return CreateTab("browser://newtab", parent_id);
+  }
+  return CreateTab(tab.url, parent_id);
+}
+
+void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab) {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || tab_id < 0 || !tab.is_image_preview) {
+    return;
+  }
+
+  const std::string source = tab.url;
+  if (source.empty()) {
+    return;
+  }
+
+  tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
+  tab_manager_.SetUrl(tab_id, source);
+  tab_manager_.SetTitle(tab_id, tab.title.empty() ? source : tab.title);
+  tab_manager_.SetFindText(tab_id, "");
+
+  if (source.rfind("http://", 0) == 0 || source.rfind("https://", 0) == 0) {
+    handler->SetImagePreviewUrlForTab(tab_id, source);
+  } else {
+    const std::string file_name = std::filesystem::path(source).filename().string();
+    const std::string public_url = "browser://image-preview/restore/" +
+                                   std::to_string(tab_id) + "/" +
+                                   otf::SanitizeFilename(file_name.empty() ? "preview.tiff" : file_name);
+    handler->SetImagePreviewLocalFileForTab(tab_id, public_url, source);
+  }
+  handler->SetImagePreviewPageForTab(tab_id, tab.preview_page);
+}
+
 void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
   
   if (current_tab_id_ == tab_id) return;
   
-  OtfHandler* handler = OtfHandler::GetInstance();
-  if (handler) {
-    bool is_dedicated_preview_tab = (tab_manager_.GetSchemeUrl(tab_id) == "browser://imagepreview" ||
-                                     tab_manager_.GetUrl(tab_id) == "browser://imagepreview");
-
-    std::string tab_img_url = handler->GetImagePreviewUrlForTab(tab_id);
-    if (is_dedicated_preview_tab) {
-      // Dedicated preview tab manages its own BrowserView; the floating
-      // overlay must not double-render on top of it. Re-fire load-image to
-      // that tab's per-tab subscription so its JSX restores from C++ state
-      // (page index, page count) instead of whatever stale state the
-      // renderer happens to hold.
-      HideImagePreviewOverlay();
-      auto it = handler->tab_image_preview_subscriptions_.find(tab_id);
-      if (it != handler->tab_image_preview_subscriptions_.end() && it->second) {
-        std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
-        if (!event.empty()) it->second->Success(event);
-      }
-    } else {
-      if (tab_img_url.empty()) {
-        HideImagePreviewOverlay();
-        if (handler->image_preview_subscription_) {
-          std::string event = JsonObjectBuilder()
-            .AddString("key", "load-image")
-            .AddString("url", "")
-            .Build();
-          handler->image_preview_subscription_->Success(event);
-        }
-      } else {
-        ShowImagePreviewOverlay();
-        if (handler->image_preview_subscription_) {
-          std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
-          if (!event.empty()) handler->image_preview_subscription_->Success(event);
-        }
-      }
-    }
-  }
-
   // Clear any active find on the old tab so highlights don't linger
   if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
     CefRefPtr<CefBrowser> old_browser = tab_manager_.GetBrowser(current_tab_id_);
@@ -620,6 +630,74 @@ void OtfApp::SwitchTab(int tab_id) {
     // Update window title to reflect current tab
     if (window_) {
       window_->SetTitle("OTF Browser - " + tab_manager_.GetTitle(tab_id));
+    }
+
+    OtfHandler* handler = OtfHandler::GetInstance();
+    if (handler) {
+      bool is_dedicated_preview_tab = (tab_manager_.GetSchemeUrl(tab_id) == "browser://imagepreview" ||
+                                       tab_manager_.GetUrl(tab_id) == "browser://imagepreview");
+
+      std::string tab_img_url = handler->GetImagePreviewUrlForTab(tab_id);
+      if (is_dedicated_preview_tab) {
+        // Dedicated preview tab manages its own BrowserView; the floating
+        // overlay must not double-render on top of it. Re-fire load-image to
+        // that tab's per-tab subscription so its JSX restores from C++ state
+        // (page index, page count) instead of whatever stale state the
+        // renderer happens to hold.
+        HideImagePreviewOverlay();
+        std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
+        if (!event.empty()) {
+          auto it = handler->tab_image_preview_subscriptions_.find(tab_id);
+          if (it != handler->tab_image_preview_subscriptions_.end() && it->second) {
+            it->second->Success(event);
+          }
+          // Also push directly via ExecuteJavaScript. The persistent cefQuery
+          // subscription can be silently cancelled by CEF when the BrowserView
+          // is hidden, so a Success() call on switch-back may land on a dead
+          // callback. A direct JS push survives that — applyLoadImage is
+          // exposed on window by the renderer.
+          CefRefPtr<CefBrowser> b = new_view->GetBrowser();
+          CefRefPtr<CefFrame> frame = b ? b->GetMainFrame() : nullptr;
+          if (frame) {
+            std::string js =
+                "if(window.__otfApplyImagePreview)window.__otfApplyImagePreview("
+                + event + ");";
+            frame->ExecuteJavaScript(js, frame->GetURL(), 0);
+          }
+        }
+      } else {
+        if (tab_img_url.empty()) {
+          HideImagePreviewOverlay();
+          if (handler->image_preview_subscription_) {
+            std::string event = JsonObjectBuilder()
+              .AddString("key", "load-image")
+              .AddString("url", "")
+              .Build();
+            handler->image_preview_subscription_->Success(event);
+          }
+        } else {
+          ShowImagePreviewOverlay();
+          std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
+          if (!event.empty()) {
+            if (handler->image_preview_subscription_) {
+              handler->image_preview_subscription_->Success(event);
+            }
+            // Also push directly to the image preview overlay via ExecuteJavaScript.
+            // This guarantees the UI recovers and renders the TIFF even if the persistent
+            // cefQuery subscription was cancelled while the overlay was hidden.
+            CefRefPtr<CefBrowserView> preview_view =
+                image_preview_overlay_ ? image_preview_overlay_->GetContentsView()->AsBrowserView() : nullptr;
+            CefRefPtr<CefBrowser> b = preview_view ? preview_view->GetBrowser() : nullptr;
+            CefRefPtr<CefFrame> frame = b ? b->GetMainFrame() : nullptr;
+            if (frame) {
+              std::string js =
+                  "if(window.__otfApplyImagePreview)window.__otfApplyImagePreview("
+                  + event + ");";
+              frame->ExecuteJavaScript(js, frame->GetURL(), 0);
+            }
+          }
+        }
+      }
     }
 
     if (certificate_overlay_ && certificate_overlay_->IsVisible()) {
@@ -1034,6 +1112,18 @@ void OtfApp::OpenPendingStartupTabs() {
   }
   startup_tabs_opened_ = true;
 
+  // Restore the remaining tabs of the active workspace first. If we
+  // restored anything, skip the configured startup URLs — those are
+  // intended for a clean session.
+  if (!pending_workspace_restore_.empty()) {
+    for (const auto& t : pending_workspace_restore_) {
+      if (t.url.empty()) continue;
+      CreateRestoredTab(t);
+    }
+    pending_workspace_restore_.clear();
+    return;
+  }
+
   if (startup_behavior_ != "specific" || startup_urls_.size() < 2) {
     return;
   }
@@ -1177,7 +1267,11 @@ void OtfApp::OnContextInitialized() {
   // payload to ship — e.g. show-clear-site-data:<origin> stores the
   // origin in handler state, and cleardata's producer reads it back.
   popups_["cleardata"] = std::make_unique<PopupOverlay>(
-      "cleardata", kClearSiteDataBrowserViewId, /*width=*/340, /*height=*/400);
+      "cleardata", kClearSiteDataBrowserViewId, /*width=*/340, /*height=*/460);
+  popups_["workspace"] = std::make_unique<PopupOverlay>(
+      "workspace", kWorkspaceBrowserViewId,
+      /*width=*/240, /*height=*/300,
+      /*top_margin=*/32, /*right_margin=*/0, /*left_margin=*/8);
 
   CefRegisterSchemeHandlerFactory("browser", "", new BrowserSchemeHandlerFactory());
 
@@ -1194,6 +1288,9 @@ void OtfApp::OnContextInitialized() {
   startup_behavior_ = "newtab";
   startup_urls_.clear();
   startup_tabs_opened_ = false;
+  pending_workspace_restore_.clear();
+  pending_workspace_restore_first_ = WorkspaceTab{};
+  pending_workspace_restore_first_is_preview_ = false;
   {
     CefRefPtr<CefValue> settings_value =
         CefParseJSON(otf::LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
@@ -1231,17 +1328,64 @@ void OtfApp::OnContextInitialized() {
     ui_url = command_line->GetSwitchValue("dev-ui-url");
   }
 
+  // If the active workspace has persisted tabs, queue them for restore.
+  // The first one drives the initial content view; the rest are opened
+  // by OpenPendingStartupTabs once the window is up. Configured startup
+  // URLs are ignored when a restore is in flight — those are meant for
+  // a fresh session, not on top of restored state.
+  if (handler->store_) {
+    pending_workspace_restore_ =
+        handler->store_->GetWorkspaceTabs(handler->active_workspace_id_);
+    if (!pending_workspace_restore_.empty()) {
+      // Pick the persisted-was-active tab as the first one if any.
+      auto it = std::find_if(
+          pending_workspace_restore_.begin(),
+          pending_workspace_restore_.end(),
+          [](const WorkspaceTab& t) {
+            return t.was_active &&
+                   (t.is_image_preview ||
+                    (!t.url.empty() && t.url != "browser://newtab" &&
+                     t.url.rfind("browser://", 0) != 0 &&
+                     t.url.find("imagepreview.html") == std::string::npos));
+          });
+      if (it == pending_workspace_restore_.end()) {
+        it = std::find_if(
+            pending_workspace_restore_.begin(),
+            pending_workspace_restore_.end(),
+            [](const WorkspaceTab& t) {
+              return t.is_image_preview ||
+                     (!t.url.empty() && t.url != "browser://newtab" &&
+                      t.url.rfind("browser://", 0) != 0 &&
+                      t.url.find("imagepreview.html") == std::string::npos);
+            });
+      }
+      if (it != pending_workspace_restore_.end()) {
+        pending_workspace_restore_first_ = *it;
+        pending_workspace_restore_first_is_preview_ = it->is_image_preview;
+        start_url = it->is_image_preview ? "browser://imagepreview" : it->url;
+        pending_workspace_restore_.erase(it);
+      }
+    }
+  }
+
   CefRefPtr<CefBrowserView> ui_view = CefBrowserView::CreateBrowserView(
       handler, ui_url, browser_settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(runtime_style, 65));
   ui_view->SetID(kUiBrowserViewId);
 
+  CefRefPtr<CefRequestContext> startup_request_context =
+      handler->GetActiveWorkspaceRequestContext();
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
-      handler, start_url, browser_settings, MakeBrowserExtraInfo(), nullptr,
+      handler, start_url, browser_settings, MakeBrowserExtraInfo(), startup_request_context,
       new OtfViewDelegate(runtime_style));
-  
+
   int tab_id = tab_manager_.AddTab(content_view);
   content_view->SetID(tab_id);
+  tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
+  if (pending_workspace_restore_first_is_preview_) {
+    RestoreImagePreviewStateForTab(tab_id, pending_workspace_restore_first_);
+    pending_workspace_restore_first_is_preview_ = false;
+  }
 
   if (ui_view && content_view) {
     CefWindow::CreateTopLevelWindow(new OtfWindowDelegate(
@@ -1264,9 +1408,35 @@ void OtfApp::HideAllPopups() {
   }
 }
 
+void OtfApp::RegisterBrowserSchemeForContext(CefRefPtr<CefRequestContext> ctx) {
+  if (ctx) {
+    ctx->RegisterSchemeHandlerFactory("browser", "", new BrowserSchemeHandlerFactory());
+  }
+}
+
 void OtfApp::CreateAllPopups(CefRefPtr<CefWindow> window) {
   for (auto& [_, popup] : popups_) {
     if (popup) popup->Create(window, this);
+  }
+
+  auto* ws_popup = GetPopup("workspace");
+  OtfHandler* h = OtfHandler::GetInstance();
+  if (ws_popup && h) {
+    ws_popup->SetRestoreProducer([h]() -> std::string {
+      if (!h->store_) return "[]";
+      const auto ws = h->store_->GetWorkspaces();
+      const int active = h->active_workspace_id_;
+      std::string out = "[";
+      for (size_t i = 0; i < ws.size(); ++i) {
+        if (i) out += ",";
+        out += JsonObjectBuilder()
+                   .AddInt("id", ws[i].id)
+                   .AddString("name", ws[i].name)
+                   .AddBool("active", ws[i].id == active)
+                   .Build();
+      }
+      return out + "]";
+    });
   }
 }
 

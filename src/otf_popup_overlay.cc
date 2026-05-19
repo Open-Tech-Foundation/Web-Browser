@@ -36,13 +36,15 @@ PopupOverlay::PopupOverlay(std::string name,
                            int width,
                            int height,
                            int top_margin,
-                           int right_margin)
+                           int right_margin,
+                           int left_margin)
     : name_(std::move(name)),
       view_id_(browser_view_id),
       width_(width),
       height_(height),
       top_margin_(top_margin),
-      right_margin_(right_margin) {}
+      right_margin_(right_margin),
+      left_margin_(left_margin) {}
 
 std::string PopupOverlay::ResolveContentUrl() const {
   CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
@@ -69,7 +71,8 @@ void PopupOverlay::Reposition() {
   CEF_REQUIRE_UI_THREAD();
   if (!window_ || !overlay_) return;
   CefRect bounds = window_->GetBounds();
-  int x = std::max(0, bounds.width - width_ - right_margin_);
+  int x = (left_margin_ >= 0) ? left_margin_
+                               : std::max(0, bounds.width - width_ - right_margin_);
   overlay_->SetBounds(CefRect(x, top_margin_, width_, height_));
 }
 

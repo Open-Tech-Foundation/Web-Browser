@@ -31,6 +31,17 @@ class OtfHandler : public CefClient,
     int page_count = 1;
   };
 
+  struct ImagePreviewDownloadCache {
+    std::string source_url;
+    std::string mime_type;
+    std::string raw_bytes;
+    std::string display_url;
+    int64_t file_size_bytes = -1;
+    int page = 0;
+    int page_count = 1;
+    bool is_tiff = false;
+  };
+
   explicit OtfHandler(bool use_alloy_style);
   ~OtfHandler() override;
 
@@ -196,11 +207,11 @@ class OtfHandler : public CefClient,
   // a file:// URL or raw filesystem path.
   std::map<int, std::string> tab_image_preview_local_files_;
   // Image info shown in the preview sidebar. Stored in C++ so a tab switch
-  // restores the same metadata without re-deriving it from the browser://
-  // placeholder URL.
+  // restores the same metadata without recomputing it from the source URL.
   std::map<int, int64_t> tab_image_preview_file_sizes_;
   std::map<int, std::string> tab_image_preview_formats_;
   std::map<int, ImagePreviewRenderCache> tab_image_preview_render_cache_;
+  std::map<int, ImagePreviewDownloadCache> tab_image_preview_download_cache_;
   // Per-tab TIFF navigation state. Persisted in C++ so tab switches and
   // re-subscribes restore the page the user was viewing.
   std::map<int, int> tab_image_preview_pages_;
@@ -230,7 +241,7 @@ class OtfHandler : public CefClient,
   // Build a JSON `load-image` event for a tab using stored url/page state.
   // Also refreshes the stored page_count from the decode result. Returns ""
   // if the tab has no preview url.
-  std::string BuildImagePreviewLoadEvent(int tab_id);
+  std::string BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_nonce = true);
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation
@@ -277,6 +288,10 @@ class OtfHandler : public CefClient,
   // per-workspace CefRequestContext with its own cache_path.
   int active_workspace_id_ = 1;
   std::map<int, CefRefPtr<CefRequestContext>> workspace_contexts_;
+  // Remembers the last active tab per workspace so switching back to a
+  // workspace with live in-memory tabs restores the correct tab, not
+  // just the first one that was created.
+  std::map<int, int> workspace_last_active_tab_;
   // Returns the request context for the active workspace. Returns nullptr
   // for the default workspace, which is the signal the BrowserView API
   // expects to mean "use the global context".

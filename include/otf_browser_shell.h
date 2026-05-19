@@ -19,6 +19,7 @@ constexpr int kCertificateBrowserViewId = 1003;
 constexpr int kBookmarkBrowserViewId = 1004;
 constexpr int kImagePreviewBrowserViewId = 1005;
 constexpr int kClearSiteDataBrowserViewId = 1006;
+constexpr int kWorkspaceBrowserViewId = 1007;
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {
@@ -67,6 +68,9 @@ class TabManager {
     find_case_map_.erase(tab_id);
     history_suppressed_url_map_.erase(tab_id);
     workspace_map_.erase(tab_id);
+    image_preview_width_map_.erase(tab_id);
+    image_preview_height_map_.erase(tab_id);
+    image_preview_info_visible_map_.erase(tab_id);
     
     auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
     if (it != tab_order_.end()) {
@@ -254,6 +258,30 @@ class TabManager {
     return 0;
   }
 
+  void SetImagePreviewDimensions(int tab_id, int width, int height) {
+    image_preview_width_map_[tab_id] = width < 0 ? 0 : width;
+    image_preview_height_map_[tab_id] = height < 0 ? 0 : height;
+  }
+
+  int GetImagePreviewWidth(int tab_id) const {
+    auto it = image_preview_width_map_.find(tab_id);
+    return it != image_preview_width_map_.end() ? it->second : 0;
+  }
+
+  int GetImagePreviewHeight(int tab_id) const {
+    auto it = image_preview_height_map_.find(tab_id);
+    return it != image_preview_height_map_.end() ? it->second : 0;
+  }
+
+  void SetImagePreviewInfoVisible(int tab_id, bool visible) {
+    image_preview_info_visible_map_[tab_id] = visible;
+  }
+
+  bool IsImagePreviewInfoVisible(int tab_id) const {
+    auto it = image_preview_info_visible_map_.find(tab_id);
+    return it != image_preview_info_visible_map_.end() ? it->second : true;
+  }
+
   std::vector<int> GetTabIdsForWorkspace(int workspace_id) const {
     std::vector<int> out;
     for (int id : tab_order_) {
@@ -281,6 +309,9 @@ class TabManager {
   std::map<int, std::string> ssl_error_url_map_;
   std::map<int, std::string> history_suppressed_url_map_;
   std::map<int, int> workspace_map_;
+  std::map<int, int> image_preview_width_map_;
+  std::map<int, int> image_preview_height_map_;
+  std::map<int, bool> image_preview_info_visible_map_;
   std::vector<int> tab_order_;
   int next_tab_id_;
 };

@@ -121,19 +121,17 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-
     const onScroll = () => measureOverflow();
-    const onResize = () => measureOverflow();
-
     viewport.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onResize);
     measureOverflow();
-
-    return () => {
-      viewport.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onResize);
-    };
+    return () => viewport.removeEventListener('scroll', onScroll);
   }, [tabs]);
+
+  useEffect(() => {
+    const onResize = () => measureOverflow();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const scrollTabs = (direction) => {
     const viewport = viewportRef.current;
@@ -161,9 +159,13 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
       )}
       <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-1 flex items-end flex-nowrap">
         {tabs.map((tab, index) => (
-          <div 
+          <a 
             key={tab.id}
-            onClick={() => onSwitch(tab.id)}
+            href={`tab-context-menu:${tab.id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              onSwitch(tab.id);
+            }}
             ref={(el) => {
               if (el) {
                 tabRefs.current.set(tab.id, el);
@@ -172,7 +174,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
               }
             }}
             className={`
-              group relative flex items-center h-[29px] px-3 min-w-[140px] max-w-[220px] rounded-t-lg text-[12px] cursor-pointer transition-all duration-150 shrink-0
+              group relative flex items-center h-[29px] px-3 min-w-[140px] max-w-[220px] rounded-t-lg text-[12px] cursor-pointer transition-all duration-150 shrink-0 select-none no-underline
               ${tab.active 
                 ? 'bg-bar-light dark:bg-bar-dark text-slate-900 dark:text-slate-100 shadow-[0_-1px_3px_rgba(0,0,0,0.1)]' 
                 : 'text-slate-500 hover:bg-white/50 dark:hover:bg-white/5'}
@@ -186,7 +188,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
               <span className="truncate font-medium">{tab.title || tab.url || 'New Tab'}</span>
             </div>
             <button 
-              onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onClose(tab.id); }}
               title="Close tab"
               className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
             >
@@ -197,7 +199,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             {index < tabs.length - 1 && !tab.active && !tabs[index + 1].active && (
               <div className="absolute right-[-1.5px] top-1.5 bottom-1.5 w-[1px] bg-slate-500/40 dark:bg-white/20 group-hover:opacity-0 transition-opacity" />
             )}
-          </div>
+          </a>
         ))}
         <button 
           onClick={() => onNew()}
