@@ -1543,6 +1543,25 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "close-imagepreview") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app || !handler) {
+        callback->Success("");
+        return true;
+      }
+      int tab_id = -1;
+      if (handler->tab_manager_) {
+        tab_id = handler->tab_manager_->GetId(browser);
+      }
+      if (tab_id != -1 && !handler->GetImagePreviewLocalFileForTab(tab_id).empty()) {
+        handler->CloseTabAndNotify(tab_id);
+      } else {
+        app->HideImagePreviewOverlay();
+      }
+      callback->Success("");
+      return true;
+    }
+
     if (msg.rfind("download-image:", 0) == 0) {
       std::string download_url = msg.substr(15);
       int tab_id = -1;
@@ -1840,13 +1859,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       // fall back to the first remaining workspace.
       if (handler->tab_manager_) {
         const auto tab_ids = handler->tab_manager_->GetTabIdsForWorkspace(target);
-        OtfApp* app = OtfApp::GetInstance();
         for (int tid : tab_ids) {
-          if (app) app->CloseTab(tid);
-          handler->SendEvent(JsonObjectBuilder()
-                                 .AddString("key", "tab-closed")
-                                 .AddInt("id", tid)
-                                 .Build());
+          handler->CloseTabAndNotify(tid);
         }
       }
 
@@ -2354,15 +2368,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
       const int tab_id = *tab_id_opt;
-      OtfApp* app = OtfApp::GetInstance();
       const int ws =
           handler->tab_manager_ ? handler->tab_manager_->GetWorkspaceId(tab_id) : 0;
-      if (app) {
-        app->CloseTab(tab_id);
-        handler->SendEvent(JsonObjectBuilder()
-                               .AddString("key", "tab-closed")
-                               .AddInt("id", tab_id)
-                               .Build());
+      if (OtfApp::GetInstance()) {
+        handler->CloseTabAndNotify(tab_id);
       }
       if (ws > 0) handler->PersistWorkspaceTabs(ws);
       callback->Success("");
@@ -3807,17 +3816,16 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
         return true;
       }
       int tab_id = *tab_id_opt;
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && tab_manager_) {
+      if (OtfApp::GetInstance() && tab_manager_) {
         if (command_id == MENU_ID_TAB_CLOSE) {
-          app->CloseTab(tab_id);
+          CloseTabAndNotify(tab_id);
         } else if (command_id == MENU_ID_TAB_CLOSE_OTHERS) {
           // Close other tabs in the active workspace
           int active_workspace_id = active_workspace_id_;
           std::vector<int> ids = tab_manager_->GetTabIdsForWorkspace(active_workspace_id);
           for (int id : ids) {
             if (id != tab_id) {
-              app->CloseTab(id);
+              CloseTabAndNotify(id);
             }
           }
         }
@@ -4231,8 +4239,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kCtrl, Key::kW)) {
     std::string url = tab_manager_->GetUrl(cur);
     if (!url.empty() && url.find("browser://") != 0) last_closed_url_ = url;
-    app->CloseTab(cur);
-    SendEvent(JsonObjectBuilder().AddString("key", "tab-closed").AddInt("id", cur).Build());
+    CloseTabAndNotify(cur);
     return true;
   }
   if (M(Mod::kCtrl|Mod::kShift, Key::kT)) {
@@ -4352,6 +4359,18 @@ void OtfHandler::SetImagePreviewLocalFileForTab(
   tab_image_preview_decode_nonces_.erase(tab_id);
   tab_image_preview_pages_[tab_id] = 0;
   tab_image_preview_page_counts_[tab_id] = 1;
+}
+
+void OtfHandler::CloseTabAndNotify(int tab_id) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) {
+    return;
+  }
+  app->CloseTab(tab_id);
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "tab-closed")
+                .AddInt("id", tab_id)
+                .Build());
 }
 
 std::string OtfHandler::GetImagePreviewUrlForTab(int tab_id) const {

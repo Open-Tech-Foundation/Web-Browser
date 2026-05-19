@@ -207,6 +207,7 @@ class OtfHandler : public CefClient,
                                       const std::string& file_path);
   std::string GetImagePreviewUrlForTab(int tab_id) const;
   std::string GetImagePreviewLocalFileForTab(int tab_id) const;
+  void CloseTabAndNotify(int tab_id);
   uint64_t BumpImagePreviewDecodeNonceForTab(int tab_id);
   uint64_t GetImagePreviewDecodeNonceForTab(int tab_id) const;
   void NotifyImagePreviewDownloadProgress(int tab_id,

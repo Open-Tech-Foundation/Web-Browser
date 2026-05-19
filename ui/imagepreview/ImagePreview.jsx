@@ -121,7 +121,7 @@ const ImagePreview = () => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape' && window.cefQuery) {
         event.preventDefault();
-        window.cefQuery({ request: 'hide-imagepreview' });
+        window.cefQuery({ request: 'close-imagepreview' });
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -281,7 +281,7 @@ const ImagePreview = () => {
     setPreviewError('');
     decodeNonceRef.current = 0;
     if (window.cefQuery) {
-      window.cefQuery({ request: 'hide-imagepreview' });
+      window.cefQuery({ request: 'close-imagepreview' });
     }
   };
 

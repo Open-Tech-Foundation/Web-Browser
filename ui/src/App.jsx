@@ -57,7 +57,21 @@ const tabReducer = (state, action) => {
       };
     }
     case 'REMOVE_TAB':
-      return { ...state, tabs: state.tabs.filter(t => t.id !== action.payload) };
+      {
+        const removedIndex = state.tabs.findIndex(t => t.id === action.payload);
+        const nextTabs = state.tabs.filter(t => t.id !== action.payload);
+        if (state.activeTabId === action.payload) {
+          const nextActiveTab = nextTabs.length > 0
+            ? nextTabs[Math.min(removedIndex >= 0 ? removedIndex : 0, nextTabs.length - 1)]
+            : null;
+          return {
+            ...state,
+            tabs: nextTabs,
+            activeTabId: nextActiveTab ? nextActiveTab.id : null,
+          };
+        }
+        return { ...state, tabs: nextTabs };
+      }
     default:
       return state;
   }
