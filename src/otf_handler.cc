@@ -123,6 +123,15 @@ constexpr size_t kMaxTiffInputBytes = 64 * 1024 * 1024;
 
 std::string GetDataURI(const std::string& data, const std::string& mime_type);
 
+bool IsNonTabBrowserViewId(int view_id) {
+  return view_id == kUiBrowserViewId ||
+         view_id == kFindBarBrowserViewId ||
+         view_id == kZoomBarBrowserViewId ||
+         view_id == kDownloadsBrowserViewId ||
+         view_id == kCertificateBrowserViewId ||
+         view_id == kImagePreviewBrowserViewId;
+}
+
 class DeferredImagePreviewPushTask : public CefTask {
  public:
   explicit DeferredImagePreviewPushTask(int tab_id)
@@ -1742,11 +1751,21 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "hide-imagepreview") {
+    if (msg == "hide-imagepreview" || msg.rfind("hide-imagepreview:", 0) == 0) {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         app->HideImagePreviewOverlay();
-        int tab_id = app->GetCurrentTabId();
+        int tab_id = -1;
+        if (msg.rfind("hide-imagepreview:", 0) == 0) {
+          const auto tab_id_opt =
+              ParseIntStrict(std::string_view(msg).substr(std::strlen("hide-imagepreview:")));
+          if (tab_id_opt) {
+            tab_id = *tab_id_opt;
+          }
+        }
+        if (tab_id == -1) {
+          tab_id = app->GetCurrentTabId();
+        }
         if (handler) {
           handler->ClearInlineImagePreviewForTab(tab_id);
         }
@@ -1755,14 +1774,21 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "close-imagepreview") {
+    if (msg == "close-imagepreview" || msg.rfind("close-imagepreview:", 0) == 0) {
       OtfApp* app = OtfApp::GetInstance();
       if (!app || !handler) {
         callback->Success("");
         return true;
       }
       int tab_id = -1;
-      if (handler->tab_manager_) {
+      if (msg.rfind("close-imagepreview:", 0) == 0) {
+        const auto tab_id_opt =
+            ParseIntStrict(std::string_view(msg).substr(std::strlen("close-imagepreview:")));
+        if (tab_id_opt) {
+          tab_id = *tab_id_opt;
+        }
+      }
+      if (tab_id == -1 && handler->tab_manager_) {
         tab_id = handler->tab_manager_->GetId(browser);
       }
       if (tab_id == -1 && app) {
@@ -3605,7 +3631,7 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
                                const CefString& title) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view) {
+  if (view && !IsNonTabBrowserViewId(view->GetID())) {
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
     const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
     if (store_ && otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
@@ -3623,7 +3649,7 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
   CEF_REQUIRE_UI_THREAD();
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-    if (view) {
+    if (view && !IsNonTabBrowserViewId(view->GetID())) {
       std::string url_str = url.ToString();
       if (url_str.rfind("browser://insecure-blocked", 0) == 0) {
         return;
@@ -3700,7 +3726,7 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
   if (icon_urls.empty()) return;
 
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view) {
+  if (view && !IsNonTabBrowserViewId(view->GetID())) {
     const int tab_id = view->GetID();
     const std::string favicon_url = icon_urls[0].ToString();
     const std::string page_url = tab_manager_ ? NormalizeBookmarkUrl(tab_manager_->GetUrl(tab_id))
@@ -3723,7 +3749,7 @@ void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                       bool canGoForward) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view) {
+  if (view && !IsNonTabBrowserViewId(view->GetID())) {
     SendEvent(BuildTabPropertyEvent(view->GetID(), "loading", isLoading));
     SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoBack", canGoBack));
     SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoForward", canGoForward));
@@ -3735,7 +3761,7 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
                             int httpStatusCode) {
   if (!frame->IsMain()) return;
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (!view || view->GetID() == kUiBrowserViewId) return;
+  if (!view || IsNonTabBrowserViewId(view->GetID())) return;
   const int tab_id = view->GetID();
 
   if (httpStatusCode >= 200 && httpStatusCode < 400 && store_ && tab_manager_) {
@@ -3807,7 +3833,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     } else if (browser_view->GetID() == kFindBarBrowserViewId ||
                browser_view->GetID() == kZoomBarBrowserViewId ||
                browser_view->GetID() == kDownloadsBrowserViewId ||
-               browser_view->GetID() == kCertificateBrowserViewId) {
+               browser_view->GetID() == kCertificateBrowserViewId ||
+               browser_view->GetID() == kImagePreviewBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
       } else if (browser_view->GetID() == kCertificateBrowserViewId) {
@@ -3819,6 +3846,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
             browser->GetHost()->SetFocus(true);
           }
         }
+      } else if (browser_view->GetID() == kImagePreviewBrowserViewId) {
+        // The floating image preview overlay is not a workspace tab.
       }
     } else if (OtfApp* app = OtfApp::GetInstance();
                app && app->DispatchPopupBrowserCreated(browser_view->GetID(),

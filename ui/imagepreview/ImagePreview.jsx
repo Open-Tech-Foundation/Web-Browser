@@ -379,7 +379,10 @@ const ImagePreview = () => {
     decodeNonceRef.current = 0;
     previewTabIdRef.current = -1;
     if (window.cefQuery) {
-      window.cefQuery({ request: 'close-imagepreview' });
+      const request = previewTabIdRef.current >= 0
+        ? `close-imagepreview:${previewTabIdRef.current}`
+        : 'close-imagepreview';
+      window.cefQuery({ request });
     }
   };
 
