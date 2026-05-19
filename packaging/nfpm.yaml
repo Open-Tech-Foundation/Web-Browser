@@ -74,6 +74,7 @@ overrides:
       - libxrandr2
       - libxtst6
       - libasound2 | libasound2t64
+      - libvips42 | libvips
       # Graphics loader shims. Chromium dlopen's these to probe the host's
       # GL/Vulkan stack; the actual drivers (mesa, nvidia-*) come from the
       # user's system. Without the loaders present the GPU probe fails in
@@ -104,3 +105,4 @@ overrides:
       - vulkan-loader
       - libxkbcommon
       - libxshmfence
+      - vips

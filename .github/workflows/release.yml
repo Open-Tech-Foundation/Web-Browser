@@ -54,6 +54,8 @@ jobs:
             cmake \
             ninja-build \
             g++-14 \
+            pkg-config \
+            libvips-dev \
             libsqlite3-dev \
             libnss3 \
             libatk1.0-0t64 \
