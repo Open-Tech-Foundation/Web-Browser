@@ -12,6 +12,8 @@ const ImagePreview = () => {
   const [showInfo, setShowInfo] = useState(true);
   const [toast, setToast] = useState('');
   const [fileSize, setFileSize] = useState('');
+  const [formatLabel, setFormatLabel] = useState('');
+  const [isTiffPreview, setIsTiffPreview] = useState(false);
   const [pageCount, setPageCount] = useState(1);
   const [currentPage, setCurrentPage] = useState(0);
   const [decodeNonce, setDecodeNonce] = useState(0);
@@ -22,6 +24,8 @@ const ImagePreview = () => {
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef(null);
   const hasSnapshotRef = useRef(false);
+  const hasBackendInfoRef = useRef(false);
+  const previewTabIdRef = useRef(-1);
   const decodeNonceRef = useRef(0);
   // Page index the current displayUrl was decoded for. Lets the decode
   // effect skip the round-trip when the server already shipped a matching
@@ -48,9 +52,19 @@ const ImagePreview = () => {
       const incomingDisplay = ev.error ? '' : (ev.displayUrl || ev.url || '');
       displayedPageRef.current = incomingDisplay.startsWith('data:') ? incomingPage : -1;
       hasSnapshotRef.current = !!incomingDisplay;
+      previewTabIdRef.current = typeof ev.tabId === 'number' ? ev.tabId : -1;
       setUrl(ev.url || '');
       setDisplayUrl(incomingDisplay);
       setPageCount(typeof ev.pageCount === 'number' && ev.pageCount > 0 ? ev.pageCount : 1);
+      if (typeof ev.fileSizeBytes === 'number' && ev.fileSizeBytes >= 0) {
+        hasBackendInfoRef.current = true;
+        setFileSize(formatBytes(ev.fileSizeBytes));
+      } else {
+        hasBackendInfoRef.current = false;
+        setFileSize('');
+      }
+      setFormatLabel(typeof ev.format === 'string' ? ev.format : '');
+      setIsTiffPreview(isTiffSource(ev.format, ev.url));
       setCurrentPage(incomingPage);
       setDecodeNonce(typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
         ? Number(ev.decodeNonce)
@@ -91,6 +105,12 @@ const ImagePreview = () => {
                 totalBytes: typeof ev.totalBytes === 'number' ? ev.totalBytes : -1,
               });
               setIsDecoding(true);
+              if (typeof ev.totalBytes === 'number' && ev.totalBytes > 0) {
+                hasBackendInfoRef.current = true;
+                setFileSize(formatBytes(ev.totalBytes));
+                setFormatLabel('TIFF');
+                setIsTiffPreview(true);
+              }
             }
           }
         } catch (_) {}
@@ -133,6 +153,7 @@ const ImagePreview = () => {
         delete window.__otfApplyImagePreview;
       }
       hasSnapshotRef.current = false;
+      previewTabIdRef.current = -1;
       if (sub && typeof sub.cancel === 'function') sub.cancel();
     };
   }, []);
@@ -140,6 +161,13 @@ const ImagePreview = () => {
   useEffect(() => {
     if (!url) {
       setFileSize('');
+      setFormatLabel('');
+      setIsTiffPreview(false);
+      hasBackendInfoRef.current = false;
+      return;
+    }
+
+    if (hasBackendInfoRef.current) {
       return;
     }
 
@@ -153,6 +181,10 @@ const ImagePreview = () => {
     }
 
     setFileSize('Loading...');
+    const applySizeLabel = (label) => {
+      if (hasBackendInfoRef.current) return;
+      setFileSize(label);
+    };
 
     const fallbackJsFetch = (targetUrl) => {
       fetch(targetUrl, { method: 'HEAD' })
@@ -160,19 +192,19 @@ const ImagePreview = () => {
           const len = res.headers.get('content-length');
           if (len) {
             const bytes = parseInt(len, 10);
-            if (bytes < 1024) setFileSize(`${bytes} B`);
-            else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
-            else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+            if (bytes < 1024) applySizeLabel(`${bytes} B`);
+            else if (bytes < 1024 * 1024) applySizeLabel(`${(bytes / 1024).toFixed(1)} KB`);
+            else applySizeLabel(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
           } else {
             fetch(targetUrl)
               .then(r => r.blob())
               .then(blob => {
                 const bytes = blob.size;
-                if (bytes < 1024) setFileSize(`${bytes} B`);
-                else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
-                else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+                if (bytes < 1024) applySizeLabel(`${bytes} B`);
+                else if (bytes < 1024 * 1024) applySizeLabel(`${(bytes / 1024).toFixed(1)} KB`);
+                else applySizeLabel(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
               })
-              .catch(() => setFileSize('Unknown'));
+              .catch(() => applySizeLabel('Unknown'));
           }
         })
         .catch(() => {
@@ -180,11 +212,11 @@ const ImagePreview = () => {
             .then(r => r.blob())
             .then(blob => {
               const bytes = blob.size;
-              if (bytes < 1024) setFileSize(`${bytes} B`);
-              else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
-              else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+              if (bytes < 1024) applySizeLabel(`${bytes} B`);
+              else if (bytes < 1024 * 1024) applySizeLabel(`${(bytes / 1024).toFixed(1)} KB`);
+              else applySizeLabel(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
             })
-            .catch(() => setFileSize('Unknown'));
+            .catch(() => applySizeLabel('Unknown'));
         });
     };
 
@@ -192,13 +224,16 @@ const ImagePreview = () => {
       window.cefQuery({
         request: `get-image-size:${url}`,
         onSuccess: (sizeStr) => {
+          if (hasBackendInfoRef.current) {
+            return;
+          }
           const bytes = parseInt(sizeStr, 10);
           if (isNaN(bytes) || bytes <= 0) {
             fallbackJsFetch(url);
           } else {
-            if (bytes < 1024) setFileSize(`${bytes} B`);
-            else if (bytes < 1024 * 1024) setFileSize(`${(bytes / 1024).toFixed(1)} KB`);
-            else setFileSize(`${(bytes / (1024 * 1024)).toFixed(1)} MB`);
+            applySizeLabel(bytes < 1024 ? `${bytes} B`
+              : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB`
+              : `${(bytes / (1024 * 1024)).toFixed(1)} MB`);
           }
         },
         onFailure: () => {
@@ -212,9 +247,7 @@ const ImagePreview = () => {
 
   useEffect(() => {
     if (!url) return;
-    const lowerUrl = url.toLowerCase().split('?')[0].split('#')[0];
-    const isTiff = lowerUrl.endsWith('.tiff') || lowerUrl.endsWith('.tif');
-    if (!isTiff) return;
+    if (!isTiffPreview) return;
     if (previewError) return;
     // Server pre-decodes the current page and ships it as a data URL in the
     // load-image event (initial subscribe + tab switch). Skip the redundant
@@ -226,8 +259,9 @@ const ImagePreview = () => {
     const isRemote = url.startsWith('http://') || url.startsWith('https://');
     setIsDecoding(true);
     setDownloadProgress(isRemote ? { percent: 0, receivedBytes: 0, totalBytes: -1 } : null);
+    const tabIdPrefix = previewTabIdRef.current >= 0 ? `:${previewTabIdRef.current}` : '';
     window.cefQuery({
-      request: `decode-tiff:${decodeNonce}:${currentPage}:${url}`,
+      request: `decode-tiff:${decodeNonce}:${currentPage}${tabIdPrefix}:${url}`,
       onSuccess: (json) => {
         if (cancelled) return;
         try {
@@ -248,6 +282,13 @@ const ImagePreview = () => {
           hasSnapshotRef.current = true;
           setDownloadProgress(null);
           setDisplayUrl(res.displayUrl);
+          if (typeof res.fileSizeBytes === 'number' && res.fileSizeBytes >= 0) {
+            hasBackendInfoRef.current = true;
+            setFileSize(formatBytes(res.fileSizeBytes));
+          }
+          if (typeof res.format === 'string' && res.format) {
+            setFormatLabel(res.format);
+          }
           setPageCount(res.pageCount || 1);
           setCurrentPage(newPage);
           setIsDecoding(false);
@@ -269,17 +310,22 @@ const ImagePreview = () => {
       cancelled = true;
       if (toastTimer) clearTimeout(toastTimer);
     };
-  }, [url, currentPage, decodeNonce, previewError]);
+  }, [url, currentPage, decodeNonce, previewError, isTiffPreview]);
 
   const handleClose = () => {
     setUrl('');
     setDisplayUrl('');
     hasSnapshotRef.current = false;
+    hasBackendInfoRef.current = false;
     setPageCount(1);
     setCurrentPage(0);
     setDownloadProgress(null);
     setPreviewError('');
+    setFileSize('');
+    setFormatLabel('');
+    setIsTiffPreview(false);
     decodeNonceRef.current = 0;
+    previewTabIdRef.current = -1;
     if (window.cefQuery) {
       window.cefQuery({ request: 'close-imagepreview' });
     }
@@ -538,7 +584,7 @@ const ImagePreview = () => {
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.5', wordBreak: 'break-all' }}>
             <strong>Resolution:</strong> {naturalWidth} × {naturalHeight} px<br />
             <strong>Size:</strong> {fileSize}<br />
-            <strong>Format:</strong> {url.split('.').pop().split('?')[0].toUpperCase()}<br />
+            <strong>Format:</strong> {formatLabel || guessPreviewFormat(url) || 'Unknown'}<br />
             {pageCount > 1 && (
               <>
                 <strong>Pages:</strong> {pageCount}<br />
@@ -625,6 +671,25 @@ const formatBytes = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const guessPreviewFormat = (value) => {
+  const source = (value || '').split('?')[0].split('#')[0];
+  const dot = source.lastIndexOf('.');
+  if (dot === -1) return '';
+  const ext = source.slice(dot + 1).toUpperCase();
+  return ['TIF', 'TIFF', 'PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO'].includes(ext)
+    ? ext
+    : '';
+};
+
+const isTiffSource = (format, value) => {
+  const normalized = typeof format === 'string' ? format.trim().toUpperCase() : '';
+  if (normalized === 'TIFF' || normalized === 'TIF') {
+    return true;
+  }
+  const guessed = guessPreviewFormat(value);
+  return guessed === 'TIF' || guessed === 'TIFF';
 };
 
 const bottomOverlayStyle = {

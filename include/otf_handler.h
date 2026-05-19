@@ -195,6 +195,11 @@ class OtfHandler : public CefClient,
   // renderer only receives browser://image-preview/... tokens; it never gets
   // a file:// URL or raw filesystem path.
   std::map<int, std::string> tab_image_preview_local_files_;
+  // Image info shown in the preview sidebar. Stored in C++ so a tab switch
+  // restores the same metadata without re-deriving it from the browser://
+  // placeholder URL.
+  std::map<int, int64_t> tab_image_preview_file_sizes_;
+  std::map<int, std::string> tab_image_preview_formats_;
   std::map<int, ImagePreviewRenderCache> tab_image_preview_render_cache_;
   // Per-tab TIFF navigation state. Persisted in C++ so tab switches and
   // re-subscribes restore the page the user was viewing.
@@ -207,6 +212,10 @@ class OtfHandler : public CefClient,
                                       const std::string& file_path);
   std::string GetImagePreviewUrlForTab(int tab_id) const;
   std::string GetImagePreviewLocalFileForTab(int tab_id) const;
+  void SetImagePreviewFileSizeForTab(int tab_id, int64_t file_size_bytes);
+  int64_t GetImagePreviewFileSizeForTab(int tab_id) const;
+  void SetImagePreviewFormatForTab(int tab_id, const std::string& format);
+  std::string GetImagePreviewFormatForTab(int tab_id) const;
   void CloseTabAndNotify(int tab_id);
   uint64_t BumpImagePreviewDecodeNonceForTab(int tab_id);
   uint64_t GetImagePreviewDecodeNonceForTab(int tab_id) const;
