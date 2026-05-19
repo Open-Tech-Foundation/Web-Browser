@@ -316,16 +316,46 @@ export default function HomePage() {
             },
             {
               title: "Native Image Preview",
-              desc: "Right-click any image to open it in a beautiful interactive overlay. Zoom, drag, rotate, copy, or natively download with complete tab-unique preservation.",
-              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              desc: "Supports common image formats, including TIFF and multi-page TIFFs.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>,
+              badges: ["TIFF", "Multi-page TIFF"],
+              emphasize: true,
             }
           ].map((feature) => (
-            <div key={feature.title} className="p-8 rounded-[32px] border transition-all duration-500 hover:border-orange-500/30 hover:-translate-y-2 group" style="background-color: var(--bg-card); border-color: var(--border);">
-              <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center mb-6 text-orange-500 group-hover:scale-110 transition-transform">
-                {feature.icon}
+            <div
+              key={feature.title}
+              className={`p-8 rounded-[32px] border transition-all duration-500 hover:-translate-y-2 group overflow-hidden relative ${
+                feature.emphasize ? "hover:border-orange-400/50 shadow-[0_24px_80px_rgba(249,115,22,0.10)]" : "hover:border-orange-500/30"
+              }`}
+              style="background-color: var(--bg-card); border-color: var(--border);"
+            >
+              {feature.emphasize && (
+                <div
+                  className="absolute inset-0 opacity-60 pointer-events-none"
+                  style="background: radial-gradient(circle at top right, rgba(249,115,22,0.18), transparent 45%), radial-gradient(circle at bottom left, rgba(251,191,36,0.10), transparent 38%);"
+                ></div>
+              )}
+              <div className="relative z-10">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 text-orange-500 transition-transform ${feature.emphasize ? "bg-orange-500/15 shadow-[0_0_0_1px_rgba(249,115,22,0.18)] group-hover:scale-110" : "bg-orange-500/10 group-hover:scale-110"}`}>
+                  {feature.icon}
+                </div>
+                <h3 className="text-xl font-bold mb-4" style="color: var(--foreground);">{feature.title}</h3>
+                <p className="text-sm leading-relaxed mb-5" style="color: var(--muted);">{feature.desc}</p>
+
+                {feature.badges && (
+                  <div className="flex flex-wrap gap-2 mb-5">
+                    {feature.badges.map((badge) => (
+                      <span
+                        key={badge}
+                        className="inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]"
+                        style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent);"
+                      >
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <h3 className="text-xl font-bold mb-4" style="color: var(--foreground);">{feature.title}</h3>
-              <p className="text-sm leading-relaxed" style="color: var(--muted);">{feature.desc}</p>
             </div>
           ))}
         </div>
