@@ -138,6 +138,72 @@ bool OtfStore::RunMigrations() {
   Exec("ALTER TABLE bookmarks ADD COLUMN favicon_url TEXT NOT NULL DEFAULT '';");
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (1);");
 
+  // Migration v2: workspaces + workspace_tabs. The default workspace
+  // (id=1) is inserted so existing users have a home for their tabs
+  // without any explicit migration of tab state.
+  bool ws_ok =
+      Exec(
+          "CREATE TABLE IF NOT EXISTS workspaces ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "name TEXT NOT NULL DEFAULT '',"
+          "color TEXT NOT NULL DEFAULT '',"
+          "position INTEGER NOT NULL DEFAULT 0,"
+          "created_at INTEGER NOT NULL"
+          ");") &&
+      Exec(
+          "CREATE TABLE IF NOT EXISTS workspace_tabs ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "workspace_id INTEGER NOT NULL,"
+          "position INTEGER NOT NULL DEFAULT 0,"
+          "url TEXT NOT NULL DEFAULT '',"
+          "preview_local_path TEXT NOT NULL DEFAULT '',"
+          "title TEXT NOT NULL DEFAULT '',"
+          "favicon TEXT NOT NULL DEFAULT '',"
+          "was_active INTEGER NOT NULL DEFAULT 0,"
+          "is_image_preview INTEGER NOT NULL DEFAULT 0,"
+          "preview_page INTEGER NOT NULL DEFAULT 0,"
+          "FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+          ");") &&
+      Exec(
+          "CREATE TABLE IF NOT EXISTS workspace_state ("
+          "key TEXT PRIMARY KEY,"
+          "value TEXT NOT NULL DEFAULT ''"
+          ");") &&
+      Exec("CREATE INDEX IF NOT EXISTS idx_workspace_tabs_ws ON workspace_tabs(workspace_id, position ASC);");
+  if (!ws_ok) return false;
+
+  // Seed the default workspace if none exists.
+  sqlite3_stmt* count_stmt = nullptr;
+  int ws_count = 0;
+  if (sqlite3_prepare_v2(db_, "SELECT COUNT(*) FROM workspaces;", -1, &count_stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_step(count_stmt) == SQLITE_ROW) {
+      ws_count = sqlite3_column_int(count_stmt, 0);
+    }
+  }
+  sqlite3_finalize(count_stmt);
+  if (ws_count == 0) {
+    sqlite3_stmt* ins = nullptr;
+    if (sqlite3_prepare_v2(db_,
+                           "INSERT INTO workspaces(id, name, color, position, created_at) "
+                           "VALUES(1, 'Default', '', 0, ?);",
+                           -1, &ins, nullptr) == SQLITE_OK) {
+      sqlite3_bind_int64(ins, 1, Now());
+      sqlite3_step(ins);
+    }
+    sqlite3_finalize(ins);
+  }
+
+  // Migration v3: persist whether a workspace tab is a dedicated TIFF preview
+  // shell and which page it was on when saved.
+  Exec("ALTER TABLE workspace_tabs ADD COLUMN is_image_preview INTEGER NOT NULL DEFAULT 0;");
+  Exec("ALTER TABLE workspace_tabs ADD COLUMN preview_page INTEGER NOT NULL DEFAULT 0;");
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (3);");
+
+  // Migration v4: image preview tabs now keep the trusted local file path in a
+  // backend-only column instead of overloading the public tab URL.
+  Exec("ALTER TABLE workspace_tabs ADD COLUMN preview_local_path TEXT NOT NULL DEFAULT '';");
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (4);");
+
   return true;
 }
 
@@ -562,6 +628,233 @@ std::vector<BookmarkEntry> OtfStore::GetBookmarks() const {
     item.created_at = sqlite3_column_int64(stmt, 5);
     item.updated_at = sqlite3_column_int64(stmt, 6);
     out.push_back(item);
+  }
+  sqlite3_finalize(stmt);
+  return out;
+}
+
+std::vector<Workspace> OtfStore::GetWorkspaces() const {
+  std::vector<Workspace> out;
+  if (!db_) return out;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "SELECT id, name, color, position, created_at FROM workspaces "
+          "ORDER BY position ASC, id ASC;",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return out;
+  }
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    Workspace w;
+    w.id = sqlite3_column_int(stmt, 0);
+    const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+    w.name = name ? name : "";
+    const char* color = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+    w.color = color ? color : "";
+    w.position = sqlite3_column_int(stmt, 3);
+    w.created_at = sqlite3_column_int64(stmt, 4);
+    out.push_back(w);
+  }
+  sqlite3_finalize(stmt);
+  return out;
+}
+
+int OtfStore::CreateWorkspace(const std::string& name, const std::string& color) {
+  if (!db_) return 0;
+  sqlite3_stmt* pos_stmt = nullptr;
+  int position = 0;
+  if (sqlite3_prepare_v2(db_, "SELECT COALESCE(MAX(position), -1) + 1 FROM workspaces;",
+                         -1, &pos_stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_step(pos_stmt) == SQLITE_ROW) {
+      position = sqlite3_column_int(pos_stmt, 0);
+    }
+  }
+  sqlite3_finalize(pos_stmt);
+
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "INSERT INTO workspaces(name, color, position, created_at) VALUES(?, ?, ?, ?);",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return 0;
+  }
+  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, color.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 3, position);
+  sqlite3_bind_int64(stmt, 4, Now());
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  if (!ok) return 0;
+  return static_cast<int>(sqlite3_last_insert_rowid(db_));
+}
+
+bool OtfStore::RenameWorkspace(int id, const std::string& name) {
+  if (!db_) return false;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "UPDATE workspaces SET name = ? WHERE id = ?;", -1, &stmt,
+                         nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 2, id);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+bool OtfStore::SetWorkspaceColor(int id, const std::string& color) {
+  if (!db_) return false;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "UPDATE workspaces SET color = ? WHERE id = ?;", -1, &stmt,
+                         nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_text(stmt, 1, color.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 2, id);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+bool OtfStore::DeleteWorkspace(int id) {
+  if (!db_ || id <= 0) return false;
+  // Refuse to delete the last remaining workspace — UI/handler should
+  // gate this too, but the store is the last line of defense.
+  sqlite3_stmt* count_stmt = nullptr;
+  int count = 0;
+  if (sqlite3_prepare_v2(db_, "SELECT COUNT(*) FROM workspaces;", -1, &count_stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_step(count_stmt) == SQLITE_ROW) {
+      count = sqlite3_column_int(count_stmt, 0);
+    }
+  }
+  sqlite3_finalize(count_stmt);
+  if (count <= 1) return false;
+
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "DELETE FROM workspaces WHERE id = ?;", -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_int(stmt, 1, id);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+bool OtfStore::SetActiveWorkspace(int id) {
+  if (!db_ || id <= 0) return false;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "INSERT INTO workspace_state(key, value) VALUES('active', ?) "
+          "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  const std::string v = std::to_string(id);
+  sqlite3_bind_text(stmt, 1, v.c_str(), -1, SQLITE_TRANSIENT);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+int OtfStore::GetActiveWorkspace() const {
+  if (!db_) return 0;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "SELECT value FROM workspace_state WHERE key = 'active';",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return 0;
+  }
+  int id = 0;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char* v = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    if (v) id = std::atoi(v);
+  }
+  sqlite3_finalize(stmt);
+  return id;
+}
+
+bool OtfStore::ReplaceWorkspaceTabs(int workspace_id, const std::vector<WorkspaceTab>& tabs) {
+  if (!db_ || workspace_id <= 0) return false;
+  if (!Exec("BEGIN IMMEDIATE;")) return false;
+
+  sqlite3_stmt* del = nullptr;
+  if (sqlite3_prepare_v2(db_, "DELETE FROM workspace_tabs WHERE workspace_id = ?;", -1,
+                         &del, nullptr) != SQLITE_OK) {
+    Exec("ROLLBACK;");
+    return false;
+  }
+  sqlite3_bind_int(del, 1, workspace_id);
+  bool ok = sqlite3_step(del) == SQLITE_DONE;
+  sqlite3_finalize(del);
+  if (!ok) {
+    Exec("ROLLBACK;");
+    return false;
+  }
+
+  sqlite3_stmt* ins = nullptr;
+  const char* sql =
+      "INSERT INTO workspace_tabs(workspace_id, position, url, preview_local_path, title, favicon, "
+      "was_active, is_image_preview, preview_page) "
+      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);";
+  if (sqlite3_prepare_v2(db_, sql, -1, &ins, nullptr) != SQLITE_OK) {
+    Exec("ROLLBACK;");
+    return false;
+  }
+  int position = 0;
+  for (const auto& t : tabs) {
+    sqlite3_reset(ins);
+    sqlite3_bind_int(ins, 1, workspace_id);
+    sqlite3_bind_int(ins, 2, position++);
+    sqlite3_bind_text(ins, 3, t.url.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins, 4, t.preview_local_path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins, 5, t.title.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(ins, 6, t.favicon.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(ins, 7, t.was_active ? 1 : 0);
+    sqlite3_bind_int(ins, 8, t.is_image_preview ? 1 : 0);
+    sqlite3_bind_int(ins, 9, t.preview_page < 0 ? 0 : t.preview_page);
+    if (sqlite3_step(ins) != SQLITE_DONE) {
+      ok = false;
+      break;
+    }
+  }
+  sqlite3_finalize(ins);
+  if (!ok) {
+    Exec("ROLLBACK;");
+    return false;
+  }
+  return Exec("COMMIT;");
+}
+
+std::vector<WorkspaceTab> OtfStore::GetWorkspaceTabs(int workspace_id) const {
+  std::vector<WorkspaceTab> out;
+  if (!db_ || workspace_id <= 0) return out;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "SELECT id, workspace_id, position, url, preview_local_path, title, favicon, was_active, "
+          "is_image_preview, preview_page "
+          "FROM workspace_tabs WHERE workspace_id = ? ORDER BY position ASC;",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return out;
+  }
+  sqlite3_bind_int(stmt, 1, workspace_id);
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    WorkspaceTab t;
+    t.id = sqlite3_column_int(stmt, 0);
+    t.workspace_id = sqlite3_column_int(stmt, 1);
+    t.position = sqlite3_column_int(stmt, 2);
+    const char* url = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+    t.url = url ? url : "";
+    const char* preview_local_path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+    t.preview_local_path = preview_local_path ? preview_local_path : "";
+    const char* title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+    t.title = title ? title : "";
+    const char* fav = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+    t.favicon = fav ? fav : "";
+    t.was_active = sqlite3_column_int(stmt, 7) != 0;
+    t.is_image_preview = sqlite3_column_int(stmt, 8) != 0;
+    t.preview_page = sqlite3_column_int(stmt, 9);
+    out.push_back(t);
   }
   sqlite3_finalize(stmt);
   return out;

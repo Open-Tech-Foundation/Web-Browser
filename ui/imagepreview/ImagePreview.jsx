@@ -27,10 +27,37 @@ const ImagePreview = () => {
   const hasBackendInfoRef = useRef(false);
   const previewTabIdRef = useRef(-1);
   const decodeNonceRef = useRef(0);
+  const applyLoadImageRef = useRef(null);
   // Page index the current displayUrl was decoded for. Lets the decode
   // effect skip the round-trip when the server already shipped a matching
   // data: URL (initial load and tab switches both come pre-decoded).
   const displayedPageRef = useRef(-1);
+
+  const applyLoadedImageMeta = (ev) => {
+    if (!ev || ev.key !== 'load-image') return;
+    if (typeof ev.naturalWidth === 'number' && ev.naturalWidth >= 0) {
+      setNaturalWidth(ev.naturalWidth);
+    }
+    if (typeof ev.naturalHeight === 'number' && ev.naturalHeight >= 0) {
+      setNaturalHeight(ev.naturalHeight);
+    }
+    if (typeof ev.showInfo === 'boolean') {
+      setShowInfo(ev.showInfo);
+    }
+    if (typeof ev.fileSizeBytes === 'number' && ev.fileSizeBytes >= 0) {
+      hasBackendInfoRef.current = true;
+      setFileSize(formatBytes(ev.fileSizeBytes));
+    }
+    if (typeof ev.format === 'string' && ev.format) {
+      setFormatLabel(ev.format);
+    }
+    if (typeof ev.pageCount === 'number' && ev.pageCount > 0) {
+      setPageCount(ev.pageCount);
+    }
+    if (typeof ev.currentPage === 'number' && ev.currentPage >= 0) {
+      setCurrentPage(ev.currentPage);
+    }
+  };
 
   useEffect(() => {
     if (!window.cefQuery) return;
@@ -49,7 +76,8 @@ const ImagePreview = () => {
         setPreviewError('');
       }
       const incomingPage = typeof ev.currentPage === 'number' && ev.currentPage >= 0 ? ev.currentPage : 0;
-      const incomingDisplay = ev.error ? '' : (ev.displayUrl || ev.url || '');
+      const incomingDisplay = ev.error ? '' : (ev.displayUrl || '');
+      const isRemoteSource = (ev.url || '').startsWith('http://') || (ev.url || '').startsWith('https://');
       displayedPageRef.current = incomingDisplay.startsWith('data:') ? incomingPage : -1;
       hasSnapshotRef.current = !!incomingDisplay;
       previewTabIdRef.current = typeof ev.tabId === 'number' ? ev.tabId : -1;
@@ -66,20 +94,27 @@ const ImagePreview = () => {
       setFormatLabel(typeof ev.format === 'string' ? ev.format : '');
       setIsTiffPreview(isTiffSource(ev.format, ev.url));
       setCurrentPage(incomingPage);
+      setNaturalWidth(typeof ev.naturalWidth === 'number' && ev.naturalWidth >= 0 ? ev.naturalWidth : 0);
+      setNaturalHeight(typeof ev.naturalHeight === 'number' && ev.naturalHeight >= 0 ? ev.naturalHeight : 0);
+      setShowInfo(ev.showInfo !== false);
       setDecodeNonce(typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
         ? Number(ev.decodeNonce)
         : 0);
       decodeNonceRef.current = typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
         ? Number(ev.decodeNonce)
         : 0;
-      setDownloadProgress(null);
-      setIsDecoding(false);
+      if (!incomingDisplay && isRemoteSource) {
+        setDownloadProgress(null);
+        setIsDecoding(true);
+      } else {
+        setDownloadProgress(null);
+        setIsDecoding(false);
+      }
       setScale(1);
       setRotation(0);
       setPosition({ x: 0, y: 0 });
-      setNaturalWidth(0);
-      setNaturalHeight(0);
     };
+    applyLoadImageRef.current = applyLoadImage;
 
     // Expose for direct push from C++ (SwitchTab). CEF may cancel the
     // persistent subscription when the BrowserView is hidden, so we can't
@@ -94,7 +129,7 @@ const ImagePreview = () => {
           const ev = JSON.parse(json);
           if (ev && ev.key === 'load-image') {
             applyLoadImage(ev);
-          } else if (ev && ev.key === 'tiff-download-progress') {
+          } else if (ev && (ev.key === 'image-preview-download-progress' || ev.key === 'tiff-download-progress')) {
             const eventNonce = typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
               ? Number(ev.decodeNonce)
               : 0;
@@ -108,6 +143,8 @@ const ImagePreview = () => {
               if (typeof ev.totalBytes === 'number' && ev.totalBytes > 0) {
                 hasBackendInfoRef.current = true;
                 setFileSize(formatBytes(ev.totalBytes));
+              }
+              if (isTiffPreview && typeof ev.totalBytes === 'number' && ev.totalBytes > 0) {
                 setFormatLabel('TIFF');
                 setIsTiffPreview(true);
               }
@@ -152,6 +189,7 @@ const ImagePreview = () => {
       if (window.__otfApplyImagePreview === applyLoadImage) {
         delete window.__otfApplyImagePreview;
       }
+      applyLoadImageRef.current = null;
       hasSnapshotRef.current = false;
       previewTabIdRef.current = -1;
       if (sub && typeof sub.cancel === 'function') sub.cancel();
@@ -168,6 +206,11 @@ const ImagePreview = () => {
     }
 
     if (hasBackendInfoRef.current) {
+      return;
+    }
+
+    const isRemote = url.startsWith('http://') || url.startsWith('https://');
+    if (isRemote) {
       return;
     }
 
@@ -247,21 +290,22 @@ const ImagePreview = () => {
 
   useEffect(() => {
     if (!url) return;
-    if (!isTiffPreview) return;
+    const isRemote = url.startsWith('http://') || url.startsWith('https://');
+    if (!isTiffPreview && !isRemote) return;
     if (previewError) return;
-    // Server pre-decodes the current page and ships it as a data URL in the
-    // load-image event (initial subscribe + tab switch). Skip the redundant
-    // re-decode when displayUrl already matches currentPage.
-    if (displayedPageRef.current === currentPage && displayUrl.startsWith('data:')) return;
+    if (displayUrl.startsWith('data:')) {
+      if (!isTiffPreview || displayedPageRef.current === currentPage) {
+        return;
+      }
+    }
     if (!window.cefQuery) return;
     let cancelled = false;
     let toastTimer = null;
-    const isRemote = url.startsWith('http://') || url.startsWith('https://');
     setIsDecoding(true);
     setDownloadProgress(isRemote ? { percent: 0, receivedBytes: 0, totalBytes: -1 } : null);
     const tabIdPrefix = previewTabIdRef.current >= 0 ? `:${previewTabIdRef.current}` : '';
     window.cefQuery({
-      request: `decode-tiff:${decodeNonce}:${currentPage}${tabIdPrefix}:${url}`,
+      request: `preview-image:${decodeNonce}:${currentPage}${tabIdPrefix}:${url}`,
       onSuccess: (json) => {
         if (cancelled) return;
         try {
@@ -299,9 +343,9 @@ const ImagePreview = () => {
       },
       onFailure: (_, msg) => {
         if (cancelled) return;
-        console.error("TIFF decoding failed:", msg);
+        console.error("Image preview fetch failed:", msg);
         setDownloadProgress(null);
-        setToast(msg || "Failed to render TIFF page");
+        setToast(msg || "Failed to render image");
         toastTimer = setTimeout(() => setToast(''), 3000);
         setIsDecoding(false);
       }
@@ -373,8 +417,20 @@ const ImagePreview = () => {
   };
 
   const handleImageLoad = (e) => {
-    setNaturalWidth(e.target.naturalWidth);
-    setNaturalHeight(e.target.naturalHeight);
+    if (!window.cefQuery) return;
+    const width = e.target.naturalWidth || 0;
+    const height = e.target.naturalHeight || 0;
+    window.cefQuery({
+      request: `image-preview-meta:${width}:${height}`,
+      onSuccess: (json) => {
+        try {
+          const ev = JSON.parse(json);
+          if (ev && ev.key === 'load-image') {
+            applyLoadedImageMeta(ev);
+          }
+        } catch (_) {}
+      },
+    });
   };
 
   const handleDoubleClick = () => {
@@ -392,6 +448,21 @@ const ImagePreview = () => {
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2200);
+  };
+
+  const setInfoVisible = (visible) => {
+    if (!window.cefQuery) return;
+    window.cefQuery({
+      request: `image-preview-info-visible:${visible ? 1 : 0}`,
+      onSuccess: (json) => {
+        try {
+          const ev = JSON.parse(json);
+          if (ev && ev.key === 'load-image') {
+            applyLoadedImageMeta(ev);
+          }
+        } catch (_) {}
+      },
+    });
   };
 
   const handleSave = () => {
@@ -579,7 +650,7 @@ const ImagePreview = () => {
         <div style={infoPanelStyle}>
           <div style={{ fontWeight: '700', marginBottom: '6px', fontSize: '12px', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
             <span>Image Information</span>
-            <button onClick={() => setShowInfo(false)} style={infoCloseBtnStyle} title="Hide info panel">×</button>
+            <button onClick={() => setInfoVisible(false)} style={infoCloseBtnStyle} title="Hide info panel">×</button>
           </div>
           <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.5', wordBreak: 'break-all' }}>
             <strong>Resolution:</strong> {naturalWidth} × {naturalHeight} px<br />
@@ -596,7 +667,7 @@ const ImagePreview = () => {
         </div>
       )}
       {!showInfo && naturalWidth > 0 && (
-        <button onClick={() => setShowInfo(true)} style={infoOpenBtnStyle} title="Show image info">
+        <button onClick={() => setInfoVisible(true)} style={infoOpenBtnStyle} title="Show image info">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
           Info
         </button>
@@ -639,11 +710,16 @@ const ImagePreview = () => {
       {isDecoding && (
         <div style={decodeOverlayStyle}>
           <div style={decodeLabelStyle}>
-            {downloadProgress && downloadProgress.totalBytes > 0
-              ? `Downloading ${downloadProgress.percent >= 0 ? `${downloadProgress.percent}%` : ''}`.trim()
-              : downloadProgress && downloadProgress.receivedBytes > 0
-                ? `Downloading ${formatBytes(downloadProgress.receivedBytes)}`
-                : 'Rendering page...'}
+            {(() => {
+              const isRemoteSource = url.startsWith('http://') || url.startsWith('https://');
+              if (downloadProgress && downloadProgress.totalBytes > 0) {
+                return `Downloading ${downloadProgress.percent >= 0 ? `${downloadProgress.percent}%` : ''}`.trim();
+              }
+              if (downloadProgress && downloadProgress.receivedBytes > 0) {
+                return `Downloading ${formatBytes(downloadProgress.receivedBytes)}`;
+              }
+              return isRemoteSource ? 'Downloading image...' : 'Rendering page...';
+            })()}
           </div>
           {downloadProgress && downloadProgress.totalBytes > 0 && (
             <div style={progressTrackStyle}>

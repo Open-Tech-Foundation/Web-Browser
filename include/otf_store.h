@@ -32,6 +32,29 @@ struct PersistedDownload {
   int ended_at = 0;
 };
 
+struct Workspace {
+  int id = 0;
+  std::string name;
+  std::string color;
+  int position = 0;
+  int64_t created_at = 0;
+};
+
+struct WorkspaceTab {
+  int id = 0;
+  int workspace_id = 0;
+  int position = 0;
+  std::string url;
+  // Opaque local preview source for image tabs. This stays backend-only and
+  // never gets surfaced as the tab URL.
+  std::string preview_local_path;
+  std::string title;
+  std::string favicon;
+  bool was_active = false;
+  bool is_image_preview = false;
+  int preview_page = 0;
+};
+
 struct BookmarkEntry {
   int id = 0;
   std::string title;
@@ -75,6 +98,17 @@ class OtfStore {
   bool RemoveBookmarkByUrl(const std::string& url);
   bool IsBookmarked(const std::string& url) const;
   std::vector<BookmarkEntry> GetBookmarks() const;
+
+  std::vector<Workspace> GetWorkspaces() const;
+  int CreateWorkspace(const std::string& name, const std::string& color = "");
+  bool RenameWorkspace(int id, const std::string& name);
+  bool SetWorkspaceColor(int id, const std::string& color);
+  bool DeleteWorkspace(int id);
+  bool SetActiveWorkspace(int id);
+  int GetActiveWorkspace() const;
+
+  bool ReplaceWorkspaceTabs(int workspace_id, const std::vector<WorkspaceTab>& tabs);
+  std::vector<WorkspaceTab> GetWorkspaceTabs(int workspace_id) const;
 
   // Test-facing: returns whether secure_delete is on for this connection.
   // SQLite pragmas are per-connection, not stored in the file, so the only

@@ -562,11 +562,16 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
 int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
   CEF_REQUIRE_UI_THREAD();
   if (tab.is_image_preview) {
+    if (otf::IsLocalFilesystemPathLike(tab.url) && tab.preview_local_path.empty()) {
+      return CreateTab("browser://newtab", parent_id);
+    }
     const int tab_id = CreateTab("browser://imagepreview", parent_id);
     RestoreImagePreviewStateForTab(tab_id, tab);
     return tab_id;
   }
-  if (tab.url == "browser://imagepreview" ||
+  if (otf::IsLocalFilesystemPathLike(tab.url) ||
+      !otf::IsAllowedStartupUrl(tab.url) ||
+      tab.url == "browser://imagepreview" ||
       tab.url.find("/imagepreview.html") != std::string::npos) {
     return CreateTab("browser://newtab", parent_id);
   }
@@ -586,18 +591,24 @@ void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab)
   }
 
   tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
-  tab_manager_.SetUrl(tab_id, source);
   tab_manager_.SetTitle(tab_id, tab.title.empty() ? source : tab.title);
   tab_manager_.SetFindText(tab_id, "");
 
   if (source.rfind("http://", 0) == 0 || source.rfind("https://", 0) == 0) {
+    tab_manager_.SetUrl(tab_id, source);
     handler->SetImagePreviewUrlForTab(tab_id, source);
   } else {
-    const std::string file_name = std::filesystem::path(source).filename().string();
+    if (tab.preview_local_path.empty()) {
+      return;
+    }
+    const std::string local_path =
+        !tab.preview_local_path.empty() ? tab.preview_local_path : source;
+    const std::string file_name = std::filesystem::path(local_path).filename().string();
     const std::string public_url = "browser://image-preview/restore/" +
                                    std::to_string(tab_id) + "/" +
                                    otf::SanitizeFilename(file_name.empty() ? "preview.tiff" : file_name);
-    handler->SetImagePreviewLocalFileForTab(tab_id, public_url, source);
+    tab_manager_.SetUrl(tab_id, public_url);
+    handler->SetImagePreviewLocalFileForTab(tab_id, public_url, local_path);
   }
   handler->SetImagePreviewPageForTab(tab_id, tab.preview_page);
 }
@@ -1112,16 +1123,24 @@ void OtfApp::OpenPendingStartupTabs() {
   }
   startup_tabs_opened_ = true;
 
-  // Restore the remaining tabs of the active workspace first. If we
-  // restored anything, skip the configured startup URLs — those are
-  // intended for a clean session.
+  // Restore background tabs. For "continue" this is all saved tabs except
+  // the was-active one (already the content view). For "newtab" this is ALL
+  // saved tabs — they open behind the fresh newtab.
   if (!pending_workspace_restore_.empty()) {
+    OtfHandler* h = OtfHandler::GetInstance();
     for (const auto& t : pending_workspace_restore_) {
       if (t.url.empty()) continue;
       CreateRestoredTab(t);
     }
     pending_workspace_restore_.clear();
+    // Guard is no longer needed — background tabs are now in the live list
+    // so the next PersistWorkspaceTabs call will capture the correct state.
+    if (h) h->startup_session_guard_ = false;
     return;
+  }
+  // "newtab" with no saved tabs: clear guard so normal persistence resumes.
+  if (OtfHandler* h = OtfHandler::GetInstance()) {
+    h->startup_session_guard_ = false;
   }
 
   if (startup_behavior_ != "specific" || startup_urls_.size() < 2) {
@@ -1328,35 +1347,39 @@ void OtfApp::OnContextInitialized() {
     ui_url = command_line->GetSwitchValue("dev-ui-url");
   }
 
-  // If the active workspace has persisted tabs, queue them for restore.
-  // The first one drives the initial content view; the rest are opened
-  // by OpenPendingStartupTabs once the window is up. Configured startup
-  // URLs are ignored when a restore is in flight — those are meant for
-  // a fresh session, not on top of restored state.
-  if (handler->store_) {
+  // Load saved workspace tabs for "newtab" and "continue" modes.
+  // "specific" always opens the configured URLs — no restore.
+  if (startup_behavior_ != "specific" && handler->store_) {
     pending_workspace_restore_ =
         handler->store_->GetWorkspaceTabs(handler->active_workspace_id_);
-    if (!pending_workspace_restore_.empty()) {
-      // Pick the persisted-was-active tab as the first one if any.
+
+    if (startup_behavior_ == "continue" && !pending_workspace_restore_.empty()) {
+      // "continue": surface the was-active tab as the first visible tab.
+      // The rest open in the background via OpenPendingStartupTabs.
       auto it = std::find_if(
           pending_workspace_restore_.begin(),
           pending_workspace_restore_.end(),
           [](const WorkspaceTab& t) {
+            const bool preview_ok = t.is_image_preview &&
+                                    !otf::IsLocalFilesystemPathLike(t.url) &&
+                                    (otf::IsPersistableWebUrl(t.url) ||
+                                     !t.preview_local_path.empty());
             return t.was_active &&
-                   (t.is_image_preview ||
-                    (!t.url.empty() && t.url != "browser://newtab" &&
-                     t.url.rfind("browser://", 0) != 0 &&
-                     t.url.find("imagepreview.html") == std::string::npos));
+                   (preview_ok || !otf::IsLocalFilesystemPathLike(t.url) &&
+                                        otf::IsAllowedStartupUrl(t.url));
           });
       if (it == pending_workspace_restore_.end()) {
         it = std::find_if(
             pending_workspace_restore_.begin(),
             pending_workspace_restore_.end(),
             [](const WorkspaceTab& t) {
-              return t.is_image_preview ||
-                     (!t.url.empty() && t.url != "browser://newtab" &&
-                      t.url.rfind("browser://", 0) != 0 &&
-                      t.url.find("imagepreview.html") == std::string::npos);
+              const bool preview_ok = t.is_image_preview &&
+                                      !otf::IsLocalFilesystemPathLike(t.url) &&
+                                      (otf::IsPersistableWebUrl(t.url) ||
+                                       !t.preview_local_path.empty());
+              return preview_ok ||
+                     (!otf::IsLocalFilesystemPathLike(t.url) &&
+                      otf::IsAllowedStartupUrl(t.url));
             });
       }
       if (it != pending_workspace_restore_.end()) {
@@ -1365,6 +1388,14 @@ void OtfApp::OnContextInitialized() {
         start_url = it->is_image_preview ? "browser://imagepreview" : it->url;
         pending_workspace_restore_.erase(it);
       }
+    }
+    // "newtab": start_url stays as browser://newtab (the fresh active tab).
+    // pending_workspace_restore_ holds ALL saved tabs — they open in the
+    // background via OpenPendingStartupTabs so previous work is not lost.
+    // Guard PersistWorkspaceTabs until those background tabs are created,
+    // so the startup newtab cannot wipe the DB before they land.
+    if (startup_behavior_ == "newtab") {
+      handler->startup_session_guard_ = true;
     }
   }
 

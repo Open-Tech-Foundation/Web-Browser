@@ -2181,19 +2181,25 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           // Find the tab that was active when the workspace was last saved.
           auto active_it = std::find_if(persisted.begin(), persisted.end(),
               [](const WorkspaceTab& t) {
+                const bool preview_ok = t.is_image_preview &&
+                                        !otf::IsLocalFilesystemPathLike(t.url) &&
+                                        (otf::IsPersistableWebUrl(t.url) ||
+                                         !t.preview_local_path.empty());
                 return t.was_active &&
-                       (t.is_image_preview ||
-                        (!t.url.empty() && t.url != "browser://newtab" &&
-                         t.url.rfind("browser://", 0) != 0 &&
-                         t.url.find("imagepreview.html") == std::string::npos));
+                       (preview_ok ||
+                        (!otf::IsLocalFilesystemPathLike(t.url) &&
+                         otf::IsAllowedStartupUrl(t.url)));
               });
           if (active_it == persisted.end()) {
             active_it = std::find_if(persisted.begin(), persisted.end(),
                 [](const WorkspaceTab& t) {
-                  return t.is_image_preview ||
-                         (!t.url.empty() && t.url != "browser://newtab" &&
-                          t.url.rfind("browser://", 0) != 0 &&
-                          t.url.find("imagepreview.html") == std::string::npos);
+                  const bool preview_ok = t.is_image_preview &&
+                                          !otf::IsLocalFilesystemPathLike(t.url) &&
+                                          (otf::IsPersistableWebUrl(t.url) ||
+                                           !t.preview_local_path.empty());
+                  return preview_ok ||
+                         (!otf::IsLocalFilesystemPathLike(t.url) &&
+                          otf::IsAllowedStartupUrl(t.url));
                 });
           }
 
@@ -3150,7 +3156,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             int new_id = app->CreateTab("browser://imagepreview");
             handler->SetImagePreviewLocalFileForTab(new_id, public_url, path);
             if (handler->tab_manager_) {
-              handler->tab_manager_->SetUrl(new_id, path);
+              handler->tab_manager_->SetUrl(new_id, public_url);
               handler->tab_manager_->SetTitle(new_id, name);
               handler->tab_manager_->SetSchemeUrl(new_id, "browser://imagepreview");
             }
@@ -3381,8 +3387,22 @@ CefRefPtr<CefRequestContext> OtfHandler::GetActiveWorkspaceRequestContext() {
 
 void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
   if (!store_ || !tab_manager_ || workspace_id <= 0) return;
-  std::vector<WorkspaceTab> snapshot;
+
+  // Guard: in "newtab" startup mode the auto-opened newtab must not clobber
+  // the saved session. Skip persist while every live tab is still browser://newtab
+  // (or has no URL yet). Self-clears as soon as a real URL appears.
   const auto tab_ids = tab_manager_->GetTabIdsForWorkspace(workspace_id);
+  if (startup_session_guard_ && workspace_id == active_workspace_id_) {
+    const bool all_newtab = std::all_of(tab_ids.begin(), tab_ids.end(),
+        [this](int id) {
+          const std::string url = tab_manager_->GetUrl(id);
+          return url.empty() || url == "browser://newtab";
+        });
+    if (all_newtab) return;
+    startup_session_guard_ = false;  // real URL present — resume normal persist
+  }
+
+  std::vector<WorkspaceTab> snapshot;
   OtfApp* app = OtfApp::GetInstance();
   const int active_tab = app ? app->GetCurrentTabId() : -1;
   for (int tab_id : tab_ids) {
@@ -3392,7 +3412,8 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
     t.is_image_preview = scheme_url == "browser://imagepreview";
     if (t.is_image_preview) {
       const std::string local_path = GetImagePreviewLocalFileForTab(tab_id);
-      t.url = !local_path.empty() ? local_path : GetImagePreviewUrlForTab(tab_id);
+      t.url = GetImagePreviewUrlForTab(tab_id);
+      t.preview_local_path = local_path;
       t.preview_page = GetImagePreviewPageForTab(tab_id);
     } else {
       t.url = tab_manager_->GetUrl(tab_id);
@@ -3541,6 +3562,9 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
     if (view) {
       std::string url_str = url.ToString();
       if (url_str.rfind("browser://insecure-blocked", 0) == 0) {
+        return;
+      }
+      if (otf::IsLocalFilesystemPathLike(url_str)) {
         return;
       }
 
@@ -4311,6 +4335,9 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
   // Block file:// everywhere. The app UI is served through browser://; local
   // files must not be reachable as browser content or privileged UI frames.
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (otf::IsLocalFilesystemPathLike(url)) {
+    return true;
+  }
   if (url.rfind("file://", 0) == 0) {
     return true;
   }
@@ -4565,17 +4592,22 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   }
   if (M(Mod::kCtrl, Key::kW)) {
     std::string url = tab_manager_->GetUrl(cur);
-    if (!url.empty() && url.find("browser://") != 0) last_closed_url_ = url;
+    if (!url.empty() && !otf::IsLocalFilesystemPathLike(url) &&
+        url.find("browser://") != 0) {
+      last_closed_url_ = url;
+    }
     CloseTabAndNotify(cur);
     return true;
   }
   if (M(Mod::kCtrl|Mod::kShift, Key::kT)) {
-    if (!last_closed_url_.empty()) {
+    if (!last_closed_url_.empty() && !otf::IsLocalFilesystemPathLike(last_closed_url_) &&
+        (otf::IsAllowedStartupUrl(last_closed_url_) ||
+         last_closed_url_.rfind("browser://image-preview/", 0) == 0)) {
       int id = app->CreateTab(last_closed_url_);
       NotifyNewTab(id, -1); // Re-opening closed tab goes to the end
       app->SwitchTab(id);
-      last_closed_url_.clear();
     }
+    last_closed_url_.clear();
     return true;
   }
   if (M(Mod::kCtrl, Key::kTab) || M(Mod::kCtrl|Mod::kShift, Key::kTab)) {
@@ -4828,7 +4860,7 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
   const uint64_t decode_nonce = bump_decode_nonce ? BumpImagePreviewDecodeNonceForTab(tab_id)
                                                    : GetImagePreviewDecodeNonceForTab(tab_id);
   otf::ImagePreviewPayload payload;
-  payload.display_url = url;
+  payload.display_url.clear();
   payload.page_count = 1;
   payload.natural_width = tab_manager_ ? tab_manager_->GetImagePreviewWidth(tab_id) : 0;
   payload.natural_height = tab_manager_ ? tab_manager_->GetImagePreviewHeight(tab_id) : 0;
@@ -4916,7 +4948,7 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
       payload.display_url.clear();
       payload.page_count = 1;
     }
-  } else {
+  } else if (is_remote_source) {
     payload.display_url = url;
   }
 

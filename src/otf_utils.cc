@@ -684,6 +684,31 @@ bool IsPersistableWebUrl(const std::string& url) {
   return url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
 }
 
+bool IsLocalFilesystemPathLike(const std::string& url) {
+  if (url.empty()) {
+    return false;
+  }
+  if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0 ||
+      url.rfind("browser://", 0) == 0 || url.rfind("file://", 0) == 0 ||
+      url.rfind("data:", 0) == 0 || url.rfind("blob:", 0) == 0 ||
+      url.rfind("about:", 0) == 0 || url.rfind("chrome://", 0) == 0 ||
+      url.rfind("chrome-devtools://", 0) == 0 ||
+      url.rfind("chrome-extension://", 0) == 0 ||
+      url.rfind("chrome-search://", 0) == 0 ||
+      url.rfind("chrome-untrusted://", 0) == 0 ||
+      url.rfind("devtools://", 0) == 0) {
+    return false;
+  }
+  if (url[0] == '/' || url[0] == '~' || url.rfind("\\\\", 0) == 0) {
+    return true;
+  }
+  if (url.size() >= 3 && std::isalpha(static_cast<unsigned char>(url[0])) &&
+      url[1] == ':' && (url[2] == '/' || url[2] == '\\')) {
+    return true;
+  }
+  return url.find('/') != std::string::npos || url.find('\\') != std::string::npos;
+}
+
 bool IsAllowedHttpUrl(const std::string& url) {
   if (url.rfind("https://", 0) == 0) {
     return true;

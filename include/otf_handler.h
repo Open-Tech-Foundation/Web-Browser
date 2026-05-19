@@ -292,6 +292,10 @@ class OtfHandler : public CefClient,
   // workspace with live in-memory tabs restores the correct tab, not
   // just the first one that was created.
   std::map<int, int> workspace_last_active_tab_;
+  // Set to true when startup_behavior is "newtab" so that the auto-opened
+  // startup newtab tab cannot overwrite the saved workspace session in the DB.
+  // Clears itself in PersistWorkspaceTabs once any live tab has a real URL.
+  bool startup_session_guard_ = false;
   // Returns the request context for the active workspace. Returns nullptr
   // for the default workspace, which is the signal the BrowserView API
   // expects to mean "use the global context".

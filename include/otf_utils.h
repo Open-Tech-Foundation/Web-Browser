@@ -68,6 +68,7 @@ std::string GetBrowserPageFilePath(const std::string& url);
 std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
                                  const std::string& url);
 bool IsPersistableWebUrl(const std::string& url);
+bool IsLocalFilesystemPathLike(const std::string& url);
 bool IsAllowedHttpUrl(const std::string& url);
 bool IsAllowedStartupUrl(const std::string& url);
 // True when the URL is one of the bundled UI pages (security-critical):
@@ -126,14 +127,17 @@ bool DecodeTiffBufferToPngBase64(const void* data, size_t size, int page, std::s
 
 // Payload for the renderer's `load-image` event.
 struct ImagePreviewPayload {
-  std::string display_url;  // data: URL for decoded TIFF page, or original URL.
+  std::string display_url;  // Backend-produced preview URL, usually a data: URL.
   int page_count = 1;       // total pages (>=1; 1 for non-multipage formats).
+  int natural_width = 0;    // intrinsic image width in pixels, if known.
+  int natural_height = 0;   // intrinsic image height in pixels, if known.
+  bool show_info = true;    // per-tab visibility of the information panel.
 };
 
-// Build the renderer payload for `url` at `page` (0-based). Local TIFFs are
-// decoded natively here so the renderer never has to wait for the first paint.
-// Remote TIFFs are left to the async decode-tiff path — display_url is the
-// original url and page_count is 1 until the renderer round-trips.
+// Build the renderer payload for `url` at `page` (0-based). The renderer uses
+// this as a snapshot of backend-owned preview state. Remote images may come
+// back with an empty display_url until the backend download/encode step
+// completes. TIFFs are decoded page-by-page by the backend.
 ImagePreviewPayload BuildImagePreviewPayload(const std::string& url, int page);
 
 } // namespace otf
