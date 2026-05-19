@@ -140,11 +140,10 @@ void TestBookmarkNormalization() {
 }
 
 void TestIsInternalUiUrl() {
-  // Scheme-agnostic — matches the internal UI page allowlist regardless of
-  // how the page was loaded. Used to keep dev-server URLs and bundled file://
-  // pages out of browser history.
+  // Scheme-agnostic for browser-owned environments only. file:// is blocked
+  // and must not be treated as internal UI.
   assert(otf::IsInternalUiUrl("browser://newtab"));
-  assert(otf::IsInternalUiUrl("file:///opt/otf/ui/appmenu.html"));
+  assert(!otf::IsInternalUiUrl("file:///opt/otf/ui/appmenu.html"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/appmenu.html"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/bookmarkbar.html"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/certificate.html"));
@@ -160,15 +159,13 @@ void TestIsInternalBrowserUiUrl() {
   // browser:// scheme — always trusted.
   assert(otf::IsInternalBrowserUiUrl("browser://newtab"));
   assert(otf::IsInternalBrowserUiUrl("browser://settings?foo=bar"));
-  // file:// paths to packaged UI HTML — every page in the manifest.
-  // Regression: /index.html was missing from the allowlist; without it the
-  // main UI shell can't reach cefQuery and the toolbar appears dead.
-  assert(otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/index.html"));
-  assert(otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/newtab.html"));
-  assert(otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/settings.html"));
-  assert(otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/findbar.html"));
-  assert(otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/downloads.html"));
-  assert(otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/bookmarks.html"));
+  // file:// is never trusted, even when the path looks like packaged UI.
+  assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/index.html"));
+  assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/newtab.html"));
+  assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/settings.html"));
+  assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/findbar.html"));
+  assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/downloads.html"));
+  assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/bookmarks.html"));
   // External web origins — always denied.
   assert(!otf::IsInternalBrowserUiUrl("https://example.com"));
   assert(!otf::IsInternalBrowserUiUrl("http://attacker.com/newtab.html"));

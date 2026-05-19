@@ -32,6 +32,28 @@ The first feature test is `tabs.test.js`. It uses only visible UI controls:
 - choose Light mode
 - observe the Settings page marks Light selected and leaves dark mode
 
+`history.test.js` verifies a user-visible history path:
+
+- enable history from Settings > Privacy
+- visit a test-served local web page through the address bar
+- open History through the address bar
+- observe the web page appears and `browser://settings` does not
+
+`bookmarks.test.js` verifies a user-visible bookmark path:
+
+- visit a test-served local web page through the address bar
+- click the visible bookmark star
+- open Bookmarks through the address bar
+- observe the bookmark appears
+- delete the bookmark through the Bookmarks UI
+
+`workspaces.test.js` verifies the workspace popup:
+
+- open the workspace popup from the visible shell control
+- create a new workspace from the popup
+- switch to it by clicking its row
+- observe the shell workspace label changes
+
 Run the current E2E suite with:
 
 ```bash
@@ -48,10 +70,7 @@ xvfb-run -a bun run test:e2e
 
 Add one file per feature, keeping each scenario narrow:
 
-1. `history.test.js`: web page is recorded, internal UI is not.
-2. `bookmarks.test.js`: add/remove one bookmark and verify persistence.
-3. `workspaces.test.js`: create/switch/delete one workspace.
-4. `security.test.js`: external web content cannot use privileged bridge commands.
+1. `security.test.js`: external web content cannot use privileged bridge commands.
 
 Do not merge multiple feature areas into one E2E file. If a behavior can be
 tested in C++ without launching the browser, keep it in native tests instead.

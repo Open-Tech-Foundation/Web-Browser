@@ -24,7 +24,7 @@ test('user can change appearance mode in Settings',
 
       settingsCdp = await browser.connectToTarget((target) =>
         /settings/i.test(target.title || '') ||
-        /settings\.html|browser:\/\/settings/i.test(target.url || ''),
+        /settings\.html/i.test(target.url || ''),
       );
 
       await waitFor(
@@ -33,7 +33,16 @@ test('user can change appearance mode in Settings',
         (text) => /Search Engine/i.test(text) && /Appearance/i.test(text),
       );
 
-      await clickByText(settingsCdp, 'aside nav button', 'Appearance');
+      const clickedAppearance = await settingsCdp.evaluate(`
+        (() => {
+          const button = [...document.querySelectorAll('aside nav button')]
+            .find((item) => (item.textContent || '').includes('Appearance'));
+          if (!button) return false;
+          button.click();
+          return true;
+        })()
+      `);
+      assert.equal(clickedAppearance, true);
       await waitFor(
         settingsCdp,
         `document.body.innerText`,

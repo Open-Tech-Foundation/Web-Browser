@@ -57,6 +57,24 @@ export async function waitForHttp(url, deadlineMs = timeoutMs) {
   throw lastError || new Error(`timed out waiting for ${url}`);
 }
 
+export async function startStaticServer(handler) {
+  const server = http.createServer(handler);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === 'object', 'static server did not expose an address');
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    async close() {
+      await new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+    },
+  };
+}
+
 async function getJson(url) {
   const response = await requestText(url);
   assert.equal(response.statusCode, 200, `${url} should return HTTP 200`);
@@ -303,6 +321,22 @@ export async function pressKey(cdp, key, code = key) {
 
 export async function typeText(cdp, text) {
   await cdp.send('Input.insertText', { text });
+}
+
+export const addressBarSelector = 'input[placeholder="Search or enter address..."]';
+
+export async function navigateFromAddressBar(cdp, url) {
+  await waitFor(cdp, `!!document.querySelector(${JSON.stringify(addressBarSelector)})`, Boolean);
+  await clickSelector(cdp, addressBarSelector);
+  await cdp.evaluate(`
+    (() => {
+      const input = document.querySelector(${JSON.stringify(addressBarSelector)});
+      input.focus();
+      input.select();
+    })()
+  `);
+  await typeText(cdp, url);
+  await pressKey(cdp, 'Enter');
 }
 
 export async function launchDevBrowser() {
