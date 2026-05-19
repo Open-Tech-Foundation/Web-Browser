@@ -132,6 +132,18 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kImagePreviewBrowserViewId;
 }
 
+int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
+                               TabManager* tab_manager) {
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view && !IsNonTabBrowserViewId(view->GetID())) {
+    return view->GetID();
+  }
+  if (tab_manager) {
+    return tab_manager->GetId(browser);
+  }
+  return -1;
+}
+
 class DeferredImagePreviewPushTask : public CefTask {
  public:
   explicit DeferredImagePreviewPushTask(int tab_id)
@@ -1657,10 +1669,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "image-preview-subscribe") {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
-        int tab_id = -1;
-        if (handler->tab_manager_) {
-          tab_id = handler->tab_manager_->GetId(browser);
-        }
+        int tab_id = ResolveRealTabIdForBrowser(browser, handler->tab_manager_);
         if (tab_id != -1) {
           handler->tab_image_preview_subscriptions_[tab_id] = callback;
         } else {
@@ -1692,10 +1701,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
       OtfApp* app = OtfApp::GetInstance();
-      int tab_id = -1;
-      if (handler && handler->tab_manager_) {
-        tab_id = handler->tab_manager_->GetId(browser);
-      }
+      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
       if (tab_id == -1 && app) {
         tab_id = app->GetCurrentTabId();
       }
@@ -1714,10 +1720,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const auto visible_opt = ParseIntStrict(std::string_view(msg).substr(prefix.size()));
       const bool visible = visible_opt ? (*visible_opt != 0) : true;
       OtfApp* app = OtfApp::GetInstance();
-      int tab_id = -1;
-      if (handler && handler->tab_manager_) {
-        tab_id = handler->tab_manager_->GetId(browser);
-      }
+      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
       if (tab_id == -1 && app) {
         tab_id = app->GetCurrentTabId();
       }
@@ -1737,10 +1740,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       // can recover even if CEF cancelled the persistent subscription
       // (or the renderer was reloaded) while the tab was hidden.
       OtfApp* app = OtfApp::GetInstance();
-      int tab_id = -1;
-      if (handler && handler->tab_manager_) {
-        tab_id = handler->tab_manager_->GetId(browser);
-      }
+      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
       if (tab_id == -1 && app) {
         tab_id = app->GetCurrentTabId();
       }
@@ -1788,8 +1788,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           tab_id = *tab_id_opt;
         }
       }
-      if (tab_id == -1 && handler->tab_manager_) {
-        tab_id = handler->tab_manager_->GetId(browser);
+      if (tab_id == -1) {
+        tab_id = ResolveRealTabIdForBrowser(browser, handler->tab_manager_);
       }
       if (tab_id == -1 && app) {
         tab_id = app->GetCurrentTabId();
@@ -3241,7 +3241,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             const std::string public_url =
                 "browser://image-preview/download/" +
                 std::to_string(*download_id) + "/" + name;
-            int new_id = app->CreateTab("browser://imagepreview");
+            int new_id = app->CreateTab(public_url);
             handler->SetImagePreviewLocalFileForTab(new_id, public_url, path);
             if (handler->tab_manager_) {
               handler->tab_manager_->SetUrl(new_id, public_url);
@@ -3862,6 +3862,11 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
       if (current.empty() || current == "about:blank") {
         std::string stored = tab_manager_->GetUrl(tab_id);
         if (!stored.empty()) {
+          if (tab_manager_->GetImagePreviewMode(tab_id) ==
+                  ImagePreviewMode::kDedicated &&
+              stored.rfind("browser://image-preview/", 0) != 0) {
+            stored = "browser://imagepreview";
+          }
           browser->GetMainFrame()->LoadURL(stored);
         }
       }

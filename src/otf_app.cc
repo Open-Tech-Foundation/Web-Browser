@@ -395,6 +395,30 @@ CefRefPtr<CefResourceHandler> MakeFileResponse(const std::string& disk_path) {
   return MakeBytesResponse(GuessMimeType(disk_path), std::move(bytes));
 }
 
+std::string LoadTextFile(const std::string& disk_path) {
+  std::ifstream f(disk_path, std::ios::binary);
+  if (!f) {
+    return "";
+  }
+  return std::string((std::istreambuf_iterator<char>(f)),
+                     std::istreambuf_iterator<char>());
+}
+
+std::string InjectBaseHref(const std::string& html, const std::string& base_href) {
+  if (html.empty() || base_href.empty()) {
+    return html;
+  }
+  const std::string needle = "<head>";
+  const size_t pos = html.find(needle);
+  if (pos == std::string::npos) {
+    return html;
+  }
+  std::string updated = html;
+  updated.insert(pos + needle.size(),
+                 "<base href=\"" + HtmlAttrEscape(base_href) + "\">");
+  return updated;
+}
+
 // browser:// scheme handler.
 //
 // Production mode (no --dev-ui-url):
@@ -446,13 +470,20 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
         (cmd && cmd->HasSwitch("dev-ui-url"))
             ? cmd->GetSwitchValue("dev-ui-url").ToString()
             : std::string();
+    const bool is_image_preview_route = authority == "image-preview";
+    const bool is_image_preview_asset =
+        is_image_preview_route && path.rfind("assets/", 0) == 0;
 
     if (!dev_ui_url.empty()) {
       // Dev mode: hand off to the vite dev server. After the redirect the
       // document URL becomes http://localhost:3000/<page>.html, and all
       // sub-resource loads go through HTTP — they never come back here.
       std::string target;
-      if (path.empty()) {
+      if (is_image_preview_asset) {
+        target = dev_ui_url + "/" + path;
+      } else if (is_image_preview_route) {
+        target = dev_ui_url + "/imagepreview.html";
+      } else if (path.empty()) {
         target = dev_ui_url + "/" + authority + ".html";
       } else {
         target = dev_ui_url + "/" + path;
@@ -468,12 +499,26 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     // Production: serve from ui/. "shell" is the toolbar (ui/index.html).
     const std::string ui_dir = otf::GetExecutableDir() + "/ui";
     std::string disk_path;
-    if (path.empty()) {
+    if (is_image_preview_asset) {
+      if (!IsSafeUiRelativePath(path)) return MakeNotFound();
+      disk_path = ui_dir + "/" + path;
+    } else if (is_image_preview_route) {
+      disk_path = ui_dir + "/imagepreview.html";
+    } else if (path.empty()) {
       const std::string page = (authority == "shell") ? "index" : authority;
       disk_path = ui_dir + "/" + page + ".html";
     } else {
       if (!IsSafeUiRelativePath(path)) return MakeNotFound();
       disk_path = ui_dir + "/" + path;
+    }
+    if (is_image_preview_route && !is_image_preview_asset) {
+      const std::string html = LoadTextFile(disk_path);
+      if (html.empty()) {
+        return MakeNotFound();
+      }
+      return MakeStringResponse(
+          "text/html",
+          InjectBaseHref(html, "browser://image-preview/"));
     }
     return MakeFileResponse(disk_path);
   }
@@ -544,6 +589,7 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   content_view->SetID(tab_id);
   tab_manager_.SetUrl(tab_id, url);
   if (url == "browser://imagepreview" ||
+      url.rfind("browser://image-preview/", 0) == 0 ||
       url.find("/imagepreview.html") != std::string::npos) {
     tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
     tab_manager_.SetImagePreviewMode(tab_id, ImagePreviewMode::kDedicated);
@@ -566,7 +612,9 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
     if (otf::IsLocalFilesystemPathLike(tab.url) && tab.preview_local_path.empty()) {
       return CreateTab("browser://newtab", parent_id);
     }
-    const int tab_id = CreateTab("browser://imagepreview", parent_id);
+    const std::string preview_start_url =
+        tab.preview_local_path.empty() ? "browser://imagepreview" : tab.url;
+    const int tab_id = CreateTab(preview_start_url, parent_id);
     RestoreImagePreviewStateForTab(tab_id, tab);
     return tab_id;
   }
@@ -1422,7 +1470,10 @@ void OtfApp::OnContextInitialized() {
       if (it != pending_workspace_restore_.end()) {
         pending_workspace_restore_first_ = *it;
         pending_workspace_restore_first_is_preview_ = it->is_image_preview;
-        start_url = it->is_image_preview ? "browser://imagepreview" : it->url;
+        start_url =
+            (it->is_image_preview && it->preview_local_path.empty())
+                ? "browser://imagepreview"
+                : it->url;
         pending_workspace_restore_.erase(it);
       }
     }
