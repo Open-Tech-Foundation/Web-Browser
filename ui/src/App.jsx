@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useReducer } from 'react';
 import AddressBar from './components/AddressBar';
 import TabStrip from './components/TabStrip';
+import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { resolveUrl } from './shared/search';
 import './styles/App.css';
 
@@ -23,6 +24,10 @@ const normalizeTab = (tab) => ({
 
 const tabReducer = (state, action) => {
   switch (action.type) {
+    case 'SET_WORKSPACES':
+      return { ...state, workspaces: action.payload };
+    case 'SET_ACTIVE_WORKSPACE':
+      return { ...state, activeWorkspaceId: action.payload };
     case 'SET_TABS':
       return { ...state, tabs: action.payload };
     case 'UPDATE_TAB':
@@ -59,7 +64,12 @@ const tabReducer = (state, action) => {
 };
 
 const App = () => {
-  const [state, dispatch] = useReducer(tabReducer, { tabs: [], activeTabId: null });
+  const [state, dispatch] = useReducer(tabReducer, {
+    tabs: [],
+    activeTabId: null,
+    workspaces: [],
+    activeWorkspaceId: null,
+  });
   const [searchEngine, setSearchEngine] = React.useState('');
   const [downloadBadge, setDownloadBadge] = React.useState(0);
   const [hasDownloads, setHasDownloads] = React.useState(false);
@@ -99,11 +109,50 @@ const App = () => {
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [appearanceMode]);
 
+  const refreshWorkspaces = () => {
+    if (!window.cefQuery) return;
+    window.cefQuery({
+      request: 'get-workspaces',
+      onSuccess: (json) => {
+        try {
+          const list = JSON.parse(json);
+          dispatch({ type: 'SET_WORKSPACES', payload: list });
+          const active = list.find((w) => w.active);
+          if (active) dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: active.id });
+        } catch (e) {}
+      },
+    });
+  };
+
+  // After a workspace switch the C++ side surfaces a new active tab; the
+  // React tabs list needs a full refetch because the previous tabs belong
+  // to a different workspace and were filtered out by get-tabs.
+  const refreshWorkspaceTabs = () => {
+    if (!window.cefQuery) return;
+    window.cefQuery({
+      request: 'get-tabs',
+      onSuccess: (tabsJson) => {
+        try {
+          const tabs = JSON.parse(tabsJson).map(normalizeTab);
+          dispatch({ type: 'SET_TABS', payload: tabs });
+          window.cefQuery({
+            request: 'get-active-tab',
+            onSuccess: (activeId) => {
+              const parsed = parseInt(activeId, 10);
+              dispatch({ type: 'SET_ACTIVE', payload: parsed });
+            },
+          });
+        } catch (e) {}
+      },
+    });
+  };
+
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
     if (window.cefQuery) {
+      refreshWorkspaces();
       // Load settings
       window.cefQuery({
         request: "get-settings",
@@ -144,6 +193,11 @@ const App = () => {
               );
             } else if (event.key === 'tab-closed') {
               dispatch({ type: 'REMOVE_TAB', payload: event.id });
+            } else if (event.key === 'workspaces-updated') {
+              refreshWorkspaces();
+            } else if (event.key === 'workspace-changed') {
+              dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: event.id });
+              refreshWorkspaceTabs();
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
               addressBarRef.current?.blur();
@@ -279,6 +333,23 @@ const App = () => {
     });
   };
 
+  const handleWorkspaceSwitch = (id) => {
+    if (id === state.activeWorkspaceId) return;
+    window.cefQuery({ request: `switch-workspace:${id}` });
+  };
+
+  const handleWorkspaceCreate = (name) => {
+    window.cefQuery({ request: `create-workspace:${name}` });
+  };
+
+  const handleWorkspaceRename = (id, name) => {
+    window.cefQuery({ request: `rename-workspace:${id}:${name}` });
+  };
+
+  const handleWorkspaceDelete = (id) => {
+    window.cefQuery({ request: `delete-workspace:${id}` });
+  };
+
   const handleShowCertificate = () => {
     window.cefQuery({
       request: 'toggle-certificate'
@@ -312,12 +383,24 @@ const App = () => {
 
   return (
     <div className="flex flex-col h-[65px] max-h-[65px] w-full bg-slate-100 dark:bg-slate-950 border-b border-slate-300 dark:border-slate-800 antialiased overflow-hidden select-none box-border m-0 p-0">
-      <TabStrip
-        tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))}
-        onSwitch={handleSwitchTab}
-        onClose={handleCloseTab}
-        onNew={handleNewTab}
-      />
+      <div className="flex items-end h-[29px] bg-slate-300/50 dark:bg-[#020617]">
+        <WorkspaceSwitcher
+          workspaces={state.workspaces}
+          activeId={state.activeWorkspaceId}
+          onSwitch={handleWorkspaceSwitch}
+          onCreate={handleWorkspaceCreate}
+          onRename={handleWorkspaceRename}
+          onDelete={handleWorkspaceDelete}
+        />
+        <div className="flex-1 min-w-0">
+          <TabStrip
+            tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))}
+            onSwitch={handleSwitchTab}
+            onClose={handleCloseTab}
+            onNew={handleNewTab}
+          />
+        </div>
+      </div>
       <div className="flex items-center px-3 h-[36px] min-h-[36px] bg-bar-light dark:bg-bar-dark box-border border-t border-slate-200 dark:border-white/5 m-0 p-0">
           <div className="flex gap-0.5 mr-2">
             <NavButton
@@ -353,7 +436,7 @@ const App = () => {
             onShowCertificate={handleShowCertificate}
             onShowClearSiteData={handleShowClearSiteData}
           />
-          <div className="flex items-center ml-1 gap-1">
+          <div className="flex items-center ml-2 gap-1">
             <NavButton
               onClick={() => window.cefQuery({ request: 'toggle-zoombar' })}
               title="Zoom"

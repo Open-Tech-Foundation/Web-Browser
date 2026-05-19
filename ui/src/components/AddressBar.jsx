@@ -72,7 +72,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   const displayUrl = isFocused ? url : getDisplayUrl(url);
 
   return (
-    <div className="flex flex-1 items-center h-8 bg-input-light dark:bg-input-dark rounded-lg px-3 border border-transparent focus-within:border-brand-orange transition-all duration-200 mx-2 group relative">
+    <div className="flex flex-1 items-center h-8 bg-input-light dark:bg-input-dark rounded-full px-4 border border-slate-200 dark:border-slate-800 focus-within:border-brand-orange transition-all duration-200 mx-2 group relative">
       {showSecurityIcon && (
         <SecurityIconButton
           insecure={isInsecure}
