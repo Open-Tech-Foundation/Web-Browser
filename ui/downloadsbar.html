@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
+      * { box-sizing: border-box; }
+      html, body, #root { width: 100%; height: 100%; }
       body { overflow: hidden; background: transparent; }
       :root {
         --bg: #ffffff;
@@ -26,7 +27,7 @@
       }
     </style>
   </head>
-  <body>
+  <body class="transparent-body">
     <div id="root"></div>
     <script type="module" src="/downloadsbar/main.jsx"></script>
   </body>
