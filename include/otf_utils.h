@@ -24,6 +24,13 @@ std::optional<int> ParseIntStrict(std::string_view s);
 std::optional<uint32_t> ParseUint32Strict(std::string_view s);
 std::optional<uint64_t> ParseUint64Strict(std::string_view s);
 
+// Parse one `<byte-length>:<payload>` field from `input`, advancing `cursor`
+// past the payload. Used for cefQuery commands that need unambiguous embedded
+// string fields.
+std::string ParseLengthPrefixedField(const std::string& input,
+                                     size_t* cursor,
+                                     bool* ok);
+
 class JsonObjectBuilder {
  public:
   JsonObjectBuilder& AddString(const std::string& key, const std::string& value);

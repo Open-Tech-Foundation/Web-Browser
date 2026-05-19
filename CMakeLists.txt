@@ -158,3 +158,43 @@ target_include_directories(otf-browser-extra-tests PRIVATE include)
 target_compile_options(otf-browser-extra-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
 target_link_libraries(otf-browser-extra-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
 add_test(NAME otf-browser-extra-tests COMMAND otf-browser-extra-tests)
+
+add_executable(otf-browser-url-policy-tests
+    tests/native/test_url_policy.cc
+    src/otf_utils.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-url-policy-tests)
+target_include_directories(otf-browser-url-policy-tests PRIVATE include)
+target_compile_options(otf-browser-url-policy-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+target_link_libraries(otf-browser-url-policy-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
+add_test(NAME otf-browser-url-policy-tests COMMAND otf-browser-url-policy-tests)
+
+add_executable(otf-browser-json-bridge-tests
+    tests/native/test_json_bridge.cc
+    src/otf_utils.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-json-bridge-tests)
+target_include_directories(otf-browser-json-bridge-tests PRIVATE include)
+target_compile_options(otf-browser-json-bridge-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+target_link_libraries(otf-browser-json-bridge-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
+add_test(NAME otf-browser-json-bridge-tests COMMAND otf-browser-json-bridge-tests)
+
+add_executable(otf-browser-tab-manager-tests
+    tests/native/test_tab_manager.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-tab-manager-tests)
+target_include_directories(otf-browser-tab-manager-tests PRIVATE include)
+target_compile_options(otf-browser-tab-manager-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+target_link_libraries(otf-browser-tab-manager-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS})
+add_test(NAME otf-browser-tab-manager-tests COMMAND otf-browser-tab-manager-tests)
+
+add_executable(otf-browser-store-tests
+    tests/native/test_store.cc
+    src/otf_store.cc
+    src/otf_utils.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-store-tests)
+target_include_directories(otf-browser-store-tests PRIVATE include)
+target_compile_options(otf-browser-store-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+target_link_libraries(otf-browser-store-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBRARIES})
+add_test(NAME otf-browser-store-tests COMMAND otf-browser-store-tests)

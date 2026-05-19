@@ -856,33 +856,6 @@ int FindDownloadRecordId(const std::map<int, OtfHandler::DownloadState>& downloa
   return -1;
 }
 
-std::string ParseLengthPrefixedField(const std::string& input,
-                                     size_t* cursor,
-                                     bool* ok) {
-  *ok = false;
-  if (!cursor || *cursor >= input.size()) {
-    return "";
-  }
-  size_t len_end = input.find(':', *cursor);
-  if (len_end == std::string::npos) {
-    return "";
-  }
-  const std::string len_str = input.substr(*cursor, len_end - *cursor);
-  char* parse_end = nullptr;
-  errno = 0;
-  unsigned long len = std::strtoul(len_str.c_str(), &parse_end, 10);
-  if (errno != 0 || parse_end == len_str.c_str() || *parse_end != '\0') {
-    return "";
-  }
-  const size_t value_start = len_end + 1;
-  if (value_start + len > input.size()) {
-    return "";
-  }
-  *cursor = value_start + len;
-  *ok = true;
-  return input.substr(value_start, len);
-}
-
 struct FindbarFindRequest {
   int tab_id = -1;
   std::string text;

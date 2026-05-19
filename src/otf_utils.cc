@@ -207,6 +207,36 @@ std::optional<uint64_t> ParseUint64Strict(std::string_view s) {
   return value;
 }
 
+std::string ParseLengthPrefixedField(const std::string& input,
+                                     size_t* cursor,
+                                     bool* ok) {
+  if (!cursor || !ok || *cursor > input.size()) {
+    if (ok) {
+      *ok = false;
+    }
+    return "";
+  }
+
+  const size_t colon = input.find(':', *cursor);
+  if (colon == std::string::npos || colon == *cursor) {
+    *ok = false;
+    return "";
+  }
+
+  const auto length_opt = ParseUint64Strict(
+      std::string_view(input).substr(*cursor, colon - *cursor));
+  if (!length_opt || *length_opt > input.size() - colon - 1) {
+    *ok = false;
+    return "";
+  }
+
+  const size_t length = static_cast<size_t>(*length_opt);
+  const size_t start = colon + 1;
+  *cursor = start + length;
+  *ok = true;
+  return input.substr(start, length);
+}
+
 JsonObjectBuilder& JsonObjectBuilder::AddString(const std::string& key,
                                                 const std::string& value) {
   fields_.push_back(JsonString(key) + ":" + JsonString(value));
