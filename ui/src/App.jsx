@@ -495,6 +495,7 @@ const AppMenuItem = ({ name, icon, onClick }) => (
 
 const NavButton = ({ icon, onClick, disabled, title, className = '' }) => (
   <button 
+    onMouseDown={(e) => e.preventDefault()}
     onClick={onClick}
     disabled={disabled}
     title={title}

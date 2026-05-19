@@ -96,6 +96,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
       
       {url && !url.startsWith('browser://') && (
         <button
+          onMouseDown={(e) => e.preventDefault()}
           onClick={onToggleBookmark}
           className={`ml-2 p-1 rounded-md transition-all active:scale-90 relative z-10 ${
             visibleIsBookmarked ? 'text-[#D4AF37]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
@@ -119,6 +120,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
       )}
       {url && !url.startsWith('browser://') && (
         <button
+          onMouseDown={(e) => e.preventDefault()}
           onClick={onShowClearSiteData}
           className="ml-2 p-1 rounded-md transition-all active:scale-90 relative z-10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
           title="Clear site data"
