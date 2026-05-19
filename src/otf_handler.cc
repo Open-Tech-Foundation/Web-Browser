@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -1304,7 +1305,32 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
   void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {
     if (total > 0 && static_cast<uint64_t>(total) > kMaxTiffInputBytes) {
       RejectAndCancel(request);
+      return;
     }
+    if (rejected_) {
+      return;
+    }
+    OtfHandler* h = OtfHandler::GetInstance();
+    if (!h || tab_id_ == -1 || h->GetImagePreviewDecodeNonceForTab(tab_id_) != decode_nonce_) {
+      return;
+    }
+    const int received_bytes =
+        current < 0 ? 0 : static_cast<int>(std::min<int64_t>(current, std::numeric_limits<int>::max()));
+    const int total_bytes =
+        total < 0 ? -1 : static_cast<int>(std::min<int64_t>(total, std::numeric_limits<int>::max()));
+    if (total_bytes > 0) {
+      const int percent = static_cast<int>(std::clamp<int64_t>((current * 100) / total, 0, 100));
+      if (percent == last_reported_percent_) {
+        return;
+      }
+      last_reported_percent_ = percent;
+    } else {
+      if (received_bytes - last_reported_received_bytes_ < 256 * 1024 && received_bytes != 0) {
+        return;
+      }
+      last_reported_received_bytes_ = received_bytes;
+    }
+    h->NotifyImagePreviewDownloadProgress(tab_id_, decode_nonce_, received_bytes, total_bytes);
   }
   
   void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t data_length) override {
@@ -1349,6 +1375,8 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
   std::vector<char> data_buffer_;
   bool rejected_ = false;
   std::string reject_reason_;
+  int last_reported_percent_ = -1;
+  int last_reported_received_bytes_ = 0;
 
   IMPLEMENT_REFCOUNTING(OtfTiffDecodeClient);
 };
@@ -4355,6 +4383,37 @@ uint64_t OtfHandler::BumpImagePreviewDecodeNonceForTab(int tab_id) {
 uint64_t OtfHandler::GetImagePreviewDecodeNonceForTab(int tab_id) const {
   auto it = tab_image_preview_decode_nonces_.find(tab_id);
   return it != tab_image_preview_decode_nonces_.end() ? it->second : 0;
+}
+
+void OtfHandler::NotifyImagePreviewDownloadProgress(int tab_id,
+                                                    uint64_t decode_nonce,
+                                                    int received_bytes,
+                                                    int total_bytes) {
+  if (tab_id == -1 || GetImagePreviewDecodeNonceForTab(tab_id) != decode_nonce) {
+    return;
+  }
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> sub;
+  auto it = tab_image_preview_subscriptions_.find(tab_id);
+  if (it != tab_image_preview_subscriptions_.end()) {
+    sub = it->second;
+  } else {
+    sub = image_preview_subscription_;
+  }
+  if (!sub) {
+    return;
+  }
+
+  int percent = -1;
+  if (total_bytes > 0) {
+    percent = static_cast<int>(std::clamp((received_bytes * 100) / total_bytes, 0, 100));
+  }
+  sub->Success(JsonObjectBuilder()
+                   .AddString("key", "tiff-download-progress")
+                   .AddString("decodeNonce", std::to_string(decode_nonce))
+                   .AddInt("receivedBytes", received_bytes)
+                   .AddInt("totalBytes", total_bytes)
+                   .AddInt("percent", percent)
+                   .Build());
 }
 
 void OtfHandler::SetImagePreviewPageForTab(int tab_id, int page) {

@@ -17,10 +17,12 @@ const ImagePreview = () => {
   const [decodeNonce, setDecodeNonce] = useState(0);
   const [isDecoding, setIsDecoding] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [downloadProgress, setDownloadProgress] = useState(null);
 
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef(null);
   const hasSnapshotRef = useRef(false);
+  const decodeNonceRef = useRef(0);
   // Page index the current displayUrl was decoded for. Lets the decode
   // effect skip the round-trip when the server already shipped a matching
   // data: URL (initial load and tab switches both come pre-decoded).
@@ -53,6 +55,10 @@ const ImagePreview = () => {
       setDecodeNonce(typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
         ? Number(ev.decodeNonce)
         : 0);
+      decodeNonceRef.current = typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
+        ? Number(ev.decodeNonce)
+        : 0;
+      setDownloadProgress(null);
       setIsDecoding(false);
       setScale(1);
       setRotation(0);
@@ -70,7 +76,24 @@ const ImagePreview = () => {
       request: 'image-preview-subscribe',
       persistent: true,
       onSuccess: (json) => {
-        try { applyLoadImage(JSON.parse(json)); } catch (_) {}
+        try {
+          const ev = JSON.parse(json);
+          if (ev && ev.key === 'load-image') {
+            applyLoadImage(ev);
+          } else if (ev && ev.key === 'tiff-download-progress') {
+            const eventNonce = typeof ev.decodeNonce === 'string' || typeof ev.decodeNonce === 'number'
+              ? Number(ev.decodeNonce)
+              : 0;
+            if (eventNonce && eventNonce === decodeNonceRef.current) {
+              setDownloadProgress({
+                percent: typeof ev.percent === 'number' ? ev.percent : -1,
+                receivedBytes: typeof ev.receivedBytes === 'number' ? ev.receivedBytes : 0,
+                totalBytes: typeof ev.totalBytes === 'number' ? ev.totalBytes : -1,
+              });
+              setIsDecoding(true);
+            }
+          }
+        } catch (_) {}
       },
     });
 
@@ -200,7 +223,9 @@ const ImagePreview = () => {
     if (!window.cefQuery) return;
     let cancelled = false;
     let toastTimer = null;
+    const isRemote = url.startsWith('http://') || url.startsWith('https://');
     setIsDecoding(true);
+    setDownloadProgress(isRemote ? { percent: 0, receivedBytes: 0, totalBytes: -1 } : null);
     window.cefQuery({
       request: `decode-tiff:${decodeNonce}:${currentPage}:${url}`,
       onSuccess: (json) => {
@@ -221,6 +246,7 @@ const ImagePreview = () => {
           const newPage = typeof res.currentPage === 'number' ? res.currentPage : currentPage;
           displayedPageRef.current = newPage;
           hasSnapshotRef.current = true;
+          setDownloadProgress(null);
           setDisplayUrl(res.displayUrl);
           setPageCount(res.pageCount || 1);
           setCurrentPage(newPage);
@@ -233,6 +259,7 @@ const ImagePreview = () => {
       onFailure: (_, msg) => {
         if (cancelled) return;
         console.error("TIFF decoding failed:", msg);
+        setDownloadProgress(null);
         setToast(msg || "Failed to render TIFF page");
         toastTimer = setTimeout(() => setToast(''), 3000);
         setIsDecoding(false);
@@ -250,7 +277,9 @@ const ImagePreview = () => {
     hasSnapshotRef.current = false;
     setPageCount(1);
     setCurrentPage(0);
+    setDownloadProgress(null);
     setPreviewError('');
+    decodeNonceRef.current = 0;
     if (window.cefQuery) {
       window.cefQuery({ request: 'hide-imagepreview' });
     }
@@ -563,11 +592,39 @@ const ImagePreview = () => {
 
       {isDecoding && (
         <div style={decodeOverlayStyle}>
-          Rendering page...
+          <div style={decodeLabelStyle}>
+            {downloadProgress && downloadProgress.totalBytes > 0
+              ? `Downloading ${downloadProgress.percent >= 0 ? `${downloadProgress.percent}%` : ''}`.trim()
+              : downloadProgress && downloadProgress.receivedBytes > 0
+                ? `Downloading ${formatBytes(downloadProgress.receivedBytes)}`
+                : 'Rendering page...'}
+          </div>
+          {downloadProgress && downloadProgress.totalBytes > 0 && (
+            <div style={progressTrackStyle}>
+              <div
+                style={{
+                  ...progressFillStyle,
+                  width: `${Math.max(0, Math.min(100, downloadProgress.percent))}%`,
+                }}
+              />
+            </div>
+          )}
+          {downloadProgress && downloadProgress.totalBytes <= 0 && downloadProgress.receivedBytes > 0 && (
+            <div style={progressSubtextStyle}>
+              {formatBytes(downloadProgress.receivedBytes)} received
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+};
+
+const formatBytes = (bytes) => {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 const bottomOverlayStyle = {
@@ -665,8 +722,9 @@ const decodeOverlayStyle = {
   position: 'absolute',
   inset: '50% auto auto 50%',
   transform: 'translate(-50%, -50%)',
-  padding: '10px 14px',
-  borderRadius: '9999px',
+  minWidth: '220px',
+  padding: '12px 14px',
+  borderRadius: '12px',
   background: 'rgba(15, 23, 42, 0.82)',
   border: '1px solid rgba(255, 255, 255, 0.12)',
   color: 'rgba(255, 255, 255, 0.9)',
@@ -674,6 +732,36 @@ const decodeOverlayStyle = {
   fontWeight: '700',
   zIndex: 40,
   boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+};
+
+const decodeLabelStyle = {
+  fontSize: '12px',
+  fontWeight: '700',
+  lineHeight: '1.2',
+};
+
+const progressTrackStyle = {
+  width: '100%',
+  height: '6px',
+  borderRadius: '9999px',
+  background: 'rgba(255,255,255,0.12)',
+  overflow: 'hidden',
+};
+
+const progressFillStyle = {
+  height: '100%',
+  borderRadius: '9999px',
+  background: 'linear-gradient(90deg, #fb923c, #f97316)',
+  transition: 'width 120ms linear',
+};
+
+const progressSubtextStyle = {
+  fontSize: '11px',
+  fontWeight: '600',
+  color: 'rgba(255,255,255,0.68)',
 };
 
 const btnStyle = {};
