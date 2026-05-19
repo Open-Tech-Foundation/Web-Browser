@@ -123,6 +123,47 @@ constexpr size_t kMaxTiffInputBytes = 64 * 1024 * 1024;
 
 std::string GetDataURI(const std::string& data, const std::string& mime_type);
 
+class DeferredImagePreviewPushTask : public CefTask {
+ public:
+  explicit DeferredImagePreviewPushTask(int tab_id)
+      : tab_id_(tab_id) {}
+
+  void Execute() override {
+    OtfApp* app = OtfApp::GetInstance();
+    OtfHandler* handler = OtfHandler::GetInstance();
+    if (!app || !handler || tab_id_ < 0) {
+      return;
+    }
+
+    std::string event = handler->BuildImagePreviewLoadEvent(tab_id_);
+    if (event.empty()) {
+      return;
+    }
+
+    if (handler->image_preview_subscription_) {
+      handler->image_preview_subscription_->Success(event);
+    }
+
+    if (app->image_preview_overlay_) {
+      CefRefPtr<CefBrowserView> preview_view =
+          app->image_preview_overlay_->GetContentsView()->AsBrowserView();
+      CefRefPtr<CefBrowser> browser =
+          preview_view ? preview_view->GetBrowser() : nullptr;
+      CefRefPtr<CefFrame> frame = browser ? browser->GetMainFrame() : nullptr;
+      if (frame) {
+        std::string js =
+            "if(window.__otfApplyImagePreview)window.__otfApplyImagePreview(" +
+            event + ");";
+        frame->ExecuteJavaScript(js, frame->GetURL(), 0);
+      }
+    }
+  }
+
+ private:
+  int tab_id_;
+  IMPLEMENT_REFCOUNTING(DeferredImagePreviewPushTask);
+};
+
 std::string TrimWhitespaceCopy(const std::string& value) {
   size_t start = 0;
   while (start < value.size() &&
@@ -1706,7 +1747,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (app) {
         app->HideImagePreviewOverlay();
         int tab_id = app->GetCurrentTabId();
-        handler->SetImagePreviewUrlForTab(tab_id, "");
+        if (handler) {
+          handler->ClearInlineImagePreviewForTab(tab_id);
+        }
       }
       callback->Success("");
       return true;
@@ -1722,9 +1765,18 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (handler->tab_manager_) {
         tab_id = handler->tab_manager_->GetId(browser);
       }
-      if (tab_id != -1 && !handler->GetImagePreviewLocalFileForTab(tab_id).empty()) {
+      if (tab_id == -1 && app) {
+        tab_id = app->GetCurrentTabId();
+      }
+      const bool is_dedicated_preview_tab =
+          handler->tab_manager_ &&
+          tab_id != -1 &&
+          handler->tab_manager_->GetImagePreviewMode(tab_id) ==
+              ImagePreviewMode::kDedicated;
+      if (is_dedicated_preview_tab) {
         handler->CloseTabAndNotify(tab_id);
       } else {
+        handler->ClearInlineImagePreviewForTab(tab_id);
         app->HideImagePreviewOverlay();
       }
       callback->Success("");
@@ -2204,16 +2256,26 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           }
 
           if (active_it != persisted.end()) {
-            // Restore the active tab first and switch to it.
-            const int first_id = app->CreateRestoredTab(*active_it);
-            handler->NotifyNewTab(first_id, -1);
-            app->SwitchTab(first_id);
-            // Restore remaining tabs in the background (no focus change).
+            // Create all persisted tabs and collect (db_position → tab_id) so
+            // we can sort tab_order_ back into the original DB order afterwards.
+            std::map<int, int> db_pos_to_tab_id;
+            int active_tab_id = -1;
             for (auto it = persisted.begin(); it != persisted.end(); ++it) {
-              if (it == active_it || it->url.empty()) continue;
+              if (it->url.empty()) continue;
               const int id = app->CreateRestoredTab(*it);
               handler->NotifyNewTab(id, -1);
+              db_pos_to_tab_id[it->position] = id;
+              if (it == active_it) active_tab_id = id;
             }
+            // Restore original tab order (active tab was appended first which
+            // puts it at the wrong position relative to the other tabs).
+            if (db_pos_to_tab_id.size() > 1) {
+              std::vector<int> sorted_ids;
+              sorted_ids.reserve(db_pos_to_tab_id.size());
+              for (auto& [_, tid] : db_pos_to_tab_id) sorted_ids.push_back(tid);
+              handler->tab_manager_->SetWorkspaceTabOrder(target, sorted_ids);
+            }
+            if (active_tab_id >= 0) app->SwitchTab(active_tab_id);
           } else {
             // Nothing persisted — open a blank new-tab page.
             const int new_id = app->CreateTab("browser://newtab");
@@ -3159,6 +3221,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
               handler->tab_manager_->SetUrl(new_id, public_url);
               handler->tab_manager_->SetTitle(new_id, name);
               handler->tab_manager_->SetSchemeUrl(new_id, "browser://imagepreview");
+              handler->tab_manager_->SetImagePreviewMode(
+                  new_id, ImagePreviewMode::kDedicated);
             }
             handler->NotifyNewTab(new_id, -1);
             app->SwitchTab(new_id);
@@ -3408,8 +3472,8 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
   for (int tab_id : tab_ids) {
     WorkspaceTab t;
     t.workspace_id = workspace_id;
-    const std::string scheme_url = tab_manager_->GetSchemeUrl(tab_id);
-    t.is_image_preview = scheme_url == "browser://imagepreview";
+    t.is_image_preview =
+        tab_manager_->GetImagePreviewMode(tab_id) == ImagePreviewMode::kDedicated;
     if (t.is_image_preview) {
       const std::string local_path = GetImagePreviewLocalFileForTab(tab_id);
       t.url = GetImagePreviewUrlForTab(tab_id);
@@ -3569,8 +3633,21 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
       }
 
       if (tab_manager_) {
-        const std::string scheme_url = tab_manager_->GetSchemeUrl(view->GetID());
-        if (scheme_url != "browser://imagepreview") {
+        const bool is_image_preview_url =
+            url_str == "browser://imagepreview" ||
+            url_str.rfind("browser://image-preview/", 0) == 0 ||
+            url_str.find("/imagepreview.html") != std::string::npos;
+        const ImagePreviewMode preview_mode =
+            tab_manager_->GetImagePreviewMode(view->GetID());
+        if (preview_mode == ImagePreviewMode::kDedicated && !is_image_preview_url) {
+          tab_manager_->SetSchemeUrl(view->GetID(), "");
+          tab_manager_->SetImagePreviewMode(view->GetID(), ImagePreviewMode::kNone);
+          SetImagePreviewUrlForTab(view->GetID(), "");
+          if (OtfApp* app = OtfApp::GetInstance()) {
+            app->HideImagePreviewOverlay();
+          }
+        }
+        if (preview_mode != ImagePreviewMode::kDedicated || !is_image_preview_url) {
           tab_manager_->SetUrl(view->GetID(), url_str);
         }
       }
@@ -4214,22 +4291,13 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         int tab_id = app->GetCurrentTabId();
+        if (tab_manager_) {
+          tab_manager_->SetSchemeUrl(tab_id, "");
+          tab_manager_->SetImagePreviewMode(tab_id, ImagePreviewMode::kInline);
+        }
         this->SetImagePreviewUrlForTab(tab_id, image_url);
         app->ShowImagePreviewOverlay();
-
-        // Prefer the per-tab subscription; fall back to the legacy single
-        // subscriber for older renderers that haven't migrated.
-        CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> sub;
-        auto it = this->tab_image_preview_subscriptions_.find(tab_id);
-        if (it != this->tab_image_preview_subscriptions_.end()) {
-          sub = it->second;
-        } else {
-          sub = this->image_preview_subscription_;
-        }
-        if (sub) {
-          std::string event = this->BuildImagePreviewLoadEvent(tab_id);
-          if (!event.empty()) sub->Success(event);
-        }
+        CefPostTask(TID_UI, new DeferredImagePreviewPushTask(tab_id));
       }
     }
     return true;
@@ -4286,6 +4354,10 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
     if (view && tab_manager_) {
       const std::string current_url = tab_manager_->GetUrl(view->GetID());
       const std::string next_url = request->GetURL().ToString();
+      const bool is_image_preview_url =
+          next_url == "browser://imagepreview" ||
+          next_url.rfind("browser://image-preview/", 0) == 0 ||
+          next_url.find("/imagepreview.html") != std::string::npos;
       const std::string ssl_error_url =
           tab_manager_->GetSslErrorUrl(view->GetID());
       const bool is_real_navigation =
@@ -4300,6 +4372,16 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                       .AddString("key", "sslError")
                       .AddBool("value", false)
                       .Build());
+      }
+      if (tab_manager_->GetImagePreviewMode(view->GetID()) ==
+              ImagePreviewMode::kDedicated &&
+          !is_image_preview_url) {
+        tab_manager_->SetSchemeUrl(view->GetID(), "");
+        tab_manager_->SetImagePreviewMode(view->GetID(), ImagePreviewMode::kNone);
+        SetImagePreviewUrlForTab(view->GetID(), "");
+        if (OtfApp* app = OtfApp::GetInstance()) {
+          app->HideImagePreviewOverlay();
+        }
       }
     }
   }
@@ -4713,6 +4795,19 @@ void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
   // image was loaded, page index from the previous TIFF is meaningless.
   tab_image_preview_pages_[tab_id] = 0;
   tab_image_preview_page_counts_[tab_id] = 1;
+}
+
+void OtfHandler::ClearInlineImagePreviewForTab(int tab_id) {
+  if (tab_id < 0) {
+    return;
+  }
+  if (tab_manager_) {
+    tab_manager_->SetImagePreviewMode(tab_id, ImagePreviewMode::kNone);
+    if (tab_manager_->GetUrl(tab_id) != "browser://imagepreview") {
+      tab_manager_->SetSchemeUrl(tab_id, "");
+    }
+  }
+  SetImagePreviewUrlForTab(tab_id, "");
 }
 
 void OtfHandler::SetImagePreviewLocalFileForTab(

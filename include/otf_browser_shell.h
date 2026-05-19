@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <algorithm>
 #include "include/cef_browser.h"
 #include "include/views/cef_browser_view.h"
@@ -20,6 +21,12 @@ constexpr int kBookmarkBrowserViewId = 1004;
 constexpr int kImagePreviewBrowserViewId = 1005;
 constexpr int kClearSiteDataBrowserViewId = 1006;
 constexpr int kWorkspaceBrowserViewId = 1007;
+
+enum class ImagePreviewMode {
+  kNone = 0,
+  kInline = 1,
+  kDedicated = 2,
+};
 
 // Core Tab Model for OTF Browser
 struct BrowserTab {
@@ -71,6 +78,7 @@ class TabManager {
     image_preview_width_map_.erase(tab_id);
     image_preview_height_map_.erase(tab_id);
     image_preview_info_visible_map_.erase(tab_id);
+    image_preview_mode_map_.erase(tab_id);
     
     auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
     if (it != tab_order_.end()) {
@@ -282,6 +290,20 @@ class TabManager {
     return it != image_preview_info_visible_map_.end() ? it->second : true;
   }
 
+  void SetImagePreviewMode(int tab_id, ImagePreviewMode mode) {
+    if (mode == ImagePreviewMode::kNone) {
+      image_preview_mode_map_.erase(tab_id);
+    } else {
+      image_preview_mode_map_[tab_id] = mode;
+    }
+  }
+
+  ImagePreviewMode GetImagePreviewMode(int tab_id) const {
+    auto it = image_preview_mode_map_.find(tab_id);
+    return it != image_preview_mode_map_.end() ? it->second
+                                               : ImagePreviewMode::kNone;
+  }
+
   std::vector<int> GetTabIdsForWorkspace(int workspace_id) const {
     std::vector<int> out;
     for (int id : tab_order_) {
@@ -290,6 +312,36 @@ class TabManager {
       if (ws == workspace_id) out.push_back(id);
     }
     return out;
+  }
+
+  // Replace the relative ordering of workspace tabs inside tab_order_ with
+  // ordered_ids (which must be exactly the current workspace tab set).
+  void SetWorkspaceTabOrder(int workspace_id,
+                            const std::vector<int>& ordered_ids) {
+    // Build a position map for the new order.
+    std::unordered_map<int, size_t> pos;
+    for (size_t i = 0; i < ordered_ids.size(); ++i) pos[ordered_ids[i]] = i;
+
+    // Stable-sort tab_order_: workspace tabs move to their new relative
+    // positions; non-workspace tabs are unaffected and keep their slots.
+    std::vector<int> ws_slots;   // workspace tab IDs in current tab_order_ order
+    std::vector<size_t> ws_idx;  // their indices in tab_order_
+    for (size_t i = 0; i < tab_order_.size(); ++i) {
+      int id = tab_order_[i];
+      auto it = workspace_map_.find(id);
+      const int ws = (it != workspace_map_.end()) ? it->second : 0;
+      if (ws == workspace_id) {
+        ws_slots.push_back(id);
+        ws_idx.push_back(i);
+      }
+    }
+    // Sort the workspace slots by the desired order.
+    std::sort(ws_slots.begin(), ws_slots.end(),
+              [&pos](int a, int b) { return pos.at(a) < pos.at(b); });
+    // Write sorted IDs back into the same indices in tab_order_.
+    for (size_t k = 0; k < ws_idx.size(); ++k) {
+      tab_order_[ws_idx[k]] = ws_slots[k];
+    }
   }
 
  private:
@@ -312,6 +364,7 @@ class TabManager {
   std::map<int, int> image_preview_width_map_;
   std::map<int, int> image_preview_height_map_;
   std::map<int, bool> image_preview_info_visible_map_;
+  std::map<int, ImagePreviewMode> image_preview_mode_map_;
   std::vector<int> tab_order_;
   int next_tab_id_;
 };

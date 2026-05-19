@@ -221,6 +221,7 @@ class OtfHandler : public CefClient,
   void SetImagePreviewLocalFileForTab(int tab_id,
                                       const std::string& public_url,
                                       const std::string& file_path);
+  void ClearInlineImagePreviewForTab(int tab_id);
   std::string GetImagePreviewUrlForTab(int tab_id) const;
   std::string GetImagePreviewLocalFileForTab(int tab_id) const;
   void SetImagePreviewFileSizeForTab(int tab_id, int64_t file_size_bytes);

@@ -546,6 +546,7 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   if (url == "browser://imagepreview" ||
       url.find("/imagepreview.html") != std::string::npos) {
     tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
+    tab_manager_.SetImagePreviewMode(tab_id, ImagePreviewMode::kDedicated);
   }
   if (handler) {
     tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
@@ -591,6 +592,7 @@ void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab)
   }
 
   tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
+  tab_manager_.SetImagePreviewMode(tab_id, ImagePreviewMode::kDedicated);
   tab_manager_.SetTitle(tab_id, tab.title.empty() ? source : tab.title);
   tab_manager_.SetFindText(tab_id, "");
 
@@ -645,10 +647,10 @@ void OtfApp::SwitchTab(int tab_id) {
 
     OtfHandler* handler = OtfHandler::GetInstance();
     if (handler) {
-      bool is_dedicated_preview_tab = (tab_manager_.GetSchemeUrl(tab_id) == "browser://imagepreview" ||
-                                       tab_manager_.GetUrl(tab_id) == "browser://imagepreview");
-
       std::string tab_img_url = handler->GetImagePreviewUrlForTab(tab_id);
+      const ImagePreviewMode preview_mode = tab_manager_.GetImagePreviewMode(tab_id);
+      const bool is_dedicated_preview_tab =
+          preview_mode == ImagePreviewMode::kDedicated;
       if (is_dedicated_preview_tab) {
         // Dedicated preview tab manages its own BrowserView; the floating
         // overlay must not double-render on top of it. Re-fire load-image to
@@ -677,7 +679,8 @@ void OtfApp::SwitchTab(int tab_id) {
           }
         }
       } else {
-        if (tab_img_url.empty()) {
+        if (preview_mode != ImagePreviewMode::kInline || tab_img_url.empty()) {
+          handler->ClearInlineImagePreviewForTab(tab_id);
           HideImagePreviewOverlay();
           if (handler->image_preview_subscription_) {
             std::string event = JsonObjectBuilder()
@@ -685,6 +688,17 @@ void OtfApp::SwitchTab(int tab_id) {
               .AddString("url", "")
               .Build();
             handler->image_preview_subscription_->Success(event);
+          }
+          CefRefPtr<CefBrowserView> preview_view =
+              image_preview_overlay_ ? image_preview_overlay_->GetContentsView()->AsBrowserView() : nullptr;
+          CefRefPtr<CefBrowser> b = preview_view ? preview_view->GetBrowser() : nullptr;
+          CefRefPtr<CefFrame> frame = b ? b->GetMainFrame() : nullptr;
+          if (frame) {
+            std::string js =
+                "if(window.__otfApplyImagePreview)window.__otfApplyImagePreview("
+                + JsonObjectBuilder().AddString("key", "load-image").AddString("url", "").Build()
+                + ");";
+            frame->ExecuteJavaScript(js, frame->GetURL(), 0);
           }
         } else {
           ShowImagePreviewOverlay();
@@ -758,10 +772,12 @@ void OtfApp::SwitchTab(int tab_id) {
 
 int OtfApp::CloseTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
-  std::vector<int> tab_ids = tab_manager_.GetAllTabIds();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  const int ws_id = tab_manager_.GetWorkspaceId(tab_id);
+  const std::vector<int> ws_tab_ids = tab_manager_.GetTabIdsForWorkspace(ws_id);
   int next_active_tab_id = -1;
   if (tab_id == current_tab_id_) {
-    next_active_tab_id = SelectNextActiveTabId(tab_ids, tab_id);
+    next_active_tab_id = SelectNextActiveTabId(ws_tab_ids, tab_id);
   }
 
   CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
@@ -770,7 +786,6 @@ int OtfApp::CloseTab(int tab_id) {
     content_panel_->Layout();
   }
   tab_manager_.RemoveTab(tab_id);
-  OtfHandler* handler = OtfHandler::GetInstance();
   if (handler) {
     handler->tab_image_preview_subscriptions_.erase(tab_id);
     handler->SetImagePreviewUrlForTab(tab_id, "");
@@ -1128,11 +1143,33 @@ void OtfApp::OpenPendingStartupTabs() {
   // saved tabs — they open behind the fresh newtab.
   if (!pending_workspace_restore_.empty()) {
     OtfHandler* h = OtfHandler::GetInstance();
+    // Map each DB WorkspaceTab position to the newly created tab_id so we can
+    // sort tab_order_ back into the original DB order after all tabs are created.
+    // Key: DB position value, Value: live tab_id.
+    std::map<int, int> db_pos_to_tab_id;
+
+    // For "continue" mode, the was-active tab is already the content view. Record
+    // its DB position so it sorts into the right slot alongside the background tabs.
+    if (pending_workspace_restore_first_.id != 0) {
+      db_pos_to_tab_id[pending_workspace_restore_first_.position] = GetCurrentTabId();
+    }
+
     for (const auto& t : pending_workspace_restore_) {
       if (t.url.empty()) continue;
-      CreateRestoredTab(t);
+      const int id = CreateRestoredTab(t);
+      if (id >= 0) db_pos_to_tab_id[t.position] = id;
     }
     pending_workspace_restore_.clear();
+
+    // Re-sort the workspace's slice of tab_order_ to match DB positions so the
+    // tab strip preserves the original order regardless of which tab was active.
+    if (h && db_pos_to_tab_id.size() > 1) {
+      std::vector<int> sorted_ids;
+      sorted_ids.reserve(db_pos_to_tab_id.size());
+      for (auto& [_, tid] : db_pos_to_tab_id) sorted_ids.push_back(tid);
+      tab_manager_.SetWorkspaceTabOrder(h->active_workspace_id_, sorted_ids);
+    }
+
     // Guard is no longer needed — background tabs are now in the live list
     // so the next PersistWorkspaceTabs call will capture the correct state.
     if (h) h->startup_session_guard_ = false;
