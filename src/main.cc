@@ -1,4 +1,5 @@
 #include "include/cef_app.h"
+#include "include/cef_version.h"
 #include "otf_app.h"
 
 #include <cstdio>
@@ -11,21 +12,35 @@
 #define OTF_VERSION "0.0.0-unknown"
 #endif
 
+#define OTF_STRINGIFY(x) #x
+#define OTF_TOSTRING(x) OTF_STRINGIFY(x)
+#define CHROMIUM_VERSION_STRING        \
+  OTF_TOSTRING(CHROME_VERSION_MAJOR)  \
+  "." OTF_TOSTRING(CHROME_VERSION_MINOR) \
+  "." OTF_TOSTRING(CHROME_VERSION_BUILD) \
+  "." OTF_TOSTRING(CHROME_VERSION_PATCH)
+
 namespace {
+
+std::string OtfVersionBase() {
+  std::string v(OTF_VERSION);
+  auto pos = v.find('-');
+  return pos != std::string::npos ? v.substr(0, pos) : v;
+}
 
 std::string GetOtfUserAgent() {
 #if defined(OS_WIN)
   return std::string("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                      "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
-         OTF_VERSION;
+         OtfVersionBase() + " Chromium/" CHROMIUM_VERSION_STRING " Safari/537.36";
 #elif defined(OS_MAC)
   return std::string("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                      "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
-         OTF_VERSION;
+         OtfVersionBase() + " Chromium/" CHROMIUM_VERSION_STRING " Safari/537.36";
 #else
   return std::string("Mozilla/5.0 (X11; Linux x86_64) "
                      "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
-         OTF_VERSION;
+         OtfVersionBase() + " Chromium/" CHROMIUM_VERSION_STRING " Safari/537.36";
 #endif
 }
 
