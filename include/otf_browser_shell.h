@@ -80,6 +80,7 @@ class TabManager {
     image_preview_height_map_.erase(tab_id);
     image_preview_info_visible_map_.erase(tab_id);
     image_preview_mode_map_.erase(tab_id);
+    muted_map_.erase(tab_id);
     
     auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
     if (it != tab_order_.end()) {
@@ -111,6 +112,16 @@ class TabManager {
     auto it = view_map_.find(tab_id);
     if (it != view_map_.end()) return it->second;
     return nullptr;
+  }
+
+  void SetMuted(int tab_id, bool muted) {
+    muted_map_[tab_id] = muted;
+  }
+
+  bool GetMuted(int tab_id) {
+    auto it = muted_map_.find(tab_id);
+    if (it != muted_map_.end()) return it->second;
+    return false;
   }
 
   void SetBrowser(int tab_id, CefRefPtr<CefBrowser> browser) {
@@ -366,6 +377,7 @@ class TabManager {
   std::map<int, int> image_preview_height_map_;
   std::map<int, bool> image_preview_info_visible_map_;
   std::map<int, ImagePreviewMode> image_preview_mode_map_;
+  std::map<int, bool> muted_map_;
   std::vector<int> tab_order_;
   int next_tab_id_;
 };

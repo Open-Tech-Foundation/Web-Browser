@@ -234,12 +234,16 @@ const App = () => {
                 window.cefQuery({ request: 'focus-ui' });
               }
             } else {
+              let val = event.value;
+              if (event.key === 'zoomPercent') val = Number(event.value);
+              else if (event.key === 'sslError') val = event.value === 'true' || event.value === true;
+              else if (event.key === 'muted') val = event.value === 'true' || event.value === true;
               dispatch({
                 type: 'UPDATE_TAB', 
                 payload: { 
                   id: event.id, 
                   key: event.key, 
-                  value: event.key === 'zoomPercent' ? Number(event.value) : event.value
+                  value: val
                 } 
               });
             }

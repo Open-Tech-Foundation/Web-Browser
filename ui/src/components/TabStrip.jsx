@@ -183,8 +183,17 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             {tab.active && (
               <div className="absolute top-0 left-0 right-0 h-0.5 bg-brand-orange rounded-t-lg" />
             )}
-            <div className="flex items-center flex-1 min-w-0 mr-2">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
               {getTabIcon(tab)}
+              {tab.muted && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); window.cefQuery({ request: `unmute-tab:${tab.id}` }); }}
+                  title="Unmute tab"
+                  className="w-4 h-4 shrink-0 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                </button>
+              )}
               <span className="truncate font-medium">{tab.title || tab.url || 'New Tab'}</span>
             </div>
             <button 

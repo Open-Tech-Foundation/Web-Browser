@@ -108,6 +108,8 @@ const int MENU_ID_PREVIEW_IMAGE = 10003;
 const int MENU_ID_TAB_CLOSE = 10004;
 const int MENU_ID_TAB_CLOSE_OTHERS = 10005;
 const int MENU_ID_TAB_NEW = 10006;
+const int MENU_ID_TAB_MUTE = 10007;
+const int MENU_ID_TAB_UNMUTE = 10008;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -532,6 +534,7 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
   if (tab_manager) {
     builder.AddInt("zoomPercent", tab_manager->GetZoomPercent(tab_id));
     builder.AddBool("sslError", tab_manager->HasSslError(tab_id));
+    builder.AddBool("muted", tab_manager->GetMuted(tab_id));
   }
   builder.AddBool("bookmarked",
                   store && IsPersistableWebUrl(url) &&
@@ -2833,6 +2836,28 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
       callback->Success("");
+    } else if (msg.find("mute-tab:") == 0) {
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(9));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) {
+        b->GetHost()->SetAudioMuted(true);
+        handler->tab_manager_->SetMuted(tab_id, true);
+        handler->SendEvent(BuildTabPropertyEvent(tab_id, "muted", true));
+      }
+      callback->Success("");
+    } else if (msg.find("unmute-tab:") == 0) {
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int tab_id = *tab_id_opt;
+      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
+      if (b) {
+        b->GetHost()->SetAudioMuted(false);
+        handler->tab_manager_->SetMuted(tab_id, false);
+        handler->SendEvent(BuildTabPropertyEvent(tab_id, "muted", false));
+      }
+      callback->Success("");
     } else if (msg == "toggle-zoombar") {
       OtfApp* app = OtfApp::GetInstance();
       if (app && app->zoombar_overlay_) {
@@ -4173,11 +4198,24 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   if (!params->GetLinkUrl().empty()) {
     std::string link_url = params->GetLinkUrl().ToString();
     if (link_url.rfind("tab-context-menu:", 0) == 0) {
+      std::string tab_id_str = link_url.substr(17);
+      const auto tab_id_opt = ParseIntStrict(tab_id_str);
+      bool is_muted = false;
+      if (tab_id_opt && tab_manager_) {
+        is_muted = tab_manager_->GetMuted(*tab_id_opt);
+      }
+
       model->Clear();
+      model->AddItem(MENU_ID_TAB_NEW, "New Tab");
+      model->AddSeparator();
+      if (is_muted) {
+        model->AddItem(MENU_ID_TAB_UNMUTE, "Unmute Tab");
+      } else {
+        model->AddItem(MENU_ID_TAB_MUTE, "Mute Tab");
+      }
+      model->AddSeparator();
       model->AddItem(MENU_ID_TAB_CLOSE, "Close Tab");
       model->AddItem(MENU_ID_TAB_CLOSE_OTHERS, "Close Other Tabs");
-      model->AddSeparator();
-      model->AddItem(MENU_ID_TAB_NEW, "New Tab");
       return;
     }
   }
@@ -4271,7 +4309,8 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     return true;
   }
 
-  if (command_id == MENU_ID_TAB_CLOSE || command_id == MENU_ID_TAB_CLOSE_OTHERS) {
+  if (command_id == MENU_ID_TAB_CLOSE || command_id == MENU_ID_TAB_CLOSE_OTHERS ||
+      command_id == MENU_ID_TAB_MUTE || command_id == MENU_ID_TAB_UNMUTE) {
     std::string link_url = params->GetLinkUrl().ToString();
     if (link_url.rfind("tab-context-menu:", 0) == 0) {
       std::string tab_id_str = link_url.substr(17);
@@ -4291,6 +4330,20 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
             if (id != tab_id) {
               CloseTabAndNotify(id);
             }
+          }
+        } else if (command_id == MENU_ID_TAB_MUTE) {
+          CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(tab_id);
+          if (b) {
+            b->GetHost()->SetAudioMuted(true);
+            tab_manager_->SetMuted(tab_id, true);
+            SendEvent(BuildTabPropertyEvent(tab_id, "muted", true));
+          }
+        } else if (command_id == MENU_ID_TAB_UNMUTE) {
+          CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(tab_id);
+          if (b) {
+            b->GetHost()->SetAudioMuted(false);
+            tab_manager_->SetMuted(tab_id, false);
+            SendEvent(BuildTabPropertyEvent(tab_id, "muted", false));
           }
         }
         return true;
