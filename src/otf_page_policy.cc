@@ -1195,6 +1195,46 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   installWebGLPolicyFor(globalThis.WebGLRenderingContext);
   installWebGLPolicyFor(globalThis.WebGL2RenderingContext);
 
+  // Block javascript: URLs in iframe src (and setAttribute) — CEF's
+  // OnBeforeBrowse doesn't fire for javascript: because Chromium treats
+  // it as script execution, not navigation.
+  const installIframeSchemePolicy = () => {
+    try {
+      const IframeProto = globalThis.HTMLIFrameElement &&
+          globalThis.HTMLIFrameElement.prototype;
+      if (!IframeProto || IframeProto.__otfIframePolicy) return;
+
+      const JS_RE = /^\s*javascript:/i;
+      const srcDesc = Object.getOwnPropertyDescriptor(IframeProto, 'src');
+      if (srcDesc && typeof srcDesc.set === 'function') {
+        Object.defineProperty(IframeProto, 'src', {
+          get: srcDesc.get,
+          set(value) {
+            if (typeof value === 'string' && JS_RE.test(value)) return;
+            return srcDesc.set.call(this, value);
+          },
+          configurable: false,
+          enumerable: true,
+        });
+      }
+
+      const origSetAttr = IframeProto.setAttribute;
+      if (typeof origSetAttr === 'function') {
+        IframeProto.setAttribute = function(name, value) {
+          if (name === 'src' && typeof value === 'string' && JS_RE.test(value)) {
+            return;
+          }
+          return origSetAttr.call(this, name, value);
+        };
+      }
+
+      Object.defineProperty(IframeProto, '__otfIframePolicy', {
+        value: true, configurable: false,
+      });
+    } catch (_) {}
+  };
+  installIframeSchemePolicy();
+
   }  // applyPagePolicy
 
   applyPagePolicy();

@@ -39,7 +39,14 @@ export function resolveUrl(input, searchEngine) {
   if (trimmed.startsWith('//')) return trimmed;
 
   // Explicit scheme URLs (http://, https://, ftp://, etc.)
-  if (explicitSchemePattern.test(trimmed)) return trimmed;
+  if (explicitSchemePattern.test(trimmed)) {
+    const scheme = trimmed.split('://')[0].toLowerCase();
+    const dangerousSchemes = ['javascript', 'data', 'file', 'vbscript', 'blob'];
+    if (dangerousSchemes.includes(scheme)) {
+      return buildSearchUrl(searchEngine, trimmed);
+    }
+    return trimmed;
+  }
 
   if (!trimmed.includes(' ') && localhostPattern.test(trimmed)) {
     return `http://${trimmed}`;

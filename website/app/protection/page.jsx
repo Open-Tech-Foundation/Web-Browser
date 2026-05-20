@@ -1170,6 +1170,79 @@ export default function FingerprintsPage() {
         ]);
     };
 
+    const runNavigationSchemeTest = async () => {
+      // Test 1: window.open — does the browser allow opening a javascript: URL?
+      let jsOpenBlocked = true;
+      try {
+        const w = window.open('javascript:void(0)');
+        if (w) { jsOpenBlocked = false; w.close(); }
+      } catch (_) { jsOpenBlocked = true; }
+
+      // Test 2: iframe navigation to dangerous schemes — does the browser
+      // allow loading data:, javascript:, or file: URLs in an iframe?
+      const runIframeProbe = (url, token, timeoutMs = 2000) => new Promise((resolve) => {
+        const iframe = document.createElement('iframe');
+        iframe.hidden = true;
+        iframe.setAttribute('aria-hidden', 'true');
+        const cleanup = () => {
+          window.removeEventListener('message', onMessage);
+          iframe.remove();
+        };
+        const onMessage = (event) => {
+          if (!event.data || event.data.token !== token) return;
+          cleanup();
+          resolve('allowed');
+        };
+        window.addEventListener('message', onMessage);
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        setTimeout(() => {
+          cleanup();
+          resolve('blocked');
+        }, timeoutMs);
+      });
+
+      const dataToken = 'nav-data-' + Date.now() + '-' + Math.random();
+      const jsToken = 'nav-js-' + Date.now() + '-' + Math.random();
+      const fileToken = 'nav-file-' + Date.now() + '-' + Math.random();
+
+      const [dataIframeBlocked, jsIframeBlocked, fileIframeBlocked] = await Promise.all([
+        runIframeProbe(`data:text/html,<script>parent.postMessage({token:"${dataToken}",result:"loaded"},"*")<\/script>`, dataToken),
+        runIframeProbe(`javascript:void(parent.postMessage({token:"${jsToken}",result:"executed"},"*"))`, jsToken),
+        runIframeProbe('file:///etc/passwd', fileToken),
+      ]);
+
+      // Test 3: <a> tag with javascript: href — does clicking it execute?
+      let anchorJsBlocked = true;
+      const canary = '__otf_scheme_anchor_' + Date.now();
+      window[canary] = 'secure';
+      try {
+        const a = document.createElement('a');
+        a.href = "javascript:void(window['" + canary + "']='pwned')";
+        a.click();
+        if (window[canary] === 'pwned') anchorJsBlocked = false;
+      } catch (_) {}
+
+      const allBlocked = jsOpenBlocked && dataIframeBlocked !== 'allowed' && jsIframeBlocked !== 'allowed' && fileIframeBlocked !== 'allowed' && anchorJsBlocked;
+      const schemesAllowed = [];
+      if (jsOpenBlocked !== true) schemesAllowed.push('window.open javascript');
+      if (dataIframeBlocked === 'allowed') schemesAllowed.push('iframe data:');
+      if (jsIframeBlocked === 'allowed') schemesAllowed.push('iframe javascript:');
+      if (fileIframeBlocked === 'allowed') schemesAllowed.push('iframe file:');
+      if (anchorJsBlocked !== true) schemesAllowed.push('anchor javascript:');
+      const status = allBlocked ? 'ok' : schemesAllowed.length <= 2 ? 'warn' : 'fail';
+
+      setReportItem('navigation-scheme', status,
+        allBlocked
+          ? 'All dangerous navigation schemes blocked'
+          : schemesAllowed.length + ' scheme(s) allowed: ' + schemesAllowed.join(', '),
+        `javascript window.open: ${jsOpenBlocked ? 'blocked' : 'allowed'} | ` +
+        `iframe data:: ${dataIframeBlocked} | ` +
+        `iframe javascript:: ${jsIframeBlocked} | ` +
+        `iframe file:: ${fileIframeBlocked} | ` +
+        `javascript anchor: ${anchorJsBlocked ? 'blocked' : 'allowed'}`);
+    };
+
     const runWebGPUTest = async () => {
       const log = document.getElementById('webgpu-log');
       if (!log) return;
@@ -1286,7 +1359,7 @@ export default function FingerprintsPage() {
       });
     };
 
-    const runAllTests = () => {
+    const runAllTests = async () => {
       runSideEffectsTest();
       runInjectionTest();
       runScreenTest();
@@ -1297,6 +1370,7 @@ export default function FingerprintsPage() {
       runCanvasTest();
       runWebGLTest();
       runWebGPUTest();
+      await runNavigationSchemeTest();
     };
 
     const startBtn = document.getElementById('start-tests-btn');
@@ -1310,7 +1384,7 @@ export default function FingerprintsPage() {
         startBtn.disabled = true;
         startBtn.textContent = 'Running…';
         setActiveSection('privacy');
-        runAllTests();
+        runAllTests().catch((error) => console.error('Test suite error:', error));
       });
     }
 
@@ -1930,6 +2004,7 @@ export default function FingerprintsPage() {
               ['webgl-render-output', 'Privacy: WebGL rendered output', 'privacy'],
               ['webgl-readpixels-noise', 'Privacy: WebGL readPixels noise', 'privacy'],
               ['webgpu-compute', 'Security: WebGPU compute pipeline', 'security'],
+              ['navigation-scheme', 'Security: dangerous navigation scheme blocking', 'security'],
               ['worker-surface', 'Privacy: worker execution surface', 'privacy'],
             ].map(([id, label, section]) => (
               <div className="report-row" data-report-item={id} data-status="checking" data-test-section={section} key={id}>

@@ -270,6 +270,15 @@ bool HasExplicitScheme(const std::string& value) {
   return std::regex_search(value, explicit_scheme_pattern);
 }
 
+bool IsDangerousSchemeUrl(const std::string& url) {
+  static const char* kDangerousSchemes[] = {
+      "javascript:", "data:", "file:", "vbscript:", "blob:"};
+  for (const char* s : kDangerousSchemes) {
+    if (url.rfind(s, 0) == 0) return true;
+  }
+  return false;
+}
+
 bool IsLocalhostOrIpv4(const std::string& value) {
   static const std::regex localhost_pattern(
       R"(^localhost(?::\d{1,5})?(?:[/?#]|$))",
@@ -288,6 +297,10 @@ bool ResolveUserInputUrlWithoutDns(const std::string& input,
   if (trimmed.rfind("browser://", 0) == 0 ||
       trimmed.rfind("//", 0) == 0 ||
       HasExplicitScheme(trimmed)) {
+    if (IsDangerousSchemeUrl(trimmed)) {
+      *resolved_url = otf::BuildSearchUrl(search_engine_id, trimmed);
+      return true;
+    }
     *resolved_url = trimmed;
     return true;
   }
@@ -1578,9 +1591,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    std::string msg = request.ToString();
     OtfHandler* handler = OtfHandler::GetInstance();
     if (!handler || !handler->tab_manager_) return false;
+    const std::string msg = request.ToString();
 
     if (msg == "get-my-tab-id") {
       CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
@@ -2696,6 +2709,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.find("navigate-current:") == 0) {
       std::string url = msg.substr(17);
+      if (IsDangerousSchemeUrl(url)) {
+        callback->Failure(1, "dangerous scheme");
+        return true;
+      }
       CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
       if (view && handler->tab_manager_) {
         int tab_id = view->GetID();
@@ -2714,6 +2731,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
       const int tab_id = *tab_id_opt;
       std::string url = msg.substr(colon + 1);
+      if (IsDangerousSchemeUrl(url)) {
+        callback->Failure(1, "dangerous scheme");
+        return true;
+      }
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
       if (b) {
         if (url.find("browser://") == 0) {
@@ -3659,6 +3680,8 @@ void OtfHandler::SendEvent(const std::string& event_json) {
   }
 }
 
+
+
 void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
                                const CefString& title) {
   CEF_REQUIRE_UI_THREAD();
@@ -3792,6 +3815,7 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
                             CefRefPtr<CefFrame> frame,
                             int httpStatusCode) {
   if (!frame->IsMain()) return;
+
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (!view || IsNonTabBrowserViewId(view->GetID())) return;
   const int tab_id = view->GetID();
@@ -4010,8 +4034,9 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   const int parent_tab_id = tab_manager_->GetId(browser);
   const int new_tab_id = app->CreateTab(popup_url, parent_tab_id);
 
-  NotifyNewTab(new_tab_id, parent_tab_id);
-
+  if (OtfHandler* ui_handler = OtfHandler::GetInstance()) {
+    ui_handler->NotifyNewTab(new_tab_id, parent_tab_id);
+  }
   if (target_disposition != CEF_WOD_NEW_BACKGROUND_TAB) {
     app->SwitchTab(new_tab_id);
   } else {
@@ -4354,9 +4379,10 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
   if (command_id == MENU_ID_TAB_NEW) {
     OtfApp* app = OtfApp::GetInstance();
     if (app) {
-      int new_id = app->CreateTab("", -1);
+      int new_id = app->CreateTab("browser://newtab", -1);
       NotifyNewTab(new_id, -1);
-      app->FocusCurrentTabContent();
+      app->SwitchTab(new_id);
+      PersistWorkspaceForTab(new_id);
       return true;
     }
   }
@@ -4370,7 +4396,9 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     if (url.rfind("browser://", 0) == 0) {
       tab_manager_->SetSchemeUrl(new_id, url);
     }
-    NotifyNewTab(new_id, parent_id);
+    if (OtfHandler* ui_handler = OtfHandler::GetInstance()) {
+      ui_handler->NotifyNewTab(new_id, parent_id);
+    }
     app->FocusCurrentTabContent();
 
     return true;
@@ -4417,7 +4445,9 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
 
     int parent_id = tab_manager_->GetId(browser);
     int new_id = app->CreateTab(search_url, parent_id);
-    NotifyNewTab(new_id, parent_id);
+    if (OtfHandler* ui_handler = OtfHandler::GetInstance()) {
+      ui_handler->NotifyNewTab(new_id, parent_id);
+    }
     app->SwitchTab(new_id);
     return true;
   }
@@ -4753,13 +4783,13 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   }
   if (M(Mod::kCtrl, Key::kH)) {
     int id = app->CreateTab("browser://history");
-    NotifyNewTab(id, tab_manager_->GetId(browser));
+    if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, tab_manager_->GetId(browser)); }
     app->SwitchTab(id);
     return true;
   }
   if (M(Mod::kCtrl, Key::kJ)) {
     int id = app->CreateTab("browser://downloads");
-    NotifyNewTab(id, tab_manager_->GetId(browser));
+    if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, tab_manager_->GetId(browser)); }
     app->SwitchTab(id);
     return true;
   }
@@ -4767,7 +4797,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   // ── Tabs (C++ action + frontend notification) ─────────────
   if (M(Mod::kCtrl, Key::kT)) {
     int id = app->CreateTab("browser://newtab");
-    NotifyNewTab(id, -1); // Ctrl+T always opens at the end
+    if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, -1); } // Ctrl+T always opens at the end
     app->SwitchTab(id);
     return true;
   }
@@ -4785,7 +4815,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
         (otf::IsAllowedStartupUrl(last_closed_url_) ||
          last_closed_url_.rfind("browser://image-preview/", 0) == 0)) {
       int id = app->CreateTab(last_closed_url_);
-      NotifyNewTab(id, -1); // Re-opening closed tab goes to the end
+      if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, -1); } // Re-opening closed tab goes to the end
       app->SwitchTab(id);
     }
     last_closed_url_.clear();
