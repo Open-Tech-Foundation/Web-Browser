@@ -1348,11 +1348,11 @@ export default function FingerprintsPage() {
       // navigator.plugins
       const pluginsLen = exists.navigator?.plugins?.length || 0;
       const mimeLen = exists.navigator?.mimeTypes?.length || 0;
-      set('fp-plugins', pluginsLen > 0,
-        pluginsLen > 0 ? `${pluginsLen} plugin(s) exposed` : 'Plugins blocked',
+      set('fp-plugins', false,
+        `plugins: ${pluginsLen}`,
         `plugins: ${pluginsLen}`);
-      set('fp-mime-types', mimeLen > 0,
-        mimeLen > 0 ? `${mimeLen} MIME type(s) exposed` : 'MIME types blocked',
+      set('fp-mime-types', false,
+        `mimeTypes: ${mimeLen}`,
         `mimeTypes: ${mimeLen}`);
 
       // navigator.connection
