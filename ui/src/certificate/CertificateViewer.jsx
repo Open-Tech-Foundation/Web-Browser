@@ -150,7 +150,7 @@ const CertificateViewer = () => {
             <p className="text-[9px] font-bold text-muted uppercase tracking-widest leading-none mt-0.5">Certificate Details</p>
           </div>
         </div>
-        <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-main/10 text-muted hover:text-main transition-all active:scale-90">
+        <button onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-main/10 text-muted hover:text-main transition-all active:scale-90 cursor-pointer">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>

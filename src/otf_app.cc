@@ -1073,12 +1073,10 @@ void OtfApp::PositionCertificateOverlay() {
   constexpr int kOverlayWidth = 420;
   constexpr int kOverlayHeight = 420;
   constexpr int kOverlayTop = 60;
-  constexpr int kOverlayRightMargin = 18;
+  constexpr int kOverlayLeftMargin = 120;
 
-  CefRect bounds = window_->GetBounds();
-  int x = std::max(0, bounds.width - kOverlayWidth - kOverlayRightMargin);
   certificate_overlay_->SetBounds(
-      CefRect(x, kOverlayTop, kOverlayWidth, kOverlayHeight));
+      CefRect(kOverlayLeftMargin, kOverlayTop, kOverlayWidth, kOverlayHeight));
 }
 
 void OtfApp::ShowDownloadsOverlay() {
