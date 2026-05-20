@@ -71,6 +71,11 @@ const ZoomBar = () => {
   }, []);
 
   useEffect(() => {
+    const onBlur = () => {
+      if (window.cefQuery) {
+        window.cefQuery({ request: 'hide-zoombar' });
+      }
+    };
     const onKeyDown = (event) => {
       if (event.key === 'Escape' && window.cefQuery) {
         event.preventDefault();
@@ -78,8 +83,12 @@ const ZoomBar = () => {
       }
     };
 
+    window.addEventListener('blur', onBlur);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, []);
 
   const act = (action) => {

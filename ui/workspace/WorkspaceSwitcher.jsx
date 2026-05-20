@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePopupRestore } from '../src/components/Popup';
 
 const WorkspacePopup = () => {
@@ -22,6 +22,23 @@ const WorkspacePopup = () => {
       setConfirmDeleteId(null);
     }
   });
+
+  useEffect(() => {
+    const onBlur = () => {
+      window.cefQuery?.({ request: 'hide-popup:workspace' });
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        window.cefQuery?.({ request: 'hide-popup:workspace' });
+      }
+    };
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   const fetchWorkspaces = () => {
     window.cefQuery?.({
