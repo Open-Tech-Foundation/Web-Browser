@@ -71,7 +71,7 @@ const NewTab = () => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-main text-main selection:bg-orange-500/30 overflow-x-hidden relative">
+    <div className="flex flex-col items-center justify-between h-screen overflow-y-auto bg-main text-main selection:bg-orange-500/30 overflow-x-hidden relative py-12">
       {/* Ambient Background Glow */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-500/5 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-500/5 blur-[120px] rounded-full pointer-events-none"></div>
@@ -86,18 +86,19 @@ const NewTab = () => {
         </p>
       </div>
 
-      <div className="flex flex-col items-center w-full max-w-4xl px-6 relative z-10">
+      {/* Spacer to push content down or keep layout balanced */}
+      <div className="h-8"></div>
+
+      <div className="flex flex-col items-center w-full max-w-4xl px-6 relative z-10 my-auto pb-16">
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000 flex flex-col items-center">
           <div className="flex items-center gap-4 mb-3">
             <div className="relative group">
               <div className="absolute -inset-1 bg-gradient-to-r from-orange-600 to-amber-500 rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
-              <div className="relative flex items-center justify-center w-12 h-12 bg-card/80 backdrop-blur-xl rounded-xl border border-main text-orange-500 shadow-2xl">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
-                  <path d="M2 12h20"></path>
-                </svg>
-              </div>
+              <img
+                src="/assets/icons/otf-browser-128.png"
+                alt="OTF Browser Logo"
+                className="relative w-12 h-12 object-contain"
+              />
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight text-main">
               OTF <span className="text-orange-500">Browser</span>
@@ -113,9 +114,9 @@ const NewTab = () => {
         <QuickLinks />
       </div>
       
-      <div className="absolute bottom-10 text-muted/30 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500">
+      <footer className="mt-16 text-muted/30 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500 text-center z-10 shrink-0">
         Engineered for Privacy & Security
-      </div>
+      </footer>
     </div>
   );
 };
