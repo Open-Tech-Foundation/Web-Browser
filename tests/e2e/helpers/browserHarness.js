@@ -345,7 +345,9 @@ export async function launchDevBrowser() {
   let vite = null;
   let browser = null;
   let cdp = null;
-  const tempHome = await mkdtemp(path.join(os.tmpdir(), 'otf-browser-e2e-'));
+  const profileRoot = await mkdtemp(path.join(os.tmpdir(), 'otf-browser-test-profile-'));
+  const tempHome = path.join(profileRoot, 'home');
+  const userDataDir = path.join(profileRoot, 'cef_user_data');
 
   try {
     if (process.env.OTF_E2E_SKIP_VITE !== '1') {
@@ -370,6 +372,7 @@ export async function launchDevBrowser() {
       '--no-sandbox',
       `--dev-ui-url=${devUrl}`,
       '--ozone-platform=x11',
+      `--user-data-dir=${userDataDir}`,
       `--remote-debugging-port=${cdpPort}`,
     ], {
       env: {
@@ -409,7 +412,7 @@ export async function launchDevBrowser() {
         browser = null;
         await stopProcess(vite);
         vite = null;
-        await rm(tempHome, { recursive: true, force: true });
+        await rm(profileRoot, { recursive: true, force: true });
       },
     };
   } catch (error) {
@@ -418,7 +421,7 @@ export async function launchDevBrowser() {
     }
     await stopProcess(browser);
     await stopProcess(vite);
-    await rm(tempHome, { recursive: true, force: true });
+    await rm(profileRoot, { recursive: true, force: true });
     throw error;
   }
 }
