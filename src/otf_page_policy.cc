@@ -280,42 +280,18 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   };
   installHardwarePolicy();
 
-  (() => {
-    'use strict';
-
-    const SPOOFED_PLATFORM = 'Linux x86_64';
-
-    // Grab the native descriptor so we can mirror its shape exactly.
-    const proto = Navigator.prototype;
-    const original = Object.getOwnPropertyDescriptor(proto, 'platform');
-    if (!original || typeof original.get !== 'function') return;
-
-    // New getter. Keep it a named function so its own .name matches convention.
-    const getter = function platform() {
-      return SPOOFED_PLATFORM;
-    };
-
-    // --- Make getter.toString() report native code ---
-    // We patch Function.prototype.toString so that calling toString() on OUR
-    // getter (and on the patched toString itself) yields a native signature,
-    // while every other function behaves normally.
+  // ===== shared native-toString plumbing — include ONCE, before all overrides =====
+  const makeNative = (() => {
     const nativeToString = Function.prototype.toString;
-
     const fakeSources = new WeakMap();
-    fakeSources.set(getter, 'function get platform() { [native code] }');
 
     const patchedToString = function toString() {
-      if (fakeSources.has(this)) {
-        return fakeSources.get(this);
-      }
+      if (fakeSources.has(this)) return fakeSources.get(this);
       return nativeToString.call(this);
     };
-
-    // The patched toString must itself look native, or `Function.prototype.toString.toString()`
-    // becomes the tell.
+    // the patched toString must itself look native
     fakeSources.set(patchedToString, 'function toString() { [native code] }');
 
-    // Install the patched toString.
     Object.defineProperty(Function.prototype, 'toString', {
       value: patchedToString,
       writable: true,
@@ -323,10 +299,65 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
       configurable: true,
     });
 
-    // --- Install the getter, mirroring the original descriptor flags ---
+    // register a function so its .toString() reports a native signature
+    return function makeNative(fn, signature) {
+      fakeSources.set(fn, signature);
+      return fn;
+    };
+  })();
+
+  (() => {
+    'use strict';
+
+    const SPOOFED_PLATFORM = 'Linux x86_64';
+
+    const proto = Navigator.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, 'platform');
+    if (!original || typeof original.get !== 'function') return;
+
+    const getter = makeNative(
+      function platform() {
+        return SPOOFED_PLATFORM;
+      },
+      'function get platform() { [native code] }'
+    );
+
+    // Install the getter, mirroring the original descriptor flags
     Object.defineProperty(proto, 'platform', {
       get: getter,
-      set: original.set,            // usually undefined; preserve whatever was there
+      set: original.set,
+      enumerable: original.enumerable,
+      configurable: original.configurable,
+    });
+  })();
+
+  // Storage estimate: spoof ~180 GiB quota with 50 MiB usage.
+  (() => {
+    'use strict';
+
+    if (!navigator.storage || typeof navigator.storage.estimate !== 'function') return;
+
+    const STD_QUOTA = 193273528320; // ~180 GiB
+    const STD_USAGE = 52428800;     // 50 MiB
+
+    const proto = Object.getPrototypeOf(navigator.storage);
+    const original = Object.getOwnPropertyDescriptor(proto, 'estimate');
+    if (!original || typeof original.value !== 'function') return;
+
+    const estimate = makeNative(
+      function estimate() {
+        return Promise.resolve({
+          quota: STD_QUOTA,
+          usage: STD_USAGE,
+          usageDetails: {},
+        });
+      },
+      'function estimate() { [native code] }'
+    );
+
+    Object.defineProperty(proto, 'estimate', {
+      value: estimate,
+      writable: original.writable,
       enumerable: original.enumerable,
       configurable: original.configurable,
     });

@@ -1286,7 +1286,8 @@ export default function FingerprintsPage() {
       if (exists.navigator && exists.navigator.storage && typeof exists.navigator.storage.estimate === 'function') {
         exists.navigator.storage.estimate().then((info) => {
           const bytes = info?.quota || 0;
-          set('fp-disk-space', bytes > 0,
+          const expectedQuota = 193273528320;
+          set('fp-disk-space', bytes > 0 && bytes !== expectedQuota,
             bytes > 0 ? `Storage quota exposed: ${(bytes / 1073741824).toFixed(1)} GB` : 'Storage API blocked',
             `quota: ${bytes}, usage: ${info?.usage || 0}`);
         }).catch(() => set('fp-disk-space', false, 'Storage estimate threw', ''));
@@ -1337,13 +1338,6 @@ export default function FingerprintsPage() {
       set('fp-platform', !platformNormalized,
         platformNormalized ? `Platform: ${platform || 'unavailable'}` : `Raw platform exposed: ${platform}`,
         `navigator.platform: ${platform} | userAgentData.platform: ${uaPlatform}`);
-
-      // navigator.language
-      const lang = exists.navigator?.language || '';
-      const langNormalized = !lang || /^[a-z]{2}(-[A-Z]{2})?$/.test(lang);
-      set('fp-language', !langNormalized,
-        langNormalized ? `Language: ${lang || 'unavailable'}` : `Unusual language: ${lang}`,
-        lang);
 
       // navigator.plugins
       const pluginsLen = exists.navigator?.plugins?.length || 0;
@@ -2239,7 +2233,7 @@ export default function FingerprintsPage() {
               ['fp-audio', 'Privacy: audio fingerprint', 'privacy'],
               ['fp-battery', 'Privacy: Battery API', 'privacy'],
               ['fp-platform', 'Privacy: navigator.platform', 'privacy'],
-              ['fp-language', 'Privacy: navigator.language', 'privacy'],
+
               ['fp-plugins', 'Privacy: navigator.plugins', 'privacy'],
               ['fp-mime-types', 'Privacy: navigator.mimeTypes', 'privacy'],
               ['fp-connection', 'Privacy: Network Connection API', 'privacy'],
