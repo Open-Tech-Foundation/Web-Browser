@@ -1243,6 +1243,243 @@ export default function FingerprintsPage() {
         `javascript anchor: ${anchorJsBlocked ? 'blocked' : 'allowed'}`);
     };
 
+    const runDownloadImageTest = async () => {
+      const cefAvailable = typeof window.cefQuery === 'function';
+      if (!cefAvailable) {
+        setReportItem('download-image', 'warn', 'Not running in OTF Browser',
+          'download-image: is a cefQuery handler only available in OTF Browser.');
+        return;
+      }
+      let vulnerable = true;
+      let detail = 'timeout or error';
+      try {
+        vulnerable = await new Promise((resolve) => {
+          const timer = setTimeout(() => resolve(true), 5000);
+          window.cefQuery({
+            request: 'download-image:file:///etc/passwd',
+            onSuccess: (response) => {
+              clearTimeout(timer);
+              const path = (response || '').substring(0, 120);
+              detail = 'downloaded to: ' + path;
+              resolve(true);
+            },
+            onFailure: () => {
+              clearTimeout(timer);
+              detail = 'blocked by handler';
+              resolve(false);
+            },
+          });
+        });
+      } catch (_) { detail = 'cefQuery threw'; }
+      setReportItem('download-image', vulnerable ? 'fail' : 'ok',
+        vulnerable ? 'download-image: allows file:// scheme — arbitrary file read' : 'download-image: blocks file:// scheme',
+        detail);
+    };
+
+    const runFingerprintSurfacesTest = () => {
+      const set = (id, exposed, behavior, detail) => {
+        setReportItem(id, exposed ? 'fail' : 'ok', behavior, detail);
+      };
+      const exists = typeof globalThis !== 'undefined' ? globalThis : window;
+
+      // Disk space — navigator.storage.estimate() reveals quota/usage
+      if (exists.navigator && exists.navigator.storage && typeof exists.navigator.storage.estimate === 'function') {
+        exists.navigator.storage.estimate().then((info) => {
+          const bytes = info?.quota || 0;
+          set('fp-disk-space', bytes > 0,
+            bytes > 0 ? `Storage quota exposed: ${(bytes / 1073741824).toFixed(1)} GB` : 'Storage API blocked',
+            `quota: ${bytes}, usage: ${info?.usage || 0}`);
+        }).catch(() => set('fp-disk-space', false, 'Storage estimate threw', ''));
+      } else {
+        set('fp-disk-space', false, 'Storage estimate unavailable', '');
+      }
+
+      // Audio fingerprint — OfflineAudioContext produces detectable output
+      try {
+        const ctx = new (exists.OfflineAudioContext || exists.webkitOfflineAudioContext)(1, 44100, 44100);
+        const osc = ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 440;
+        const dst = ctx.createGain();
+        dst.gain.value = 0.5; // quieter to avoid loud buzz
+        osc.connect(dst);
+        dst.connect(ctx.destination);
+        osc.start();
+        ctx.startRendering();
+        ctx.oncomplete = (e) => {
+          const buffer = e.renderedBuffer;
+          const data = buffer.getChannelData(0);
+          let hash = 0;
+          for (let i = 0; i < Math.min(data.length, 4410); i++) {
+            hash = ((hash << 5) - hash + ((data[i] * 100000) | 0)) | 0;
+          }
+          set('fp-audio', true, 'Audio fingerprint surface exposed', `hash: ${hash}`);
+        };
+        ctx.onerror = () => set('fp-audio', false, 'Audio context threw');
+      } catch (_) { set('fp-audio', false, 'Audio context unavailable'); }
+
+      // Battery API
+      if (exists.navigator && typeof exists.navigator.getBattery === 'function') {
+        exists.navigator.getBattery().then((battery) => {
+          const hasRealVals = battery && (typeof battery.level === 'number' || typeof battery.charging === 'boolean');
+          set('fp-battery', !!hasRealVals,
+            hasRealVals ? 'Battery API exposed' : 'Battery API normalized',
+            hasRealVals ? `level: ${battery.level}, charging: ${battery.charging}` : '');
+        }).catch(() => set('fp-battery', false, 'getBattery threw', ''));
+      } else {
+        set('fp-battery', false, 'getBattery unavailable', '');
+      }
+
+      // navigator.platform + Sec-CH-UA-Platform (via userAgentData)
+      const platform = exists.navigator?.platform || '';
+      const uaPlatform = exists.navigator?.userAgentData?.platform || '(not exposed)';
+      const platformNormalized = !platform || /^(Win32|Linux(\s+x86_64|\s+i\d+)?|MacIntel|Mac ARM|iPhone|iPad|iPod|Android|WebOS|OpenBSD|FreeBSD)$/i.test(platform);
+      set('fp-platform', !platformNormalized,
+        platformNormalized ? `Platform: ${platform || 'unavailable'}` : `Raw platform exposed: ${platform}`,
+        `navigator.platform: ${platform} | userAgentData.platform: ${uaPlatform}`);
+
+      // navigator.language
+      const lang = exists.navigator?.language || '';
+      const langNormalized = !lang || /^[a-z]{2}(-[A-Z]{2})?$/.test(lang);
+      set('fp-language', !langNormalized,
+        langNormalized ? `Language: ${lang || 'unavailable'}` : `Unusual language: ${lang}`,
+        lang);
+
+      // navigator.plugins
+      const pluginsLen = exists.navigator?.plugins?.length || 0;
+      const mimeLen = exists.navigator?.mimeTypes?.length || 0;
+      set('fp-plugins', pluginsLen > 0,
+        pluginsLen > 0 ? `${pluginsLen} plugin(s) exposed` : 'Plugins blocked',
+        `plugins: ${pluginsLen}`);
+      set('fp-mime-types', mimeLen > 0,
+        mimeLen > 0 ? `${mimeLen} MIME type(s) exposed` : 'MIME types blocked',
+        `mimeTypes: ${mimeLen}`);
+
+      // navigator.connection
+      const conn = exists.navigator?.connection || exists.navigator?.mozConnection || exists.navigator?.webkitConnection;
+      set('fp-connection', !!conn,
+        conn ? 'Network Connection API exposed' : 'Connection API blocked',
+        conn ? `type: ${conn.effectiveType || '?'}, downlink: ${conn.downlink || '?'}` : '');
+
+      // navigator.maxTouchPoints
+      const mtp = exists.navigator?.maxTouchPoints;
+      set('fp-max-touch-points', mtp > 0,
+        mtp > 0 ? `maxTouchPoints: ${mtp}` : 'Touch points hidden',
+        `maxTouchPoints: ${mtp}`);
+
+      // screen.colorDepth
+      const colorDepth = exists.screen?.colorDepth;
+      set('fp-color-depth', colorDepth !== undefined && colorDepth !== 24,
+        colorDepth === 24 ? 'colorDepth normalized (24)' : `colorDepth: ${colorDepth}`,
+        `colorDepth: ${colorDepth}, pixelDepth: ${exists.screen?.pixelDepth}`);
+
+      // CSS color-gamut
+      const cg = matchMedia('(color-gamut: srgb)').matches ? 'srgb' :
+                 matchMedia('(color-gamut: p3)').matches ? 'p3' :
+                 matchMedia('(color-gamut: rec2020)').matches ? 'rec2020' : 'unknown';
+      set('fp-color-gamut', cg !== 'srgb',
+        cg === 'srgb' ? 'color-gamut: srgb (normalized)' : `color-gamut: ${cg}`,
+        cg);
+
+      // navigator.keyboard
+      const hasKeyboard = !!(exists.navigator?.keyboard);
+      set('fp-keyboard', hasKeyboard,
+        hasKeyboard ? 'Keyboard API exposed' : 'Keyboard API blocked',
+        '');
+
+      // navigator.pdfViewerEnabled
+      const pdf = exists.navigator?.pdfViewerEnabled;
+      set('fp-pdf-viewer', pdf !== undefined,
+        pdf ? 'PDF viewer enabled' : pdf === false ? 'PDF viewer disabled/blocked' : 'unavailable',
+        `pdfViewerEnabled: ${pdf}`);
+
+      // CSS pointer
+      const pointer = matchMedia('(pointer: fine)').matches ? 'fine' :
+                      matchMedia('(pointer: coarse)').matches ? 'coarse' : 'none';
+      set('fp-pointer', pointer === 'fine',
+        pointer === 'fine' ? 'Pointer: fine (exact device)' : `Pointer: ${pointer}`,
+        pointer);
+
+      // CSS hover
+      const hover = matchMedia('(hover: hover)').matches ? 'hover' :
+                    matchMedia('(hover: none)').matches ? 'none' : 'unknown';
+      set('fp-hover', hover === 'hover',
+        hover === 'hover' ? 'Hover: hover (exact device)' : `Hover: ${hover}`,
+        hover);
+
+      // CSS forced-colors
+      const forced = matchMedia('(forced-colors: active)').matches;
+      set('fp-forced-colors', false, forced ? 'Forced colors active' : 'Forced colors not active', '');
+
+      // CSS dynamic-range
+      const dr = matchMedia('(dynamic-range: high)').matches ? 'high' : 'standard';
+      set('fp-dynamic-range', dr === 'high',
+        dr === 'high' ? 'Dynamic range: high' : 'Dynamic range: standard',
+        dr);
+
+      // CSS prefers-reduced-motion
+      const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      set('fp-reduced-motion', rm,
+        rm ? 'prefers-reduced-motion: reduce' : 'prefers-reduced-motion: no-preference',
+        '');
+
+      // speechSynthesis.getVoices()
+      if (exists.speechSynthesis && typeof exists.speechSynthesis.getVoices === 'function') {
+        const voices = exists.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          // Voices load async; re-check after a short delay
+          exists.speechSynthesis.addEventListener('voiceschanged', () => {
+            const v = exists.speechSynthesis.getVoices();
+            set('fp-speech-voices', v.length > 0,
+              v.length > 0 ? `${v.length} voice(s) exposed` : 'No voices',
+              v.map((x) => x.name).join(', '));
+          }, { once: true });
+          setTimeout(() => {
+            const v = exists.speechSynthesis.getVoices();
+            set('fp-speech-voices', v.length > 0,
+              v.length > 0 ? `${v.length} voice(s) exposed` : 'No voices exposed',
+              v.map((x) => x.name).join(', '));
+          }, 2000);
+        } else {
+          set('fp-speech-voices', voices.length > 0,
+            `${voices.length} voice(s) exposed`,
+            voices.map((x) => x.name).join(', '));
+        }
+      } else {
+        set('fp-speech-voices', false, 'speechSynthesis unavailable', '');
+      }
+
+      // mediaDevices.enumerateDevices()
+      if (exists.navigator && exists.navigator.mediaDevices && typeof exists.navigator.mediaDevices.enumerateDevices === 'function') {
+        exists.navigator.mediaDevices.enumerateDevices().then((devices) => {
+          const count = devices ? devices.length : 0;
+          set('fp-enumerate-devices', count > 0,
+            count > 0 ? `${count} device(s) exposed` : 'No devices exposed',
+            devices ? devices.map((d) => `${d.kind}:${d.label || '?'}`).join(', ') : '');
+        }).catch(() => set('fp-enumerate-devices', false, 'enumerateDevices threw', ''));
+      } else {
+        set('fp-enumerate-devices', false, 'enumerateDevices unavailable', '');
+      }
+
+      // navigator.getGamepads()
+      if (exists.navigator && typeof exists.navigator.getGamepads === 'function') {
+        try {
+          const pads = exists.navigator.getGamepads();
+          const count = pads ? pads.filter(Boolean).length : 0;
+          set('fp-gamepads', count > 0,
+            count > 0 ? `${count} gamepad(s) exposed` : 'No gamepads exposed',
+            `gamepads: ${count}`);
+        } catch (_) { set('fp-gamepads', false, 'getGamepads threw', ''); }
+      } else {
+        set('fp-gamepads', false, 'getGamepads unavailable', '');
+      }
+
+      // navigator.connection.rtt
+      set('fp-connection-rtt', conn && typeof conn.rtt === 'number',
+        conn && typeof conn.rtt === 'number' ? `RTT: ${conn.rtt}ms` : 'RTT not exposed',
+        conn ? `rtt: ${conn.rtt}` : 'connection unavailable');
+    };
+
     const runWebGPUTest = async () => {
       const log = document.getElementById('webgpu-log');
       if (!log) return;
@@ -1370,7 +1607,9 @@ export default function FingerprintsPage() {
       runCanvasTest();
       runWebGLTest();
       runWebGPUTest();
+      runFingerprintSurfacesTest();
       await runNavigationSchemeTest();
+      await runDownloadImageTest();
     };
 
     const startBtn = document.getElementById('start-tests-btn');
@@ -1996,6 +2235,28 @@ export default function FingerprintsPage() {
               ['local-font-api', 'Privacy: Local Font Access API', 'privacy'],
               ['font-advanced', 'Privacy: advanced font surfaces', 'privacy'],
               ['layout-metrics', 'Privacy: layout metrics', 'privacy'],
+              ['fp-disk-space', 'Privacy: storage quota', 'privacy'],
+              ['fp-audio', 'Privacy: audio fingerprint', 'privacy'],
+              ['fp-battery', 'Privacy: Battery API', 'privacy'],
+              ['fp-platform', 'Privacy: navigator.platform', 'privacy'],
+              ['fp-language', 'Privacy: navigator.language', 'privacy'],
+              ['fp-plugins', 'Privacy: navigator.plugins', 'privacy'],
+              ['fp-mime-types', 'Privacy: navigator.mimeTypes', 'privacy'],
+              ['fp-connection', 'Privacy: Network Connection API', 'privacy'],
+              ['fp-max-touch-points', 'Privacy: maxTouchPoints', 'privacy'],
+              ['fp-color-depth', 'Privacy: screen.colorDepth', 'privacy'],
+              ['fp-color-gamut', 'Privacy: CSS color-gamut', 'privacy'],
+              ['fp-keyboard', 'Privacy: Keyboard API', 'privacy'],
+              ['fp-pdf-viewer', 'Privacy: pdfViewerEnabled', 'privacy'],
+              ['fp-pointer', 'Privacy: CSS pointer', 'privacy'],
+              ['fp-hover', 'Privacy: CSS hover', 'privacy'],
+              ['fp-forced-colors', 'Privacy: CSS forced-colors', 'privacy'],
+              ['fp-dynamic-range', 'Privacy: CSS dynamic-range', 'privacy'],
+              ['fp-reduced-motion', 'Privacy: prefers-reduced-motion', 'privacy'],
+              ['fp-speech-voices', 'Privacy: speechSynthesis voices', 'privacy'],
+              ['fp-enumerate-devices', 'Privacy: media devices', 'privacy'],
+              ['fp-gamepads', 'Privacy: getGamepads', 'privacy'],
+              ['fp-connection-rtt', 'Privacy: connection RTT', 'privacy'],
               ['getImageData-noise', 'Privacy: canvas pixel noise', 'privacy'],
               ['canvas-fingerprint', 'Privacy: canvas fingerprint', 'privacy'],
               ['canvas-bitmap-transfer', 'Privacy: canvas bitmap transfer', 'privacy'],
@@ -2004,6 +2265,7 @@ export default function FingerprintsPage() {
               ['webgl-render-output', 'Privacy: WebGL rendered output', 'privacy'],
               ['webgl-readpixels-noise', 'Privacy: WebGL readPixels noise', 'privacy'],
               ['webgpu-compute', 'Security: WebGPU compute pipeline', 'security'],
+              ['download-image', 'Security: download-image arbitrary file read', 'security'],
               ['navigation-scheme', 'Security: dangerous navigation scheme blocking', 'security'],
               ['worker-surface', 'Privacy: worker execution surface', 'privacy'],
             ].map(([id, label, section]) => (

@@ -280,6 +280,58 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   };
   installHardwarePolicy();
 
+  (() => {
+    'use strict';
+
+    const SPOOFED_PLATFORM = 'Linux x86_64';
+
+    // Grab the native descriptor so we can mirror its shape exactly.
+    const proto = Navigator.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, 'platform');
+    if (!original || typeof original.get !== 'function') return;
+
+    // New getter. Keep it a named function so its own .name matches convention.
+    const getter = function platform() {
+      return SPOOFED_PLATFORM;
+    };
+
+    // --- Make getter.toString() report native code ---
+    // We patch Function.prototype.toString so that calling toString() on OUR
+    // getter (and on the patched toString itself) yields a native signature,
+    // while every other function behaves normally.
+    const nativeToString = Function.prototype.toString;
+
+    const fakeSources = new WeakMap();
+    fakeSources.set(getter, 'function get platform() { [native code] }');
+
+    const patchedToString = function toString() {
+      if (fakeSources.has(this)) {
+        return fakeSources.get(this);
+      }
+      return nativeToString.call(this);
+    };
+
+    // The patched toString must itself look native, or `Function.prototype.toString.toString()`
+    // becomes the tell.
+    fakeSources.set(patchedToString, 'function toString() { [native code] }');
+
+    // Install the patched toString.
+    Object.defineProperty(Function.prototype, 'toString', {
+      value: patchedToString,
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    });
+
+    // --- Install the getter, mirroring the original descriptor flags ---
+    Object.defineProperty(proto, 'platform', {
+      get: getter,
+      set: original.set,            // usually undefined; preserve whatever was there
+      enumerable: original.enumerable,
+      configurable: original.configurable,
+    });
+  })();
+
   // Layout metrics: normalize font probes with stable per-session noise.
   const layoutNoiseSeed = (() => {
     try {

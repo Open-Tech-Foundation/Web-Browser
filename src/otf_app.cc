@@ -564,6 +564,11 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   command_line->AppendSwitch("enable-transparent-visuals");
 #endif
 
+  // Override the User-Agent Client Hint platform to "Linux" regardless of
+  // the actual OS, so websites cannot fingerprint the OS via
+  // Sec-CH-UA-Platform (which bypasses our custom user-agent string).
+  command_line->AppendSwitchWithValue("user-agent-client-hints-platform", "Linux");
+
 }
 
 OtfApp* OtfApp::GetInstance() {
