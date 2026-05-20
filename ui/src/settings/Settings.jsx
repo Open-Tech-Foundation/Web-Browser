@@ -670,16 +670,16 @@ const Settings = () => {
                     <div className="p-8 bg-card/50 border border-main rounded-3xl relative overflow-hidden group">
                       <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 via-transparent to-transparent opacity-80" />
                       <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-bold text-main mb-2">Fingerprint protections test page</h3>
+                        <div className="flex-grow">
+                          <h3 className="text-lg font-bold text-main mb-2">Browser Protection Diagnostics</h3>
                           <p className="text-muted text-sm leading-relaxed max-w-2xl">
-                            Open a local proof page that shows whether canvas, WebGL, WebGPU compute, workers, and frame-level privacy patches are active.
+                            Launch the official protection portal to verify active browser privacy defenses, security layers, and anti-fingerprinting safeguards.
                           </p>
-                          <p className="text-xs text-muted mt-3 font-mono">browser://fingerprints</p>
+                          <p className="text-xs text-muted mt-3 font-mono">https://browser.opentechf.org/protection</p>
                         </div>
                         <button
-                          onClick={() => openInternalPage('browser://fingerprints')}
-                          className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-orange-500/20 active:scale-95"
+                          onClick={() => openInternalPage('https://browser.opentechf.org/protection')}
+                          className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-orange-500/20 active:scale-95 cursor-pointer shrink-0"
                         >
                           Open test page
                         </button>
