@@ -2,6 +2,25 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 const SUPPORTED_IMAGE_FORMATS = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO', 'SVG', 'AVIF', 'TIFF'];
 
+const formatTime = (timestamp) => {
+  if (!timestamp) return '';
+  const date = new Date(Number(timestamp) * 1000);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatDateGroup = (timestamp) => {
+  const date = new Date(Number(timestamp) * 1000);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date >= today) return 'Today';
+  if (date >= yesterday) return 'Yesterday';
+  
+  return date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+};
+
 export default function Downloads() {
   const [downloads, setDownloads] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,6 +125,17 @@ export default function Downloads() {
     );
   }, [downloads, searchQuery]);
 
+  const groupedDownloads = useMemo(() => {
+    const groups = {};
+    filteredDownloads.forEach(item => {
+      const timestamp = item.endedAt || Math.floor(Date.now() / 1000);
+      const group = formatDateGroup(timestamp);
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(item);
+    });
+    return groups;
+  }, [filteredDownloads]);
+
   const handleAction = (action, id) => {
     window.cefQuery?.({ request: `${action}-download:${id}` });
   };
@@ -192,99 +222,111 @@ export default function Downloads() {
                <p className="text-sm font-medium">{searchQuery ? 'No downloads match your search' : 'No downloads yet'}</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {filteredDownloads.map((item) => (
-                <div key={item.id} className="group flex items-center gap-6 p-6 rounded-2xl bg-card border border-main hover:border-orange-500/30 hover:bg-card/80 transition-all relative overflow-hidden">
-                  {/* Progress Background */}
-                  {item.isInProgress && (
-                    <div 
-                      className="absolute bottom-0 left-0 h-1 bg-orange-500/20 transition-all duration-300" 
-                      style={{ width: `${item.percent}%` }}
-                    />
-                  )}
+            <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
+              {Object.entries(groupedDownloads).map(([date, groupItems]) => (
+                <section key={date} className="space-y-4">
+                  <h2 className="text-xs font-bold text-orange-500 uppercase tracking-[0.2em] text-left">{date}</h2>
+                  <div className="space-y-4">
+                    {groupItems.map((item) => (
+                      <div key={item.id} className="group flex items-center gap-6 p-6 rounded-2xl bg-card border border-main hover:border-orange-500/30 hover:bg-card/80 transition-all relative overflow-hidden">
+                        {/* Progress Background */}
+                        {item.isInProgress && (
+                          <div 
+                            className="absolute bottom-0 left-0 h-1 bg-orange-500/20 transition-all duration-300" 
+                            style={{ width: `${item.percent}%` }}
+                          />
+                        )}
 
-                  <div className="w-14 h-14 rounded-xl bg-main/5 flex items-center justify-center text-muted group-hover:text-orange-400 transition-colors shrink-0 border border-main">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
-                    </svg>
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-sm font-bold truncate text-main group-hover:text-orange-400 transition-colors">
-                        {item.suggestedName || 'Download'}
-                      </h3>
-                      {item.status && (
-                        <span className={`text-[10px] uppercase tracking-widest font-black px-2 py-0.5 rounded-md ${
-                          item.isComplete ? 'bg-green-500/10 text-green-500' : 
-                          item.isCanceled || item.isInterrupted ? 'bg-red-500/10 text-red-500' :
-                          'bg-orange-500/10 text-orange-500'
-                        }`}>
-                          {item.status}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted">
-                      <span className="truncate max-w-[300px]">{item.url}</span>
-                      <span>•</span>
-                      <span>{item.isComplete ? formatSize(item.totalBytes) : `${formatSize(item.receivedBytes)} / ${formatSize(item.totalBytes)}`}</span>
-                      {item.isInProgress && (
-                        <>
-                          <span>•</span>
-                          <span className="text-orange-500 font-bold">{item.percent}%</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                        <div className="w-14 h-14 rounded-xl bg-main/5 flex items-center justify-center text-muted group-hover:text-orange-400 transition-colors shrink-0 border border-main">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+                          </svg>
+                        </div>
+                        
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-sm font-bold truncate text-main group-hover:text-orange-400 transition-colors text-left">
+                              {item.suggestedName || 'Download'}
+                            </h3>
+                            {item.status && (
+                              <span className={`text-[10px] uppercase tracking-widest font-black px-2 py-0.5 rounded-md shrink-0 ${
+                                item.isComplete ? 'bg-green-500/10 text-green-500' : 
+                                item.isCanceled || item.isInterrupted ? 'bg-red-500/10 text-red-500' :
+                                'bg-orange-500/10 text-orange-500'
+                              }`}>
+                                {item.status}
+                              </span>
+                            )}
+                            {item.endedAt > 0 && (
+                              <span className="text-[10px] text-muted shrink-0 tabular-nums font-medium">
+                                {formatTime(item.endedAt)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 mt-1.5 text-xs text-muted">
+                            <span className="truncate max-w-[300px]">{item.url}</span>
+                            <span>•</span>
+                            <span>{item.isComplete ? formatSize(item.totalBytes) : `${formatSize(item.receivedBytes)} / ${formatSize(item.totalBytes)}`}</span>
+                            {item.isInProgress && (
+                              <>
+                                <span>•</span>
+                                <span className="text-orange-500 font-bold">{item.percent}%</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
 
-                  <div className="flex gap-2 pr-2">
-                    {item.canOpen && (
-                      <button 
-                        onClick={() => handleAction('open', item.id)}
-                        title={getOpenButtonTitle(item)}
-                        className="px-4 py-2 rounded-xl bg-orange-500 text-white text-xs font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20"
-                      >
-                        Open
-                      </button>
-                    )}
-                    {item.canShowInFolder && (
-                      <button 
-                        onClick={() => handleAction('show-download-in-folder', item.id)}
-                        className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
-                        title="Show in folder"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                      </button>
-                    )}
-                    {item.canPause && (
-                      <button 
-                        onClick={() => handleAction('pause', item.id)}
-                        className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
-                        title="Pause"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                      </button>
-                    )}
-                    {item.canResume && (
-                      <button 
-                        onClick={() => handleAction('resume', item.id)}
-                        className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
-                        title="Resume"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                      </button>
-                    )}
-                    {item.canCancel && (
-                      <button 
-                        onClick={() => handleAction('cancel', item.id)}
-                        className="p-2.5 rounded-xl bg-main/5 hover:bg-red-500/20 text-muted hover:text-red-500 transition-all border border-main"
-                        title="Cancel"
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                      </button>
-                    )}
+                        <div className="flex gap-2 pr-2">
+                          {item.canOpen && (
+                            <button 
+                              onClick={() => handleAction('open', item.id)}
+                              title={getOpenButtonTitle(item)}
+                              className="px-4 py-2 rounded-xl bg-orange-500 text-white text-xs font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20"
+                            >
+                              Open
+                            </button>
+                          )}
+                          {item.canShowInFolder && (
+                            <button 
+                              onClick={() => handleAction('show-download-in-folder', item.id)}
+                              className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
+                              title="Show in folder"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            </button>
+                          )}
+                          {item.canPause && (
+                            <button 
+                              onClick={() => handleAction('pause', item.id)}
+                              className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
+                              title="Pause"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                            </button>
+                          )}
+                          {item.canResume && (
+                            <button 
+                              onClick={() => handleAction('resume', item.id)}
+                              className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
+                              title="Resume"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            </button>
+                          )}
+                          {item.canCancel && (
+                            <button 
+                              onClick={() => handleAction('cancel', item.id)}
+                              className="p-2.5 rounded-xl bg-main/5 hover:bg-red-500/20 text-muted hover:text-red-500 transition-all border border-main"
+                              title="Cancel"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                </section>
               ))}
             </div>
           )}

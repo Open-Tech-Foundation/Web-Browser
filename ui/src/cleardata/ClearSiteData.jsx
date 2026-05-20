@@ -225,7 +225,7 @@ const ClearSiteData = () => {
           <button
             disabled={!origin}
             onClick={openDetails}
-            className="w-full py-1.5 text-[11.5px] font-medium text-brand-orange hover:underline disabled:opacity-40 text-center transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1 group"
+            className="w-full py-2.5 px-4 bg-slate-50/75 dark:bg-slate-800/30 hover:bg-slate-100/90 dark:hover:bg-slate-800/65 border border-slate-200/60 dark:border-slate-700/40 text-slate-600 dark:text-slate-400 hover:text-brand-orange dark:hover:text-brand-orange rounded-xl text-[11.5px] font-semibold transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5 group disabled:opacity-40"
           >
             <span>View detailed site data</span>
             <span className="transform group-hover:translate-x-0.5 transition-transform duration-150">→</span>
