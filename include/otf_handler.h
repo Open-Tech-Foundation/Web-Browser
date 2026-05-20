@@ -193,6 +193,7 @@ class OtfHandler : public CefClient,
   // producer attached to the PopupOverlay. The producer reads this field,
   // which is set by the show-clear-site-data:<origin> handler.
   std::string pending_cleardata_origin_;
+  std::string pending_qr_url_;
 
   // Async DevTools-protocol callback router. Attached to the UI shell
   // browser in OnAfterCreated. Used by get-storage-for-site to call

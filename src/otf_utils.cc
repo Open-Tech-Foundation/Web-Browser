@@ -783,7 +783,9 @@ const char* const kInternalUiPages[] = {
     "/downloadsbar.html",  "/zoombar.html",        "/history.html",
     "/bookmarks.html",     "/bookmarkbar.html",    "/security.html",
     "/fingerprints.html",  "/insecure-blocked.html",
-    "/pdfviewer.html",     "/certificate.html",    "/imagepreview.html"};
+    "/pdfviewer.html",     "/certificate.html",    "/imagepreview.html",
+    "/cleardata.html",     "/sitedata.html",       "/workspace.html",
+    "/qr.html"};
 }  // namespace
 
 bool IsInternalUiPagePath(const std::string& url) {

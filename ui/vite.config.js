@@ -35,7 +35,8 @@ export default defineConfig({
         certificate: resolve(__dirname, 'certificate.html'),
         cleardata: resolve(__dirname, 'cleardata.html'),
         sitedata: resolve(__dirname, 'sitedata.html'),
-        workspace: resolve(__dirname, 'workspace.html')
+        workspace: resolve(__dirname, 'workspace.html'),
+        qr: resolve(__dirname, 'qr.html')
       }
     }
   }

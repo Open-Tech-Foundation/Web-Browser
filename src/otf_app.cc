@@ -1374,6 +1374,9 @@ void OtfApp::OnContextInitialized() {
       "workspace", kWorkspaceBrowserViewId,
       /*width=*/240, /*height=*/300,
       /*top_margin=*/32, /*right_margin=*/0, /*left_margin=*/8);
+  popups_["qr"] = std::make_unique<PopupOverlay>(
+      "qr", kQrBrowserViewId, /*width=*/300, /*height=*/490,
+      /*top_margin=*/60, /*right_margin=*/150);
 
   CefRegisterSchemeHandlerFactory("browser", "", new BrowserSchemeHandlerFactory());
 

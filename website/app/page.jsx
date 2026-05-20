@@ -226,15 +226,12 @@ const featureRows = [
   { feature: "Workspaces", status: "Planned", notes: "Workspace behavior is planned/in progress." },
   { feature: "Bookmarks bar", status: "Partial", notes: "Bookmark viewing exists; full bar parity is not complete." },
   { feature: "Multi-window", status: "Partial", notes: "Core windows exist; workflow parity is still evolving." },
+  { feature: "QR code for page", status: "Planned", notes: "Generate QR codes for URLs to easily share pages to mobile devices." },
+  { feature: "Print", status: "Planned", notes: "Native PDF printing and printer dialog support." },
+  { feature: "Private tab", status: "Planned", notes: "Ephemeral browsing session per tab with automatic data isolation." },
 ];
 
-const securityHighlights = [
-  { title: "WebGPU compute blocked", desc: "Keeps WebGPU graphics usable while reducing compute abuse, crypto-mining, and high-signal GPU fingerprinting." },
-  { title: "WebGL normalized", desc: "Reduces vendor, renderer, extension, and capability variance that can become a stable device hash." },
-  { title: "Canvas protected", desc: "Protects readback/export paths that fingerprint scripts use to compare subtle rendering differences." },
-  { title: "Dangerous schemes blocked", desc: "Prevents web navigation into internal engine pages, local files, script URLs, data URLs, and disabled extension surfaces." },
-  { title: "Diagnostics included", desc: "The website protection test center makes browser behavior visible and testable." },
-];
+
 
 function renderCellContent(value) {
   if (Array.isArray(value)) {
@@ -320,6 +317,12 @@ export default function HomePage() {
               icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>,
               badges: ["TIFF", "Multi-page TIFF"],
               emphasize: true,
+            },
+            {
+              title: "Privacy-First QR Sharing",
+              desc: "Generate QR codes for any page directly from the address bar. UTM tracking parameters are automatically stripped before the code is generated, so you share clean links.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><path d="M14 17h3v4"/><path d="M20 14v3"/></svg>,
+              badges: ["UTM stripped", "Copy & Download"],
             }
           ].map((feature) => (
             <div
@@ -429,55 +432,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-28 px-6 max-w-7xl mx-auto w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
-          <div>
-            <h2 className="text-4xl font-extrabold mb-8 tracking-tight" style="color: var(--foreground);">Policy, Not Promises</h2>
-            <p className="leading-relaxed mb-10" style="color: var(--muted);">
-              OTF Browser treats privacy and security as enforceable browser behavior. The policy is designed to reduce sensitive persistence, block unsafe navigation surfaces, and make fingerprint protections inspectable.
-            </p>
 
-            <div className="space-y-6">
-              {securityHighlights.map((item) => (
-                <div key={item.title} className="flex gap-4">
-                  <div className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style="background-color: var(--accent);"></div>
-                  <div>
-                    <h4 className="font-bold" style="color: var(--foreground);">{item.title}</h4>
-                    <p className="text-sm leading-relaxed" style="color: var(--muted);">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="p-8 md:p-10 rounded-[40px] border shadow-2xl transition-colors" style="background-color: var(--bg-card); border-color: var(--border);">
-            <h3 className="text-xl font-bold mb-8 flex items-center gap-3" style="color: var(--foreground);">
-              <span className="w-8 h-8 rounded-lg flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent);">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              </span>
-              Protection Coverage
-            </h3>
-            <div className="space-y-4">
-              {[
-                ["Canvas", "Protected readback/export"],
-                ["WebGL", "Normalized profile"],
-                ["WebGPU", "Graphics allowed, compute blocked"],
-                ["Frames", "Policy injection tracked"],
-                ["Workers", "Classic/module/shared/nested coverage reported"],
-                ["UA", "Desktop OTFBrowser identity"],
-              ].map(([label, status]) => (
-                <div key={label} className="flex items-center justify-between gap-4 p-4 rounded-xl border transition-colors" style="background-color: color-mix(in srgb, var(--foreground) 3%, transparent); border-color: var(--border);">
-                  <span className="text-sm font-medium" style="color: var(--muted);">{label}</span>
-                  <span className="text-right text-xs font-bold uppercase tracking-widest" style="color: var(--accent);">{status}</span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-8 text-[10px] uppercase tracking-widest font-bold text-center" style="color: var(--muted);">
-              Diagnostics available in the protection test center
-            </p>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
