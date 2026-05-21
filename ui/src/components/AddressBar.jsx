@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import SecurityIconButton from './SecurityIconButton';
 
-const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate, onShowClearSiteData }, ref) => {
+const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate, onShowClearSiteData, onShowQr }, ref) => {
   const [url, setUrl] = useState(initialUrl);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef(null);
@@ -115,6 +115,33 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
             strokeLinejoin="round"
           >
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        </button>
+      )}
+      {url && !url.startsWith('browser://') && (
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onShowQr}
+          className="ml-2 p-1 rounded-md transition-all active:scale-90 relative z-10 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+          title="Share via QR Code"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="3" height="3"/>
+            <path d="M14 17h3v4"/>
+            <path d="M20 14v3"/>
           </svg>
         </button>
       )}
