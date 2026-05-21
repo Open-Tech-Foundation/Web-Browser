@@ -49,9 +49,9 @@ std::string GetExecutablePath();
 std::string GetHomeDir();
 
 // Name of the user-data directory under $HOME. Returns ".otf-browser-dev"
-// when the OTF_DEV_MODE env var is set (main.cc sets this on seeing
-// --dev-ui-url), so a developer running 'bun run dev' on the same machine
-// as a packaged install gets isolated settings and SQLite data. Production
+// when the OTF_DEV_MODE env var is set (package.json's `dev:browser` script
+// exports it), so a developer running 'bun run dev' on the same machine as
+// a packaged install gets isolated settings and SQLite data. Production
 // runs always get ".otf-browser".
 std::string GetUserDataDirName();
 

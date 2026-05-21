@@ -65,21 +65,11 @@ int main(int argc, char* argv[]) {
   // packaged binary without launching a window. CEF sub-processes (renderer,
   // gpu, etc.) are spawned with a --type=… flag and never pass --version,
   // so this check is safe to do here.
-  //
-  // Also detect --dev-ui-url and stash a marker in the environment so the
-  // settings + SQLite paths can switch to ~/.otf-browser-dev (see
-  // otf::GetUserDataDirName). We do this via env (rather than reading
-  // CefCommandLine inside the path helper) so unit tests and any other
-  // CEF-less call site automatically resolve to the production directory.
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--version") == 0 ||
         std::strcmp(argv[i], "-v") == 0) {
       std::printf("OTF Browser %s\n", OTF_VERSION);
       return 0;
-    }
-    // Matches both `--dev-ui-url=value` and `--dev-ui-url value`.
-    if (std::strncmp(argv[i], "--dev-ui-url", 12) == 0) {
-      setenv("OTF_DEV_MODE", "1", 1);
     }
   }
   CefMainArgs main_args(argc, argv);

@@ -136,10 +136,40 @@ export default {
 
     if (exists.navigator?.mediaDevices?.enumerateDevices) {
       exists.navigator.mediaDevices.enumerateDevices().then((devices) => {
-        const count = devices ? devices.length : 0;
-        setOK(ctx, 'fp-enumerate-devices', count > 0,
-          count > 0 ? `${count} device(s) exposed` : 'No devices exposed',
-          devices ? devices.map((d) => `${d.kind}:${d.label || '?'}`).join(', ') : '');
+        const list = devices || [];
+        // Policy contract: enumerateDevices ALWAYS returns these three
+        // fixed entries, regardless of real hardware. Labels are empty
+        // until microphone permission is granted, then become
+        // "Standard <kind>". Anything else means the policy isn't active.
+        const EXPECTED = [
+          { deviceId: 'fixed-audioinput',  kind: 'audioinput',  groupId: 'fixed-group-a' },
+          { deviceId: 'fixed-audiooutput', kind: 'audiooutput', groupId: 'fixed-group-a' },
+          { deviceId: 'fixed-videoinput',  kind: 'videoinput',  groupId: 'fixed-group-v' },
+        ];
+        const shapeMatches = list.length === EXPECTED.length && EXPECTED.every((want, i) => {
+          const got = list[i];
+          return got
+            && got.deviceId === want.deviceId
+            && got.kind === want.kind
+            && got.groupId === want.groupId
+            && (got.label === '' || got.label === `Standard ${want.kind}`);
+        });
+        const rows = [['device count', String(list.length)]];
+        list.forEach((d, i) => {
+          rows.push([`#${i + 1} ${d.kind}`, '']);
+          rows.push(['    deviceId', d.deviceId]);
+          rows.push(['    groupId', d.groupId]);
+          rows.push(['    label', d.label ? `"${d.label}"` : '(empty)']);
+        });
+        ctx.set('fp-enumerate-devices',
+          shapeMatches ? 'ok' : 'fail',
+          shapeMatches
+            ? '3 standardized device entries'
+            : `${list.length} device(s) — does not match fixed shape`,
+          shapeMatches
+            ? 'audioinput + audiooutput + videoinput, all with fixed-* identifiers.'
+            : 'Expected exactly 3 entries with fixed-audioinput / fixed-audiooutput / fixed-videoinput IDs.',
+          rows);
       }).catch(() => setOK(ctx, 'fp-enumerate-devices', false, 'enumerateDevices threw', ''));
     } else setOK(ctx, 'fp-enumerate-devices', false, 'enumerateDevices unavailable', '');
 

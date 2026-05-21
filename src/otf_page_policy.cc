@@ -363,6 +363,101 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     });
   })();
 
+  (() => {
+  'use strict';
+
+  // --- per-session+origin seed -------------------------------------------
+  // Stable within a session (survives "render twice and compare"),
+  // different across sessions and across origins (no cross-site linking).
+  const sessionSeed = (() => {
+    // one random 32-bit value generated once per page-context
+    const a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return a[0];
+  })();
+
+  const hashStr = (str, seed) => {
+    let h = seed >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h = Math.imul(h ^ str.charCodeAt(i), 0x01000193) >>> 0;
+    }
+    return h >>> 0;
+  };
+
+  const originSeed = hashStr(location.origin, sessionSeed);
+
+  // Small, deterministic PRNG (mulberry32) seeded per origin.
+  const makeRng = (seed) => {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+
+  // --- perturbation -------------------------------------------------------
+  // Amplitude far below anything audible/functional; only the
+  // least-significant precision (the fingerprint) is disturbed.
+  const NOISE = 1e-7;
+
+  const perturb = (data) => {
+    // Re-seed per call FROM the origin seed so the SAME buffer contents
+    // get the SAME perturbation within a session — deterministic, not
+    // fresh-random each read.
+    const rng = makeRng(originSeed ^ (data.length >>> 0));
+    for (let i = 0; i < data.length; i++) {
+      data[i] = data[i] + (rng() * 2 - 1) * NOISE;
+    }
+    return data;
+  };
+
+  // --- patch the read-back surfaces --------------------------------------
+  const AB = (typeof AudioBuffer !== 'undefined') && AudioBuffer.prototype;
+  if (AB) {
+    const origGetChannelData = AB.getChannelData;
+    AB.getChannelData = function getChannelData(channel) {
+      const data = origGetChannelData.call(this, channel);
+      return perturb(data);
+    };
+
+    const origCopyFromChannel = AB.copyFromChannel;
+    if (origCopyFromChannel) {
+      AB.copyFromChannel = function copyFromChannel(dest, channel, start) {
+        origCopyFromChannel.call(this, dest, channel, start);
+        perturb(dest);
+      };
+    }
+  }
+
+  const AN = (typeof AnalyserNode !== 'undefined') && AnalyserNode.prototype;
+  if (AN) {
+    const origFloat = AN.getFloatFrequencyData;
+    AN.getFloatFrequencyData = function getFloatFrequencyData(array) {
+      origFloat.call(this, array);
+      perturb(array);
+    };
+
+    const origByte = AN.getByteFrequencyData;
+    AN.getByteFrequencyData = function getByteFrequencyData(array) {
+      origByte.call(this, array);
+      // byte data is 0–255 ints; nudge by at most ±1 occasionally so we
+      // don't distort visualizers but still break exact-match fingerprints
+      const rng = makeRng(originSeed ^ (array.length >>> 0));
+      for (let i = 0; i < array.length; i++) {
+        if (rng() < 0.5) {
+          const d = rng() < 0.5 ? -1 : 1;
+          const v = array[i] + d;
+          if (v >= 0 && v <= 255) array[i] = v;
+        }
+      }
+      return array;
+    };
+  }
+})();
+
   // Layout metrics: normalize font probes with stable per-session noise.
   const layoutNoiseSeed = (() => {
     try {
@@ -1317,6 +1412,113 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     } catch (_) {}
   };
   installIframeSchemePolicy();
+
+  (() => {
+    'use strict';
+    const md = navigator.mediaDevices;
+    if (!md) return;
+
+    const origGUM = md.getUserMedia.bind(md);
+
+    // ---- one fixed list EVERYONE reports, regardless of real hardware ----
+    const FIXED = [
+      { deviceId: 'fixed-audioinput',  kind: 'audioinput',  groupId: 'fixed-group-a' },
+      { deviceId: 'fixed-audiooutput', kind: 'audiooutput', groupId: 'fixed-group-a' },
+      { deviceId: 'fixed-videoinput',  kind: 'videoinput',  groupId: 'fixed-group-v' },
+    ];
+
+    const STD_AUDIO_SETTINGS = {
+      sampleRate: 48000, channelCount: 1, sampleSize: 16,
+      echoCancellation: true, autoGainControl: true, noiseSuppression: true, latency: 0.01,
+    };
+    const STD_VIDEO_SETTINGS = {
+      width: 1280, height: 720, frameRate: 30, aspectRatio: 1280 / 720,
+      facingMode: 'user', resizeMode: 'none',
+    };
+    const STD_AUDIO_CAPS = {
+      sampleRate: { min: 48000, max: 48000 }, channelCount: { min: 1, max: 1 },
+      echoCancellation: [true, false], autoGainControl: [true, false], noiseSuppression: [true, false],
+    };
+    const STD_VIDEO_CAPS = {
+      width: { min: 1, max: 1280 }, height: { min: 1, max: 720 }, frameRate: { min: 1, max: 30 },
+      aspectRatio: { min: 0.001, max: 1280 }, facingMode: ['user'], resizeMode: ['none', 'crop-and-scale'],
+    };
+
+    // ---- enumerateDevices: always the same list for everyone ----
+    md.enumerateDevices = async function enumerateDevices() {
+      // labels populated after permission; mirror that with a simple gate
+      let granted = false;
+      try {
+        if (navigator.permissions) {
+          const p = await navigator.permissions.query({ name: 'microphone' }).catch(() => null);
+          granted = p && p.state === 'granted';
+        }
+      } catch (_) {}
+      return FIXED.map(d => ({
+        deviceId: d.deviceId,
+        kind: d.kind,
+        groupId: d.groupId,
+        label: granted ? `Standard ${d.kind}` : '',
+        toJSON() { return this; },
+      }));
+    };
+
+    // ---- getUserMedia: try real hardware; if absent, it fails naturally ----
+    md.getUserMedia = async function getUserMedia(constraints) {
+      const c = JSON.parse(JSON.stringify(constraints || {}));
+      for (const media of ['audio', 'video']) {
+        if (c[media] && typeof c[media] === 'object' && c[media].deviceId) {
+          delete c[media].deviceId; // open the real default device of that kind
+        }
+      }
+
+      // If hardware is missing, origGUM rejects (NotFoundError) — let it propagate silently.
+      const stream = await origGUM(c);
+
+      stream.getTracks().forEach(track => {
+        const isAudio = track.kind === 'audio';
+        const kind = isAudio ? 'audioinput' : 'videoinput';
+        const fixedId = `fixed-${kind}`;
+        const fixedGroup = isAudio ? 'fixed-group-a' : 'fixed-group-v';
+        const stdSettings = isAudio ? STD_AUDIO_SETTINGS : STD_VIDEO_SETTINGS;
+        const stdCaps = isAudio ? STD_AUDIO_CAPS : STD_VIDEO_CAPS;
+
+        track.getSettings = function getSettings() {
+          return { deviceId: fixedId, groupId: fixedGroup, ...stdSettings };
+        };
+        track.getCapabilities = function getCapabilities() {
+          return { deviceId: fixedId, groupId: fixedGroup, ...stdCaps };
+        };
+        try {
+          Object.defineProperty(track, 'label', { get: () => `Standard ${track.kind}`, configurable: true });
+        } catch (_) {}
+      });
+
+      return stream;
+    };
+
+    if (md.getSupportedConstraints) {
+      md.getSupportedConstraints = function getSupportedConstraints() {
+        return {
+          deviceId: true, groupId: true, sampleRate: true, channelCount: true, sampleSize: true,
+          echoCancellation: true, autoGainControl: true, noiseSuppression: true,
+          width: true, height: true, frameRate: true, aspectRatio: true,
+          facingMode: true, resizeMode: true, latency: true,
+        };
+      };
+    }
+
+    try {
+      Object.defineProperty(md, 'ondevicechange', { get: () => null, set: () => {}, configurable: true });
+    } catch (_) {}
+    const origAdd = md.addEventListener && md.addEventListener.bind(md);
+    if (origAdd) {
+      md.addEventListener = function (type, ...rest) {
+        if (type === 'devicechange') return;
+        return origAdd(type, ...rest);
+      };
+    }
+  })();
 
   }  // applyPagePolicy
 
