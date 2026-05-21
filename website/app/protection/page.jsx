@@ -6,6 +6,7 @@ import {
 } from "./store.js";
 import { registerAll, startSuite, maybeAutoResume } from "./runner.js";
 import { drawFingerprintScene } from "./tests/helpers.js";
+import { playTestTone, onSpeakerStateChange, getSpeakerState } from "./tests/media-test.js";
 
 // Filter chips: 'all' | 'failures' | 'warnings' | 'high' | 'medium' | 'low' | 'security'.
 const FILTERS = [
@@ -73,9 +74,11 @@ const buildJsonReport = () => {
 
 export default function ProtectionPage() {
   const exportJson = signal('');
+  const speakerState = signal(getSpeakerState());
 
   onMount(() => {
     registerAll();
+    onSpeakerStateChange((s) => { speakerState.value = { ...s }; });
     // If the runner reloaded us mid-suite, pick up where we left off.
     maybeAutoResume({
       onReloadNeeded: (mod) => new Promise((resolve) => {
@@ -236,6 +239,42 @@ export default function ProtectionPage() {
                   {rowsState.value[id].extra?.previewKind === 'canvas-fingerprint' ? (
                     <div className="preview">
                       <canvas id={`preview-canvas-${id}`} width="420" height="140"></canvas>
+                    </div>
+                  ) : null}
+                  {id === 'fp-enumerate-devices' ? (
+                    <div className="preview">
+                      <div className="speaker-test-header">
+                        <strong>Speaker test</strong>
+                        <span className="speaker-test-note">
+                          Plays a 700 ms 440 Hz tone through the default output to confirm
+                          audio still works with the spoofed device identity. Not scored.
+                        </span>
+                      </div>
+                      <button
+                        onClick={playTestTone}
+                        className={speakerState.value.status === 'playing' ? 'is-disabled' : ''}
+                      >
+                        {speakerState.value.status === 'playing'
+                          ? 'Playing…'
+                          : speakerState.value.status === 'ok'
+                            ? 'Play tone again'
+                            : 'Play test tone'}
+                      </button>
+                      {speakerState.value.detail ? (
+                        <div className={`speaker-test-result ${speakerState.value.status}`}>
+                          {speakerState.value.detail}
+                        </div>
+                      ) : null}
+                      {speakerState.value.rows.length > 0 ? (
+                        <dl>
+                          {speakerState.value.rows.map(([k, v], i) => (
+                            <div key={`spk-${k}-${i}`} className="dl-pair">
+                              <dt>{k}</dt>
+                              <dd>{v}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null}
                     </div>
                   ) : null}
                   {rowsState.value[id].rows && rowsState.value[id].rows.length > 0 ? (

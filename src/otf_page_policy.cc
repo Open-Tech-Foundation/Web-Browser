@@ -1520,6 +1520,42 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     }
   })();
 
+  // Battery API: remove the surface entirely. No fingerprint, no API.
+  (() => {
+    'use strict';
+    try { delete Navigator.prototype.getBattery; } catch (_) {}
+    try { delete navigator.getBattery; } catch (_) {}
+    if (typeof BatteryManager !== 'undefined') {
+      try { delete window.BatteryManager; } catch (_) {}
+    }
+  })();
+
+  // Network Information API: remove the surface entirely.
+  (() => {
+    'use strict';
+    try { delete Navigator.prototype.connection; } catch (_) {}
+    try { delete navigator.connection; } catch (_) {}
+    // vendor-prefixed variants
+    try { delete Navigator.prototype.mozConnection; } catch (_) {}
+    try { delete Navigator.prototype.webkitConnection; } catch (_) {}
+    if (typeof NetworkInformation !== 'undefined') {
+      try { delete window.NetworkInformation; } catch (_) {}
+    }
+  })();
+
+  // Keyboard API: remove the surface entirely.
+  (() => {
+    'use strict';
+    try { delete Navigator.prototype.keyboard; } catch (_) {}
+    try { delete navigator.keyboard; } catch (_) {}
+    if (typeof Keyboard !== 'undefined') {
+      try { delete window.Keyboard; } catch (_) {}
+    }
+    if (typeof KeyboardLayoutMap !== 'undefined') {
+      try { delete window.KeyboardLayoutMap; } catch (_) {}
+    }
+  })();
+
   }  // applyPagePolicy
 
   applyPagePolicy();

@@ -96,19 +96,30 @@ export default {
       hasKeyboard ? 'Keyboard API exposed' : 'Keyboard API blocked', '');
 
     const pdf = exists.navigator?.pdfViewerEnabled;
-    setOK(ctx, 'fp-pdf-viewer', pdf !== undefined,
-      pdf ? 'PDF viewer enabled' : pdf === false ? 'PDF viewer disabled/blocked' : 'unavailable',
+    // Accept the standardized `true` value as expected. Anything else
+    // (false, undefined) means the surface diverges from the baseline.
+    setOK(ctx, 'fp-pdf-viewer', pdf !== true,
+      pdf === true ? 'pdfViewerEnabled: true (standardized)'
+        : pdf === false ? 'pdfViewerEnabled: false (non-standard)'
+        : 'pdfViewerEnabled: unavailable',
       `pdfViewerEnabled: ${pdf}`);
 
-    const pointer = matchMedia('(pointer: fine)').matches ? 'fine'
-      : matchMedia('(pointer: coarse)').matches ? 'coarse' : 'none';
-    setOK(ctx, 'fp-pointer', pointer === 'fine',
-      pointer === 'fine' ? 'Pointer: fine (exact device)' : `Pointer: ${pointer}`, pointer);
+    // Pointer: standardized to `fine` + any-pointer `fine`, coarse=false.
+    const pointerFine = matchMedia('(pointer: fine)').matches;
+    const pointerCoarse = matchMedia('(pointer: coarse)').matches;
+    const anyPointerFine = matchMedia('(any-pointer: fine)').matches;
+    const pointerStd = pointerFine && !pointerCoarse && anyPointerFine;
+    setOK(ctx, 'fp-pointer', !pointerStd,
+      pointerStd ? 'Pointer: fine (standardized)' : 'Pointer: non-standard',
+      `pointer:fine=${pointerFine}, pointer:coarse=${pointerCoarse}, any-pointer:fine=${anyPointerFine}`);
 
-    const hover = matchMedia('(hover: hover)').matches ? 'hover'
-      : matchMedia('(hover: none)').matches ? 'none' : 'unknown';
-    setOK(ctx, 'fp-hover', hover === 'hover',
-      hover === 'hover' ? 'Hover: hover (exact device)' : `Hover: ${hover}`, hover);
+    // Hover: standardized to `hover` + any-hover `hover`.
+    const hoverHover = matchMedia('(hover: hover)').matches;
+    const anyHoverHover = matchMedia('(any-hover: hover)').matches;
+    const hoverStd = hoverHover && anyHoverHover;
+    setOK(ctx, 'fp-hover', !hoverStd,
+      hoverStd ? 'Hover: hover (standardized)' : 'Hover: non-standard',
+      `hover:hover=${hoverHover}, any-hover:hover=${anyHoverHover}`);
 
     const forced = matchMedia('(forced-colors: active)').matches;
     setOK(ctx, 'fp-forced-colors', false,

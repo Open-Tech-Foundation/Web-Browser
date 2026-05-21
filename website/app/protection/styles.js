@@ -137,6 +137,16 @@ export const protectionStyles = `
   margin: 12px 0; padding: 8px; background: #fff; border: 1px solid var(--line); border-radius: 4px;
 }
 #protection-container .row-detail .preview canvas { display: block; }
+#protection-container .row-detail .speaker-test-header {
+  display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;
+}
+#protection-container .row-detail .speaker-test-note { color: var(--muted); font-size: 12px; }
+#protection-container .row-detail .speaker-test-result {
+  margin-top: 10px; font-size: 12px;
+}
+#protection-container .row-detail .speaker-test-result.ok { color: var(--good); }
+#protection-container .row-detail .speaker-test-result.fail { color: var(--bad); }
+#protection-container .row-detail .speaker-test-result.playing { color: var(--info); }
 #protection-container .row-rerun {
   margin-top: 10px; font-size: 12px; padding: 5px 10px;
 }
