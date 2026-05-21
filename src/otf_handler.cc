@@ -3881,6 +3881,14 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
   }
 }
 
+void OtfHandler::OnFullscreenModeChange(CefRefPtr<CefBrowser> browser,
+                                        bool fullscreen) {
+  CEF_REQUIRE_UI_THREAD();
+  if (auto* app = OtfApp::GetInstance()) {
+    app->SetContentFullscreen(fullscreen);
+  }
+}
+
 void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                       bool isLoading,
                                       bool canGoBack,
@@ -4717,6 +4725,13 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     if (b) b->ReloadIgnoreCache();
     return true;
   }
+  // ── Fullscreen ────────────────────────────────────────────
+  if (M(Mod::kNone, Key::kF11)) {
+    *is_keyboard_shortcut = true;
+    app->ToggleFullscreen();
+    return true;
+  }
+
   if (M(Mod::kNone, Key::kEscape)) {
     if (app->downloads_overlay_ && app->downloads_overlay_->IsVisible()) {
       app->HideDownloadsOverlay();

@@ -79,6 +79,8 @@ class OtfHandler : public CefClient,
                        const CefString& url) override;
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
                           const std::vector<CefString>& icon_urls) override;
+  void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser,
+                              bool fullscreen) override;
 
   // CefLifeSpanHandler methods:
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
@@ -168,6 +170,7 @@ class OtfHandler : public CefClient,
 
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }
+
   std::string GetDownloadsJson() const;
   void NotifyDownloadsChanged();
   void NotifyDownloadBadge();
@@ -313,7 +316,7 @@ class OtfHandler : public CefClient,
  private:
   const bool use_alloy_style_;
   CefRefPtr<CefMessageRouterBrowserSide> message_router_;
-  
+
   typedef std::list<CefRefPtr<CefBrowser>> BrowserList;
   BrowserList browser_list_;
   bool is_closing_;

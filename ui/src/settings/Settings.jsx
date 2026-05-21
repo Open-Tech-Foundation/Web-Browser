@@ -603,6 +603,7 @@ const Settings = () => {
                       ['Ctrl + 0', 'Reset zoom'],
                     ]],
                     ['Browser', [
+                      ['F11', 'Toggle fullscreen'],
                       ['Ctrl + H', 'Open history page'],
                       ['Ctrl + J', 'Open downloads page'],
                       ['Space', 'Scroll down'],

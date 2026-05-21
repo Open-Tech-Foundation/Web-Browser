@@ -193,6 +193,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     CefRefPtr<CefBoxLayout> layout = window->SetToBoxLayout(layout_settings);
     OtfApp* app = OtfApp::GetInstance();
     app->window_ = window;
+    app->ui_view_ = ui_view_;
 
     if (ui_view_) {
       window->AddChildView(ui_view_);
@@ -1520,6 +1521,26 @@ void OtfApp::OnContextInitialized() {
 
 CefRefPtr<CefClient> OtfApp::GetDefaultClient() {
   return OtfHandler::GetInstance();
+}
+
+void OtfApp::ApplyFullscreenState() {
+  if (!window_) return;
+  window_->SetFullscreen(fullscreen_);
+  if (ui_view_) {
+    ui_view_->SetVisible(!fullscreen_);
+  }
+  window_->Layout();
+}
+
+void OtfApp::ToggleFullscreen() {
+  fullscreen_ = !fullscreen_;
+  ApplyFullscreenState();
+}
+
+void OtfApp::SetContentFullscreen(bool fullscreen) {
+  if (fullscreen_ == fullscreen) return;
+  fullscreen_ = fullscreen;
+  ApplyFullscreenState();
 }
 
 PopupOverlay* OtfApp::GetPopup(const std::string& name) {

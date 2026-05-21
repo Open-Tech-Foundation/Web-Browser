@@ -126,8 +126,12 @@ class OtfApp : public CefApp,
   void RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab);
 
   static OtfApp* GetInstance();
+  void ToggleFullscreen();
+  void SetContentFullscreen(bool fullscreen);
+
   CefRefPtr<CefWindow> window_;
   CefRefPtr<CefPanel> content_panel_;
+  CefRefPtr<CefBrowserView> ui_view_;
   CefRefPtr<CefOverlayController> findbar_overlay_;
   CefRefPtr<CefOverlayController> zoombar_overlay_;
   CefRefPtr<CefOverlayController> downloads_overlay_;
@@ -137,6 +141,9 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> image_preview_overlay_;
 
  private:
+  void ApplyFullscreenState();
+  bool fullscreen_ = false;
+
   TabManager tab_manager_;
   int current_tab_id_ = -1;
   std::string startup_behavior_ = "newtab";
