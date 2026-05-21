@@ -772,9 +772,8 @@ const formatBytes = (bytes) => {
 
 const guessPreviewFormat = (value) => {
   const source = (value || '').split('?')[0].split('#')[0];
-  const slash = source.lastIndexOf('/');
   const dot = source.lastIndexOf('.');
-  if (dot === -1 || dot < slash) return '';
+  if (dot === -1) return '';
   const ext = source.slice(dot + 1).toUpperCase();
   return ['TIF', 'TIFF', 'PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO'].includes(ext)
     ? ext

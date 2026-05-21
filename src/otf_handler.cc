@@ -474,19 +474,6 @@ std::string GuessImageMimeType(const std::string& url) {
   return "application/octet-stream";
 }
 
-std::string MimeTypeToPreviewFormat(const std::string& mime_type) {
-  if (mime_type == "image/jpeg") return "JPEG";
-  if (mime_type == "image/png") return "PNG";
-  if (mime_type == "image/gif") return "GIF";
-  if (mime_type == "image/webp") return "WEBP";
-  if (mime_type == "image/bmp") return "BMP";
-  if (mime_type == "image/x-icon" || mime_type == "image/vnd.microsoft.icon") return "ICO";
-  if (mime_type == "image/svg+xml") return "SVG";
-  if (mime_type == "image/avif") return "AVIF";
-  if (mime_type == "image/tiff") return "TIFF";
-  return "";
-}
-
 #if !defined(_WIN32)
 // Spawn a detached child running `program` with the given argv, with stdio
 // pointed at /dev/null. Uses fork+execvp directly so no shell is involved —
@@ -858,14 +845,12 @@ int64_t GetFileSizeBytes(const std::string& file_path, std::string* error_reason
 
 std::string GuessPreviewFormat(const std::string& url) {
   const size_t end = url.find_first_of("?#");
-  std::string clean_url = (end == std::string::npos) ? url : url.substr(0, end);
-  const size_t slash = clean_url.find_last_of('/');
-  const size_t dot = clean_url.find_last_of('.');
-  if (dot == std::string::npos ||
-      (slash != std::string::npos && dot < slash)) {
+  std::string path = (end == std::string::npos) ? url : url.substr(0, end);
+  const size_t dot = path.find_last_of('.');
+  if (dot == std::string::npos) {
     return "";
   }
-  std::string ext = clean_url.substr(dot + 1);
+  std::string ext = path.substr(dot + 1);
   std::transform(ext.begin(), ext.end(), ext.begin(),
                  [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
   if (ext == "TIF" || ext == "TIFF" || ext == "PNG" || ext == "JPG" || ext == "JPEG" ||
@@ -873,7 +858,7 @@ std::string GuessPreviewFormat(const std::string& url) {
       ext == "SVG" || ext == "AVIF") {
     return ext;
   }
-  return "";
+  return ext;
 }
 
 int FindDownloadRecordId(const std::map<int, OtfHandler::DownloadState>& downloads,
@@ -1418,11 +1403,6 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
       mime_type = GuessImageMimeType(source_url_);
     }
 
-    std::string preview_format = GuessPreviewFormat(source_url_);
-    if (preview_format.empty()) {
-      preview_format = MimeTypeToPreviewFormat(mime_type);
-    }
-
     if (is_tiff_) {
       std::string png_base64;
       int page_count = 1;
@@ -1458,7 +1438,7 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
     const std::string data_url = GetDataURI(raw_bytes_, mime_type);
     if (h && tab_id_ != -1) {
       h->SetImagePreviewFileSizeForTab(tab_id_, static_cast<int64_t>(raw_bytes_.size()));
-      h->SetImagePreviewFormatForTab(tab_id_, preview_format);
+      h->SetImagePreviewFormatForTab(tab_id_, GuessPreviewFormat(source_url_));
       h->tab_image_preview_download_cache_[tab_id_] = OtfHandler::ImagePreviewDownloadCache{
           source_url_, mime_type, raw_bytes_, data_url,
           static_cast<int64_t>(raw_bytes_.size()), 0, 1, false};
@@ -1473,7 +1453,7 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
                                    static_cast<int>(std::min<size_t>(
                                        raw_bytes_.size(),
                                        static_cast<size_t>(std::numeric_limits<int>::max()))))
-                           .AddString("format", preview_format)
+                           .AddString("format", GuessPreviewFormat(source_url_))
                            .Build());
   }
 
@@ -3183,9 +3163,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     } else if (msg.rfind("clear-permissions-for-site:", 0) == 0) {
       const std::string origin = msg.substr(27);
-      if (handler->store_) {
-        handler->store_->ClearSitePermissions(origin);
-      }
       if (browser) {
         CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
         params->SetString("origin", origin);
@@ -3194,67 +3171,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("ok");
       return true;
-    } else if (msg.rfind("get-permissions-for-site:", 0) == 0) {
-      const std::string origin = msg.substr(25);
-      if (handler->store_) {
-        std::string json = handler->store_->GetSitePermissionsJson(origin);
-        callback->Success(json);
-      } else {
-        callback->Success("{}");
-      }
-      return true;
-    } else if (msg.rfind("set-permission-for-site:", 0) == 0) {
-      const std::string payload = msg.substr(24);
-      size_t last_colon = payload.rfind(':');
-      if (last_colon != std::string::npos && last_colon > 0) {
-        size_t sec_colon = payload.rfind(':', last_colon - 1);
-        if (sec_colon != std::string::npos) {
-          std::string origin = payload.substr(0, sec_colon);
-          std::string permission = payload.substr(sec_colon + 1, last_colon - sec_colon - 1);
-          std::string setting = payload.substr(last_colon + 1);
-
-          if (handler->store_) {
-            handler->store_->SetSitePermission(origin, permission, setting);
-          }
-
-          if (browser) {
-            std::string cdp_name;
-            if (permission == "location") cdp_name = "geolocation";
-            else if (permission == "camera") cdp_name = "camera";
-            else if (permission == "microphone") cdp_name = "microphone";
-            else if (permission == "notifications") cdp_name = "notifications";
-            else if (permission == "clipboard") cdp_name = "clipboard-read";
-            else if (permission == "backgroundSync") cdp_name = "background-sync";
-            else if (permission == "sensors") cdp_name = "sensors";
-            else if (permission == "midi") cdp_name = "midi";
-
-            if (!cdp_name.empty()) {
-              std::string cdp_setting = "default";
-              if (setting == "allow") cdp_setting = "granted";
-              else if (setting == "block") cdp_setting = "denied";
-              else if (setting == "ask") cdp_setting = "prompt";
-
-              CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
-              params->SetString("origin", origin);
-              CefRefPtr<CefDictionaryValue> perm_desc = CefDictionaryValue::Create();
-              perm_desc->SetString("name", cdp_name);
-              params->SetDictionary("permission", perm_desc);
-              params->SetString("setting", cdp_setting);
-
-              browser->GetHost()->ExecuteDevToolsMethod(0, "Browser.setPermission", params);
-            }
-          }
-          callback->Success("ok");
-          return true;
-        }
-      }
-      callback->Failure(1, "invalid payload");
-      return true;
     } else if (msg.rfind("clear-all-for-site:", 0) == 0) {
       const std::string origin = msg.substr(19);
-      if (handler->store_) {
-        handler->store_->ClearSitePermissions(origin);
-      }
       // Fire storage + permissions clears (CDP, fire-and-forget). Then do
       // a per-cookie visitor purge so domain cookies are caught — see
       // clear-cookies-for-site for the why.
@@ -3794,7 +3712,6 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
       if (otf::IsLocalFilesystemPathLike(url_str)) {
         return;
       }
-
 
       if (tab_manager_) {
         const bool is_image_preview_url =
