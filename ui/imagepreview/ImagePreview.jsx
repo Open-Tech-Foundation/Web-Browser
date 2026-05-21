@@ -647,21 +647,23 @@ const ImagePreview = () => {
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
       >
-        <img
-          ref={imgRef}
-          src={displayUrl}
-          alt="Preview"
-          onLoad={handleImageLoad}
-          style={{
-            transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotation}deg)`,
-            transition: isDragging ? 'none' : 'transform 0.2s ease-out',
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain',
-            pointerEvents: 'none'
-          }}
-          draggable="false"
-        />
+        {displayUrl && (
+          <img
+            ref={imgRef}
+            src={displayUrl}
+            alt="Preview"
+            onLoad={handleImageLoad}
+            style={{
+              transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotation}deg)`,
+              transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain',
+              pointerEvents: 'none'
+            }}
+            draggable="false"
+          />
+        )}
       </div>
 
       {/* Metadata Panel */}
