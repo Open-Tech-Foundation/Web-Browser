@@ -197,6 +197,10 @@ class OtfHandler : public CefClient,
   // which is set by the show-clear-site-data:<origin> handler.
   std::string pending_cleardata_origin_;
   std::string pending_qr_url_;
+  // Pending popup data for the blockedpopup overlay restore producer.
+  int popup_ask_pending_id_ = -1;
+  std::string popup_ask_pending_url_;
+  std::string popup_ask_pending_origin_;
 
   // Async DevTools-protocol callback router. Attached to the UI shell
   // browser in OnAfterCreated. Used by get-storage-for-site to call
@@ -285,6 +289,16 @@ class OtfHandler : public CefClient,
   std::map<int, CefRefPtr<CefDownloadItemCallback>> download_callbacks_;
   std::map<uint32_t, int> runtime_download_ids_;
   std::unique_ptr<OtfStore> store_;
+
+  struct PendingPopup {
+    std::string url;
+    std::string origin;
+    int parent_tab_id = 0;
+    int64_t expires_at = 0;
+  };
+  std::map<int, PendingPopup> pending_popups_;
+  int next_pending_popup_id_ = 1;
+  int pending_external_popups_ = 0;
 
   // Workspace state. active_workspace_id_ is the workspace whose tabs are
   // currently surfaced in the UI; new tabs join it. workspace_contexts_ is

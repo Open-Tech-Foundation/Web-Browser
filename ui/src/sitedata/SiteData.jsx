@@ -13,13 +13,29 @@ const callQuery = (request) => new Promise((resolve) => {
   });
 });
 
+const PERMISSION_LABELS = {
+  popup: 'Pop-ups',
+  location: 'Location',
+  camera: 'Camera',
+  microphone: 'Microphone',
+  notifications: 'Notifications',
+  clipboard: 'Clipboard',
+  backgroundSync: 'Background sync',
+  sensors: 'Sensors',
+  midi: 'MIDI',
+};
+
+const SETTING_ORDER = ['ask', 'allow', 'block'];
+
 const SiteData = () => {
   const [origin, setOrigin] = useState('');
   const [cookies, setCookies] = useState([]);
   const [storage, setStorage] = useState(null);
+  const [permissions, setPermissions] = useState({});
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [activeTab, setActiveTab] = useState('cookies');
+  const [settingBusy, setSettingBusy] = useState({});
   const [selection, setSelection] = useState({
     cookies: true,
     storage: true,
@@ -33,9 +49,10 @@ const SiteData = () => {
 
   const refresh = async () => {
     if (!origin) return;
-    const [cookiesRes, storageRes] = await Promise.all([
+    const [cookiesRes, storageRes, permsRes] = await Promise.all([
       callQuery(`get-cookies-for-site:${origin}`),
       callQuery(`get-storage-for-site:${origin}`),
+      callQuery(`get-permissions-for-site:${origin}`),
     ]);
     if (cookiesRes.ok) {
       try { setCookies(JSON.parse(cookiesRes.response)); } catch (_) {}
@@ -45,6 +62,18 @@ const SiteData = () => {
       catch (_) { setStorage(null); }
     } else {
       setStorage(null);
+    }
+    if (permsRes.ok) {
+      try { setPermissions(JSON.parse(permsRes.response)); } catch (_) {}
+    }
+  };
+
+  const setPermission = async (perm, setting) => {
+    setSettingBusy((s) => ({ ...s, [perm]: true }));
+    const res = await callQuery(`set-permission-for-site:${origin}:${perm}:${setting}`);
+    setSettingBusy((s) => ({ ...s, [perm]: false }));
+    if (res.ok) {
+      setPermissions((p) => ({ ...p, [perm]: setting }));
     }
   };
 
@@ -225,12 +254,46 @@ const SiteData = () => {
         {activeTab === 'permissions' && (
           <section className="mb-8">
             <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">Permissions</h2>
-            <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6">
-              <div className="text-sm text-slate-400 mb-3">Per-site permission details are not yet exposed.</div>
-              <div className="text-xs text-slate-500 leading-relaxed">
-                Standard permissions (such as camera, microphone, notifications, and location) are set to their default settings or managed globally. Granular site-specific controls will be available in a future update.
-              </div>
+            <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-100 dark:bg-slate-800/60">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold">Permission</th>
+                    <th className="text-right px-3 py-2 font-semibold">Setting</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(PERMISSION_LABELS).map(([key, label], i) => {
+                    const current = permissions[key] || 'ask';
+                    const nextIdx = (SETTING_ORDER.indexOf(current) + 1) % SETTING_ORDER.length;
+                    const next = SETTING_ORDER[nextIdx];
+                    return (
+                      <tr key={key} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2.5">{label}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          <button
+                            disabled={settingBusy[key]}
+                            onClick={() => setPermission(key, next)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/20 disabled:opacity-50 ${
+                              current === 'allow'
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                : current === 'block'
+                                  ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+                                  : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                            }`}
+                          >
+                            {current === 'allow' ? 'Allow' : current === 'block' ? 'Block' : 'Ask'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+            <p className="text-[10px] text-slate-400 mt-2">
+              Click a setting to cycle: Ask → Allow → Block → Ask.
+            </p>
           </section>
         )}
       </div>

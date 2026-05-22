@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import SecurityIconButton from './SecurityIconButton';
 
-const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate, onShowClearSiteData, onShowQr }, ref) => {
+const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate, onShowClearSiteData, onShowQr, blockedPopupOrigin, onShowBlockedPopup }, ref) => {
   const [url, setUrl] = useState(initialUrl);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef(null);
@@ -70,6 +70,8 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   const showSecurityIcon = isSecure || isInsecure;
   const visibleIsBookmarked = Boolean(isBookmarked);
   const displayUrl = isFocused ? url : getDisplayUrl(url);
+  const currentOrigin = (() => { try { return new URL(url || '', window.location.origin).origin; } catch (_) { return ''; } })();
+  const hasBlockedPopup = Boolean(blockedPopupOrigin) && blockedPopupOrigin === currentOrigin;
 
   return (
     <div className="flex flex-1 items-center h-8 bg-input-light dark:bg-input-dark rounded-full px-4 border border-slate-200 dark:border-slate-800 focus-within:border-brand-orange transition-all duration-200 mx-2 group relative">
@@ -94,6 +96,22 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
         placeholder="Search or enter address..."
       />
       
+      {url && !url.startsWith('browser://') && hasBlockedPopup && (
+        <div className="relative ml-2">
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onShowBlockedPopup}
+            className="p-1 rounded-md transition-all active:scale-90 relative z-10 text-amber-500 hover:text-amber-600 dark:hover:text-amber-400"
+            title="Pop-up blocked"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+          <span className="absolute -right-1 -top-1 min-w-[14px] rounded-full bg-amber-500 px-1 text-center text-[9px] font-semibold leading-[14px] text-white">!</span>
+        </div>
+      )}
       {url && !url.startsWith('browser://') && (
         <button
           onMouseDown={(e) => e.preventDefault()}

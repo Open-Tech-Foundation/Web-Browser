@@ -110,6 +110,15 @@ class OtfStore {
   bool ReplaceWorkspaceTabs(int workspace_id, const std::vector<WorkspaceTab>& tabs);
   std::vector<WorkspaceTab> GetWorkspaceTabs(int workspace_id) const;
 
+  bool ClearSitePermissions(const std::string& origin);
+  bool ClearAllSitePermissions();
+  std::string GetSitePermissionsJson(const std::string& origin) const;
+  std::string GetSitePermission(const std::string& origin,
+                                const std::string& permission) const;
+  bool SetSitePermission(const std::string& origin,
+                         const std::string& permission,
+                         const std::string& setting);
+
   // Test-facing: returns whether secure_delete is on for this connection.
   // SQLite pragmas are per-connection, not stored in the file, so the only
   // way to verify our Open() set it is to query the same connection.

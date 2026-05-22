@@ -22,6 +22,7 @@ constexpr int kImagePreviewBrowserViewId = 1005;
 constexpr int kClearSiteDataBrowserViewId = 1006;
 constexpr int kWorkspaceBrowserViewId = 1007;
 constexpr int kQrBrowserViewId = 1008;
+constexpr int kBlockedPopupBrowserViewId = 1009;
 
 enum class ImagePreviewMode {
   kNone = 0,

@@ -87,6 +87,7 @@ const App = () => {
   const [searchEngine, setSearchEngine] = React.useState('');
   const [downloadBadge, setDownloadBadge] = React.useState(0);
   const [hasDownloads, setHasDownloads] = React.useState(false);
+  const [blockedPopupOrigin, setBlockedPopupOrigin] = React.useState('');
   const initialized = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -228,6 +229,8 @@ const App = () => {
                 type: 'UPDATE_TAB',
                 payload: { id: event.id, key: 'bookmarked', value: Boolean(event.bookmarked) }
               });
+            } else if (event.key === 'popup-blocked') {
+              if (event.origin) setBlockedPopupOrigin(event.origin);
             } else if (event.key === 'shortcut') {
               if (event.value === 'focus-bar') {
                 addressBarRef.current?.focus();
@@ -367,6 +370,11 @@ const App = () => {
   // on. Use URL parsing rather than substring slicing so credentials/ports
   // are stripped cleanly. If parsing fails (about:blank, data:, etc.), we
   // skip — the icon is already gated on a regular http(s) URL upstream.
+  const handleShowBlockedPopup = () => {
+    setBlockedPopupOrigin('');
+    window.cefQuery({ request: 'show-popup:blockedpopup' });
+  };
+
   const handleShowClearSiteData = () => {
     const raw = currentActiveTab?.url || '';
     let origin = '';
@@ -436,6 +444,8 @@ const App = () => {
             isBookmarked={Boolean(currentActiveTab?.bookmarked)}
             onToggleBookmark={handleToggleBookmark}
             sslError={currentActiveTab?.sslError}
+            blockedPopupOrigin={blockedPopupOrigin}
+            onShowBlockedPopup={handleShowBlockedPopup}
             onShowQr={handleShowQr}
             onShowClearSiteData={handleShowClearSiteData}
           />

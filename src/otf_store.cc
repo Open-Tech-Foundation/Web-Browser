@@ -43,6 +43,24 @@ bool IsInternalBrowserHistoryUrl(const std::string& url) {
   return otf::IsInternalUiUrl(url);
 }
 
+std::string NormalizeOrigin(const std::string& origin) {
+  // Strip default ports so https://example.com:443 and https://example.com match.
+  if (origin.rfind("http://", 0) == 0) {
+    size_t port_start = origin.find(':', 7);
+    if (port_start != std::string::npos) {
+      std::string port_str = origin.substr(port_start + 1);
+      if (port_str == "80") return origin.substr(0, port_start);
+    }
+  } else if (origin.rfind("https://", 0) == 0) {
+    size_t port_start = origin.find(':', 8);
+    if (port_start != std::string::npos) {
+      std::string port_str = origin.substr(port_start + 1);
+      if (port_str == "443") return origin.substr(0, port_start);
+    }
+  }
+  return origin;
+}
+
 }  // namespace
 
 OtfStore::OtfStore() : db_(nullptr) {
@@ -203,6 +221,23 @@ bool OtfStore::RunMigrations() {
   // backend-only column instead of overloading the public tab URL.
   Exec("ALTER TABLE workspace_tabs ADD COLUMN preview_local_path TEXT NOT NULL DEFAULT '';");
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (4);");
+
+  // Migration v5: site permissions table
+  bool perm_ok =
+      Exec(
+          "CREATE TABLE IF NOT EXISTS site_permissions ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "origin TEXT NOT NULL,"
+          "permission TEXT NOT NULL,"
+          "setting TEXT NOT NULL DEFAULT 'ask',"
+          "created_at INTEGER NOT NULL,"
+          "updated_at INTEGER NOT NULL,"
+          "UNIQUE(origin, permission)"
+          ");") &&
+      Exec("CREATE INDEX IF NOT EXISTS idx_site_permissions_origin "
+           "ON site_permissions(origin);");
+  if (!perm_ok) return false;
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (5);");
 
   return true;
 }
@@ -585,6 +620,96 @@ bool OtfStore::IsBookmarked(const std::string& url) const {
     sqlite3_finalize(stmt);
   }
   return found;
+}
+
+bool OtfStore::ClearSitePermissions(const std::string& origin) {
+  if (!db_ || origin.empty()) return false;
+  const std::string norm = NormalizeOrigin(origin);
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "DELETE FROM site_permissions WHERE origin = ?;", -1,
+                         &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+bool OtfStore::ClearAllSitePermissions() {
+  if (!db_) return false;
+  return Exec("DELETE FROM site_permissions;");
+}
+
+std::string OtfStore::GetSitePermissionsJson(const std::string& origin) const {
+  if (!db_ || origin.empty()) return "{}";
+  const std::string norm = NormalizeOrigin(origin);
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "SELECT permission, setting FROM site_permissions WHERE origin = ?;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return "{}";
+  }
+  sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
+  std::string json = "{";
+  bool first = true;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (!first) json += ",";
+    first = false;
+    const char* perm = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    const char* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+    json += "\"" + (perm ? std::string(perm) : "") + "\":\""
+          + (val ? std::string(val) : "") + "\"";
+  }
+  sqlite3_finalize(stmt);
+  json += "}";
+  return json;
+}
+
+std::string OtfStore::GetSitePermission(const std::string& origin,
+                                        const std::string& permission) const {
+  if (!db_ || origin.empty() || permission.empty()) return {};
+  const std::string norm = NormalizeOrigin(origin);
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_,
+                         "SELECT setting FROM site_permissions "
+                         "WHERE origin = ? AND permission = ?;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return {};
+  }
+  sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, permission.c_str(), -1, SQLITE_TRANSIENT);
+  std::string setting;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    if (val) setting = val;
+  }
+  sqlite3_finalize(stmt);
+  return setting;
+}
+
+bool OtfStore::SetSitePermission(const std::string& origin,
+                                 const std::string& permission,
+                                 const std::string& setting) {
+  if (!db_ || origin.empty() || permission.empty()) return false;
+  const std::string norm = NormalizeOrigin(origin);
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "INSERT INTO site_permissions(origin, permission, setting, created_at, updated_at) "
+      "VALUES(?, ?, ?, ?, ?) "
+      "ON CONFLICT(origin, permission) DO UPDATE SET "
+      "setting = excluded.setting, updated_at = excluded.updated_at;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  const int64_t now = Now();
+  sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, permission.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, setting.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(stmt, 4, now);
+  sqlite3_bind_int64(stmt, 5, now);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
 }
 
 bool OtfStore::IsSecureDeleteEnabled() const {
