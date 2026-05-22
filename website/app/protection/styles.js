@@ -158,6 +158,39 @@ export const protectionStyles = `
   padding: 10px; border-radius: 4px;
 }
 
+/* Realm coverage grid */
+#protection-container .realm-grid-wrap { margin-top: 12px; }
+#protection-container .realm-grid-scroll { overflow-x: auto; }
+#protection-container .realm-grid {
+  border-collapse: collapse; font-size: 11px; white-space: nowrap; width: 100%;
+}
+#protection-container .realm-grid th,
+#protection-container .realm-grid td {
+  border: 1px solid var(--line); padding: 4px 6px; text-align: center;
+}
+#protection-container .realm-grid-corner { text-align: left; background: var(--chip); }
+#protection-container .realm-grid-ph {
+  background: var(--chip); font-weight: 600; font-size: 10px;
+  max-width: 72px; overflow: hidden; text-overflow: ellipsis;
+}
+#protection-container .realm-grid-ctx {
+  text-align: left; font-weight: 600; background: var(--chip); padding: 4px 10px;
+}
+#protection-container .realm-grid-cell { font-weight: 700; min-width: 28px; }
+#protection-container .rg-match    { background: #d6e9d0; color: #234118; }
+#protection-container .rg-mismatch { background: #f5d3c4; color: #5e1f10; }
+#protection-container .rg-baseline { background: var(--panel); color: var(--muted); }
+#protection-container .rg-na       { background: var(--chip); color: var(--muted); }
+#protection-container .rg-absent   { background: #ffe9b8; color: #5e4a10; }
+#protection-container .rg-null     { background: #ffe9b8; color: #5e4a10; }
+
+#protection-container .realm-grid-legend {
+  display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 11px;
+}
+#protection-container .rgl {
+  padding: 2px 8px; border-radius: 3px; font-weight: 700; border: 1px solid var(--line);
+}
+
 @media (max-width: 720px) {
   #protection-container .score-card { grid-template-columns: 1fr; }
   #protection-container .row-head { grid-template-columns: 28px 1fr auto; }

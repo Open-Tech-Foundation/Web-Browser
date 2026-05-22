@@ -309,6 +309,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   (() => {
     'use strict';
 
+    if (typeof Navigator === 'undefined') return;
+
     const SPOOFED_PLATFORM = 'Linux x86_64';
 
     const proto = Navigator.prototype;

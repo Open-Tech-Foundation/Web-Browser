@@ -13,6 +13,7 @@ import audio from "./audio.js";
 import localFontApi from "./local-font-api.js";
 import webgpu from "./webgpu.js";
 import navigationScheme from "./navigation-scheme.js";
+import realmCoverage from "./realm-coverage.js";
 
 export default [
   // Privacy modules
@@ -30,4 +31,5 @@ export default [
   // Security modules
   webgpu,
   navigationScheme,
+  realmCoverage,
 ];

@@ -241,6 +241,66 @@ export default function ProtectionPage() {
                       <canvas id={`preview-canvas-${id}`} width="420" height="140"></canvas>
                     </div>
                   ) : null}
+                  {rowsState.value[id].extra?.previewKind === 'realm-grid' ? (() => {
+                    const { contexts, properties, values, baseline } = rowsState.value[id].extra;
+                    const cellState = (ctx, prop) => {
+                      const row = values[ctx.id];
+                      if (!row) return 'absent';
+                      if (prop.kind === 'dom' && ctx.kind === 'worker') return 'na';
+                      const v = row[prop.key];
+                      if (v === null || v === undefined) return 'null';
+                      if (ctx.id === 'main') return 'baseline';
+                      if (String(v) === String(baseline[prop.key])) return 'match';
+                      return 'mismatch';
+                    };
+                    return (
+                      <div className="realm-grid-wrap">
+                        <div className="realm-grid-scroll">
+                          <table className="realm-grid">
+                            <thead>
+                              <tr>
+                                <th className="realm-grid-corner">Context</th>
+                                {properties.map((p) => (
+                                  <th key={p.key} className="realm-grid-ph" title={p.key}>{p.label}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {contexts.map((c) => (
+                                <tr key={c.id}>
+                                  <td className="realm-grid-ctx">{c.label}</td>
+                                  {properties.map((p) => {
+                                    const s = cellState(c, p);
+                                    const row = values[c.id];
+                                    const val = row ? String(row[p.key] ?? '–') : '–';
+                                    const tip = s === 'na' ? 'N/A (DOM-only)' : val;
+                                    return (
+                                      <td key={p.key} className={`realm-grid-cell rg-${s}`} title={tip}>
+                                        {s === 'match' ? '✓'
+                                          : s === 'mismatch' ? '✗'
+                                          : s === 'baseline' ? '·'
+                                          : s === 'na' ? '—'
+                                          : s === 'absent' ? '!'
+                                          : '?'}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="realm-grid-legend">
+                          <span className="rgl rg-match">✓ match</span>
+                          <span className="rgl rg-mismatch">✗ mismatch</span>
+                          <span className="rgl rg-baseline">· baseline</span>
+                          <span className="rgl rg-na">— N/A</span>
+                          <span className="rgl rg-absent">! failed</span>
+                          <span className="rgl rg-null">? null</span>
+                        </div>
+                      </div>
+                    );
+                  })() : null}
                   {id === 'fp-enumerate-devices' ? (
                     <div className="preview">
                       <div className="speaker-test-header">

@@ -27,6 +27,7 @@
     "test:e2e:clear-site-data": "scripts/run-e2e.sh tests/e2e/clear-site-data.test.js",
     "test:e2e:startup-urls": "scripts/run-e2e.sh tests/e2e/startup-urls.test.js",
     "test:e2e:fingerprints": "scripts/run-e2e.sh tests/e2e/fingerprints.test.js",
+    "test:e2e:web-worker": "scripts/run-e2e.sh tests/e2e/web-worker.test.js",
     "test": "bun run test:cpp && bun run test:js",
     "setup": "./setup_deps.sh",
     "release": "bun scripts/release.js"
