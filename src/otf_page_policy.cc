@@ -254,14 +254,18 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   installScreenPolicy();
 
   // Hardware: normalize CPU and memory signals to a common desktop profile.
+  // In worker realms globalThis.Navigator is undefined; fall back to the
+  // prototype of the live navigator object (WorkerNavigator.prototype).
   const installHardwarePolicy = () => {
     try {
       const NavigatorCtor = globalThis.Navigator;
-      if (NavigatorCtor && NavigatorCtor.prototype &&
-          !NavigatorCtor.prototype.__otfHardwarePolicy) {
-        defineGetter(NavigatorCtor.prototype, 'hardwareConcurrency', 4);
-        defineGetter(NavigatorCtor.prototype, 'deviceMemory', 4);
-        Object.defineProperty(NavigatorCtor.prototype, '__otfHardwarePolicy', {
+      const proto = NavigatorCtor
+        ? NavigatorCtor.prototype
+        : Object.getPrototypeOf(navigator);
+      if (proto && !proto.__otfHardwarePolicy) {
+        defineGetter(proto, 'hardwareConcurrency', 4);
+        defineGetter(proto, 'deviceMemory', 4);
+        Object.defineProperty(proto, '__otfHardwarePolicy', {
           value: true,
           configurable: false,
           enumerable: false
@@ -1533,10 +1537,13 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   })();
 
   // Network Information API: remove the surface entirely.
+  // Also targets WorkerNavigator.prototype so workers don't leak it either.
   (() => {
     'use strict';
     try { delete Navigator.prototype.connection; } catch (_) {}
     try { delete navigator.connection; } catch (_) {}
+    // Remove from the live navigator prototype — covers WorkerNavigator in worker realms.
+    try { delete Object.getPrototypeOf(navigator).connection; } catch (_) {}
     // vendor-prefixed variants
     try { delete Navigator.prototype.mozConnection; } catch (_) {}
     try { delete Navigator.prototype.webkitConnection; } catch (_) {}
@@ -1605,7 +1612,13 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     WrappedWorker.prototype = OriginalWorker.prototype;
     Object.setPrototypeOf(WrappedWorker, OriginalWorker);
     Object.defineProperty(WrappedWorker, '__otfWorkerPolicy', { value: true });
-    try { globalThis[name] = WrappedWorker; } catch (_) {}
+    // Simple assignment fails for SharedWorker (non-configurable global in Chromium).
+    // Force-replace via defineProperty so the wrapped ctor is always used.
+    try {
+      Object.defineProperty(globalThis, name, {
+        value: WrappedWorker, configurable: true, writable: true, enumerable: false,
+      });
+    } catch (_) {}
   };
   wrapWorkerCtor('Worker');
   wrapWorkerCtor('SharedWorker');

@@ -37,7 +37,8 @@ export default defineConfig({
         sitedata: resolve(__dirname, 'sitedata.html'),
         workspace: resolve(__dirname, 'workspace.html'),
         qr: resolve(__dirname, 'qr.html'),
-        blockedpopup: resolve(__dirname, 'blockedpopup.html')
+        blockedpopup: resolve(__dirname, 'blockedpopup.html'),
+        downloadrequest: resolve(__dirname, 'downloadrequest.html')
       }
     }
   }

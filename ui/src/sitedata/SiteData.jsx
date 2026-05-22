@@ -15,14 +15,7 @@ const callQuery = (request) => new Promise((resolve) => {
 
 const PERMISSION_LABELS = {
   popup: 'Pop-ups',
-  location: 'Location',
-  camera: 'Camera',
-  microphone: 'Microphone',
-  notifications: 'Notifications',
-  clipboard: 'Clipboard',
-  backgroundSync: 'Background sync',
-  sensors: 'Sensors',
-  midi: 'MIDI',
+  downloads: 'Downloads',
 };
 
 const SETTING_ORDER = ['ask', 'allow', 'block'];
@@ -150,7 +143,9 @@ const SiteData = () => {
               }`}
             >
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'permissions' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Permissions</div>
-              <div className="font-mono text-2xl font-bold">—</div>
+              <div className="font-mono text-2xl font-bold">
+                {Object.keys(PERMISSION_LABELS).filter(k => (permissions[k] || 'ask') !== 'ask').length}
+              </div>
             </button>
           </div>
         </section>
@@ -253,7 +248,18 @@ const SiteData = () => {
 
         {activeTab === 'permissions' && (
           <section className="mb-8">
-            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">Permissions</h2>
+            {(() => {
+              const overridden = Object.keys(PERMISSION_LABELS).filter(k => (permissions[k] || 'ask') !== 'ask');
+              return (
+                <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">
+                  Permissions
+                  <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                    {Object.keys(PERMISSION_LABELS).length} available
+                    {overridden.length > 0 && ` · ${overridden.length} overridden`}
+                  </span>
+                </h2>
+              );
+            })()}
             <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-slate-100 dark:bg-slate-800/60">

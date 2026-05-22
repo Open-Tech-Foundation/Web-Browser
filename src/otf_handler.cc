@@ -3253,34 +3253,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           if (handler->store_) {
             handler->store_->SetSitePermission(origin, permission, setting);
           }
-
-          if (browser) {
-            std::string cdp_name;
-            if (permission == "location") cdp_name = "geolocation";
-            else if (permission == "camera") cdp_name = "camera";
-            else if (permission == "microphone") cdp_name = "microphone";
-            else if (permission == "notifications") cdp_name = "notifications";
-            else if (permission == "clipboard") cdp_name = "clipboard-read";
-            else if (permission == "backgroundSync") cdp_name = "background-sync";
-            else if (permission == "sensors") cdp_name = "sensors";
-            else if (permission == "midi") cdp_name = "midi";
-
-            if (!cdp_name.empty()) {
-              std::string cdp_setting = "default";
-              if (setting == "allow") cdp_setting = "granted";
-              else if (setting == "block") cdp_setting = "denied";
-              else if (setting == "ask") cdp_setting = "prompt";
-
-              CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
-              params->SetString("origin", origin);
-              CefRefPtr<CefDictionaryValue> perm_desc = CefDictionaryValue::Create();
-              perm_desc->SetString("name", cdp_name);
-              params->SetDictionary("permission", perm_desc);
-              params->SetString("setting", cdp_setting);
-
-              browser->GetHost()->ExecuteDevToolsMethod(0, "Browser.setPermission", params);
-            }
-          }
           callback->Success("ok");
           return true;
         }
@@ -3359,6 +3331,36 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
           }
           handler->pending_popups_.erase(it);
+        }
+      }
+      callback->Success("ok");
+      return true;
+    } else if (msg.rfind("allow-download:", 0) == 0) {
+      const std::string origin = NormalizeOrigin(msg.substr(15));
+      if (!origin.empty()) {
+        handler->allow_once_downloads_.insert(origin);
+        if (OtfApp* a = OtfApp::GetInstance()) {
+          if (auto* ov = a->GetPopup("downloadrequest")) ov->Hide();
+        }
+        if (!handler->download_ask_pending_url_.empty() && handler->download_ask_pending_browser_) {
+          handler->download_ask_pending_browser_->GetHost()->StartDownload(handler->download_ask_pending_url_);
+          handler->download_ask_pending_url_.clear();
+          handler->download_ask_pending_browser_ = nullptr;
+        }
+      }
+      callback->Success("ok");
+      return true;
+    } else if (msg.rfind("always-allow-download:", 0) == 0) {
+      const std::string origin = NormalizeOrigin(msg.substr(22));
+      if (!origin.empty() && handler->store_) {
+        handler->store_->SetSitePermission(origin, "downloads", "allow");
+        if (OtfApp* a = OtfApp::GetInstance()) {
+          if (auto* ov = a->GetPopup("downloadrequest")) ov->Hide();
+        }
+        if (!handler->download_ask_pending_url_.empty() && handler->download_ask_pending_browser_) {
+          handler->download_ask_pending_browser_->GetHost()->StartDownload(handler->download_ask_pending_url_);
+          handler->download_ask_pending_url_.clear();
+          handler->download_ask_pending_browser_ = nullptr;
         }
       }
       callback->Success("ok");
@@ -3810,13 +3812,106 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
   return ctx;
 }
 
+// --- Helper: extract scheme://host[:port] origin from a URL. ---
+static std::string ExtractOrigin(const std::string& url) {
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) return {};
+  std::string scheme = CefString(&parts.scheme).ToString();
+  std::string host = CefString(&parts.host).ToString();
+  std::string port = CefString(&parts.port).ToString();
+  if (scheme.empty() || host.empty()) {
+    if (url.rfind("file://", 0) == 0) return "file://";
+    return {};
+  }
+  std::string origin = scheme + "://" + host;
+  if (!port.empty()) {
+    if ((scheme == "http" && port != "80") ||
+        (scheme == "https" && port != "443") ||
+        (scheme != "http" && scheme != "https")) {
+      origin += ":" + port;
+    }
+  }
+  return origin;
+}
+
+// --- Helper: best-guess filename from a download URL. ---
+static std::string ExtractDownloadName(const std::string& url) {
+  // Strip query string / fragment.
+  std::string::size_type q = url.find_first_of("?#");
+  std::string path = q != std::string::npos ? url.substr(0, q) : url;
+  // Last non-empty path segment.
+  std::string::size_type s = path.rfind('/');
+  if (s == std::string::npos) return {};
+  std::string name = path.substr(s + 1);
+  if (name.empty()) return {};
+  // Basic URL-decode: %20 → space etc.
+  std::string decoded;
+  decoded.reserve(name.size());
+  for (std::string::size_type i = 0; i < name.size(); ++i) {
+    if (name[i] == '%' && i + 2 < name.size()) {
+      char hi = name[i + 1];
+      char lo = name[i + 2];
+      int h = (hi >= '0' && hi <= '9') ? (hi - '0')
+            : (hi >= 'A' && hi <= 'F') ? (hi - 'A' + 10)
+            : (hi >= 'a' && hi <= 'f') ? (hi - 'a' + 10) : -1;
+      int l = (lo >= '0' && lo <= '9') ? (lo - '0')
+            : (lo >= 'A' && lo <= 'F') ? (lo - 'A' + 10)
+            : (lo >= 'a' && lo <= 'f') ? (lo - 'a' + 10) : -1;
+      if (h >= 0 && l >= 0) { decoded += static_cast<char>((h << 4) | l); i += 2; }
+      else { decoded += name[i]; }
+    } else {
+      decoded += name[i];
+    }
+  }
+  return decoded;
+}
+
 bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
                              const CefString& url,
                              const CefString& request_method) {
   CEF_REQUIRE_UI_THREAD();
-  (void)browser;
   (void)request_method;
-  return true;
+
+  if (!store_) return true;
+
+  CefRefPtr<CefFrame> main_frame = browser->GetMainFrame();
+  std::string page_origin =
+      main_frame ? ExtractOrigin(main_frame->GetURL().ToString()) : "";
+  if (page_origin.empty()) return true;
+
+  // Check transient allow-once (set by allow-download handler).
+  if (allow_once_downloads_.erase(page_origin) > 0) {
+    return true;
+  }
+
+  std::string setting = store_->GetSitePermission(page_origin, "downloads");
+  if (setting == "block") {
+    return false;
+  }
+  if (setting == "ask" || setting.empty()) {
+    const std::string download_url = url.ToString();
+    const std::string display_name = ExtractDownloadName(download_url);
+    download_ask_pending_url_ = download_url;
+    download_ask_pending_origin_ = page_origin;
+    download_ask_pending_name_ = display_name;
+    download_ask_pending_browser_ = browser;
+
+    if (OtfApp* a = OtfApp::GetInstance()) {
+      if (auto* ov = a->GetPopup("downloadrequest")) {
+        ov->SetRestoreProducer([this]() {
+          return JsonObjectBuilder()
+              .AddString("url", download_ask_pending_url_)
+              .AddString("origin", download_ask_pending_origin_)
+              .AddString("name", download_ask_pending_name_)
+              .Build();
+        });
+        ov->Show();
+      }
+    }
+    return false;
+  }
+
+  return true;  // "allow"
 }
 
 std::string OtfHandler::GetDownloadsJson() const {
@@ -4207,31 +4302,6 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
   frame->LoadURL(GetDataURI(ss.str(), "text/html"));
 }
 
-namespace {
-
-std::string ExtractOrigin(const std::string& url) {
-  CefURLParts parts;
-  if (!CefParseURL(url, parts)) return {};
-  std::string scheme = CefString(&parts.scheme).ToString();
-  std::string host = CefString(&parts.host).ToString();
-  std::string port = CefString(&parts.port).ToString();
-  if (scheme.empty() || host.empty()) {
-    if (url.rfind("file://", 0) == 0) return "file://";
-    return {};
-  }
-  std::string origin = scheme + "://" + host;
-  if (!port.empty()) {
-    if ((scheme == "http" && port != "80") ||
-        (scheme == "https" && port != "443") ||
-        (scheme != "http" && scheme != "https")) {
-      origin += ":" + port;
-    }
-  }
-  return origin;
-}
-
-}  // namespace
-
 bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
                                CefRefPtr<CefFrame> frame,
                                int popup_id,
@@ -4367,6 +4437,27 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
                                         ? download_item->GetSuggestedFileName().ToString()
                                         : suggested_name.ToString();
   const std::string target_path = BuildDownloadPath(resolved_name);
+  const std::string download_url = download_item->GetOriginalUrl().ToString();
+  const std::string origin = ExtractOrigin(download_url.empty()
+                                               ? download_item->GetURL().ToString()
+                                               : download_url);
+
+  // Consume transient allow-once entry set by the allow-download handler.
+  // StartDownload may bypass CanDownload where it's normally consumed, so
+  // we must consume it here to prevent a stale entry from silently allowing
+  // the next download from this origin.
+  if (!origin.empty()) {
+    allow_once_downloads_.erase(origin);
+  }
+
+  // Safety net: if the store says block (CanDownload might have been
+  // bypassed), cancel the download before any data is saved.
+  if (store_ && !origin.empty()) {
+    std::string setting = store_->GetSitePermission(origin, "downloads");
+    if (setting == "block") {
+      return false;
+    }
+  }
 
   const uint32_t runtime_id = download_item->GetId();
   int record_id = static_cast<int>(runtime_id);
@@ -4771,8 +4862,6 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
   // like IDC_CONTENT_CONTEXT_COPYLINKLOCATION natively (clipboard copy).
   return false;
 }
-
-
 
 bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                  CefRefPtr<CefFrame> frame,

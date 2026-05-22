@@ -2,6 +2,7 @@
 #define OTF_BROWSER_HANDLER_H_
 
 #include <map>
+#include <set>
 #include <list>
 #include <memory>
 #include <cstdint>
@@ -201,6 +202,10 @@ class OtfHandler : public CefClient,
   int popup_ask_pending_id_ = -1;
   std::string popup_ask_pending_url_;
   std::string popup_ask_pending_origin_;
+  std::string download_ask_pending_url_;
+  std::string download_ask_pending_origin_;
+  std::string download_ask_pending_name_;
+  CefRefPtr<CefBrowser> download_ask_pending_browser_;
 
   // Async DevTools-protocol callback router. Attached to the UI shell
   // browser in OnAfterCreated. Used by get-storage-for-site to call
@@ -299,6 +304,11 @@ class OtfHandler : public CefClient,
   std::map<int, PendingPopup> pending_popups_;
   int next_pending_popup_id_ = 1;
   int pending_external_popups_ = 0;
+
+  // Transient allow-once set for downloads. Populated by the
+  // allow-download cefQuery handler, consumed (and erased) by CanDownload so
+  // the next download from that origin proceeds immediately.
+  std::set<std::string> allow_once_downloads_;
 
   // Workspace state. active_workspace_id_ is the workspace whose tabs are
   // currently surfaced in the UI; new tabs join it. workspace_contexts_ is
