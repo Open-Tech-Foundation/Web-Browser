@@ -144,6 +144,14 @@ const privacySecurityRows = [
     modern: "Varies; stronger browsers restrict more surfaces.",
   },
   {
+    area: "Service Workers",
+    detail: "Registration and persistent realm",
+    rationale: "Service Workers run in a separate realm that bypasses inline page policy injection and can persist cached responses, background sync, and push subscriptions across sessions — amplifying tracking surface beyond the page lifetime.",
+    otf: "Service Worker API disabled at the engine level and via page policy. navigator.serviceWorker is removed — no registration path exists. Constructor interface objects on Window.prototype remain present but are inert.",
+    mainstream: "Fully enabled by default; essential for PWA and offline-first apps.",
+    modern: "Usually enabled; some privacy modes restrict background sync or push but retain the API.",
+  },
+  {
     area: "Workers",
     detail: [
       "Classic worker",

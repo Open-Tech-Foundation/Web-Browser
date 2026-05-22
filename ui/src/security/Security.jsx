@@ -53,6 +53,11 @@ const Security = () => {
             description="Protect against dangerous websites, downloads, and extensions."
             enabled={showAdvanced}
           />
+          <Card
+            title="Service Workers Disabled"
+            description="Service Worker registration is blocked. Service Workers run in a separate realm outside page policy and can persist cached responses, background sync, and push subscriptions across sessions — surfaces that conflict with the browser's privacy model."
+            enabled
+          />
         </div>
 
         <div className="mt-8 flex flex-wrap gap-3">

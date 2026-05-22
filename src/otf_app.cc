@@ -541,6 +541,12 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   command_line->AppendSwitch("enable-unsafe-webgpu");
+
+  // Disable Service Workers entirely. They run in a separate realm outside
+  // the page policy injection window and can persist state across origins
+  // (caching, background sync, push) in ways that conflict with our privacy
+  // and security model.
+  command_line->AppendSwitch("disable-features=ServiceWorker");
   // (Previously we set --allow-file-access-from-files here so the file://-
   // loaded UI shell could fetch its ES module bundles. That's no longer
   // needed — the shell is now served via our browser:// custom scheme

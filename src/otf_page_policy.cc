@@ -1556,6 +1556,21 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     }
   })();
 
+  // Service Worker API: remove the surface entirely. Service Workers run in
+  // a separate realm that bypasses page policy injection, and they can persist
+  // cached responses, background sync, and push subscriptions across sessions.
+  (() => {
+    'use strict';
+    try {
+      Object.defineProperty(Navigator.prototype, 'serviceWorker', {
+        get: () => undefined, configurable: true,
+      });
+    } catch (_) {}
+    // Note: ServiceWorker/ServiceWorkerRegistration/ServiceWorkerContainer
+    // constructors live on Window.prototype and cannot be removed from JS.
+    // They are inert without navigator.serviceWorker — no registration path exists.
+  })();
+
   }  // applyPagePolicy
 
   applyPagePolicy();
