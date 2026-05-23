@@ -52,14 +52,19 @@ const buildJsonReport = () => {
   const tests = rowIds.value.map((id) => {
     const meta = rowsMeta.value[id];
     const state = rowsState.value[id];
-    return {
+    const entry = {
       id,
       module: meta?.module || null,
       category: meta?.category || null,
       entropy: meta?.entropy || null,
       status: state?.status || null,
       summary: state?.summary || '',
+      detail: state?.detail || '',
     };
+    if (state?.rows?.length) {
+      entry.rows = state.rows.map(([label, value]) => ({ label, value }));
+    }
+    return entry;
   });
   const { score } = computeScore();
   return {
@@ -259,23 +264,23 @@ export default function ProtectionPage() {
                           <table className="realm-grid">
                             <thead>
                               <tr>
-                                <th className="realm-grid-corner">Context</th>
-                                {properties.map((p) => (
-                                  <th key={p.key} className="realm-grid-ph" title={p.key}>{p.label}</th>
+                                <th className="realm-grid-corner">Property</th>
+                                {contexts.map((c) => (
+                                  <th key={c.id} className="realm-grid-ph" title={c.id}>{c.label}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
-                              {contexts.map((c) => (
-                                <tr key={c.id}>
-                                  <td className="realm-grid-ctx">{c.label}</td>
-                                  {properties.map((p) => {
+                              {properties.map((p) => (
+                                <tr key={p.key}>
+                                  <td className="realm-grid-ctx" title={p.key}>{p.label}</td>
+                                  {contexts.map((c) => {
                                     const s = cellState(c, p);
                                     const row = values[c.id];
                                     const val = row ? String(row[p.key] ?? '–') : '–';
                                     const tip = s === 'na' ? 'N/A (DOM-only)' : val;
                                     return (
-                                      <td key={p.key} className={`realm-grid-cell rg-${s}`} title={tip}>
+                                      <td key={c.id} className={`realm-grid-cell rg-${s}`} title={tip}>
                                         {s === 'match' ? '✓'
                                           : s === 'mismatch' ? '✗'
                                           : s === 'baseline' ? '·'

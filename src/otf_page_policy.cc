@@ -1548,7 +1548,16 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     try { delete Navigator.prototype.mozConnection; } catch (_) {}
     try { delete Navigator.prototype.webkitConnection; } catch (_) {}
     if (typeof NetworkInformation !== 'undefined') {
-      try { delete window.NetworkInformation; } catch (_) {}
+      try { delete globalThis.NetworkInformation; } catch (_) {}
+      // delete only removes own properties; if NetworkInformation lives on the
+      // prototype chain (as it does in worker scopes), shadow it with undefined.
+      if (typeof NetworkInformation !== 'undefined') {
+        try {
+          Object.defineProperty(globalThis, 'NetworkInformation', {
+            value: undefined, configurable: true, writable: true, enumerable: false,
+          });
+        } catch (_) {}
+      }
     }
   })();
 
@@ -1647,14 +1656,34 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     } catch (_) {}
   })();
 
-  }  // applyPagePolicy
-
-  applyPagePolicy();
-
-  // Workers: re-apply the same policy in each worker realm. We stringify the
-  // policy function so the worker bootstrap is the exact same source — there
-  // is no separate "worker policy" to drift from this one.
+  // Workers: re-apply the same policy in each worker realm that spawns workers
+  // of its own. policySource and wrapWorkerCtor live INSIDE applyPagePolicy so
+  // that applyPagePolicy.toString() captures them — making the bootstrap blob
+  // fully self-contained at any nesting depth (dedicated → nested → ...).
   const policySource = '(' + applyPagePolicy.toString() + ')();';
+
+  // Intercept URL.createObjectURL so that any JS blob becomes a policy-first
+  // blob before it is handed to SharedWorker (whose constructor is non-writable
+  // in Chromium's blink IDL and cannot be replaced by any JS technique).
+  // We track blobs we already patched to avoid double-injection.
+  const otfPatchedBlobs = new WeakSet();
+  if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+    const _origCreateObjectURL = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = function(obj) {
+      if (obj instanceof Blob && !otfPatchedBlobs.has(obj) &&
+          (obj.type === '' || obj.type === 'application/javascript' ||
+           obj.type === 'text/javascript')) {
+        const patched = new Blob(
+          [policySource, '\n', obj],
+          { type: obj.type || 'application/javascript' }
+        );
+        otfPatchedBlobs.add(patched);
+        return _origCreateObjectURL(patched);
+      }
+      return _origCreateObjectURL(obj);
+    };
+  }
+
   const wrapWorkerCtor = (name) => {
     const OriginalWorker = globalThis[name];
     if (typeof OriginalWorker !== 'function' || OriginalWorker.__otfWorkerPolicy) return;
@@ -1669,6 +1698,9 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
         '\n',
         importSource
       ], { type: 'application/javascript' });
+      // Mark as already patched so the URL.createObjectURL intercept above
+      // does not prepend policy a second time to this bootstrap blob.
+      otfPatchedBlobs.add(bootstrap);
       const bootstrapUrl = URL.createObjectURL(bootstrap);
       try {
         return new OriginalWorker(bootstrapUrl, options);
@@ -1679,16 +1711,31 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     WrappedWorker.prototype = OriginalWorker.prototype;
     Object.setPrototypeOf(WrappedWorker, OriginalWorker);
     Object.defineProperty(WrappedWorker, '__otfWorkerPolicy', { value: true });
-    // Simple assignment fails for SharedWorker (non-configurable global in Chromium).
-    // Force-replace via defineProperty so the wrapped ctor is always used.
+    // Walk the prototype chain to find the object that actually owns the
+    // property (e.g. SharedWorker lives on Window.prototype, not on globalThis
+    // itself). Overriding the actual owner avoids the defineProperty failure
+    // that occurs when trying to shadow an inherited non-configurable property.
+    let owner = globalThis;
+    let proto = globalThis;
+    while (proto) {
+      if (Object.prototype.hasOwnProperty.call(proto, name)) { owner = proto; break; }
+      proto = Object.getPrototypeOf(proto);
+    }
     try {
-      Object.defineProperty(globalThis, name, {
+      Object.defineProperty(owner, name, {
         value: WrappedWorker, configurable: true, writable: true, enumerable: false,
       });
     } catch (_) {}
+    if (globalThis[name] !== WrappedWorker) {
+      try { globalThis[name] = WrappedWorker; } catch (_) {}
+    }
   };
   wrapWorkerCtor('Worker');
   wrapWorkerCtor('SharedWorker');
+
+  }  // applyPagePolicy
+
+  applyPagePolicy();
 })();
 )JS";
   // Substitute the caller-provided profile JSON. If empty (e.g. a renderer

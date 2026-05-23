@@ -62,14 +62,14 @@ const PROPERTIES = [
   { key: 'languages',                label: 'navigator.languages',     kind: 'all' },
   { key: 'hardwareConcurrency',      label: 'hardwareConcurrency',     kind: 'all' },
   { key: 'deviceMemory',             label: 'deviceMemory',            kind: 'all' },
-  { key: 'maxTouchPoints',           label: 'maxTouchPoints',          kind: 'all' },
+  { key: 'maxTouchPoints',           label: 'maxTouchPoints',          kind: 'dom' },
   { key: 'pdfViewerEnabled',         label: 'pdfViewerEnabled',        kind: 'dom' },
   { key: 'hasGetBattery',            label: "'getBattery' in nav",     kind: 'all' },
   { key: 'hasConnection',            label: "'connection' in nav",     kind: 'all' },
   { key: 'hasKeyboard',              label: "'keyboard' in nav",       kind: 'all' },
-  { key: 'typeofBatteryManager',     label: 'typeof BatteryManager',   kind: 'all' },
+  { key: 'typeofBatteryManager',     label: 'typeof BatteryManager',   kind: 'dom' },
   { key: 'typeofNetworkInformation', label: 'typeof NetworkInformation', kind: 'all' },
-  { key: 'typeofKeyboard',           label: 'typeof Keyboard',         kind: 'all' },
+  { key: 'typeofKeyboard',           label: 'typeof Keyboard',         kind: 'dom' },
   { key: 'pluginsLen',               label: 'plugins.length',          kind: 'dom' },
   { key: 'mimeTypesLen',             label: 'mimeTypes.length',        kind: 'dom' },
   { key: 'screenWidth',              label: 'screen.width',            kind: 'dom' },
@@ -266,48 +266,65 @@ export default {
     const values = Object.fromEntries(entries);
     const baseline = values.main || {};
 
-    let mismatches = 0;
-    let absents = 0;
-    let policyMissing = 0;
+    const policyMissingRealms = [];
+    const absentRealms = [];
+    let totalMismatches = 0;
+
+    // Per-context breakdown: { label, policyOk, absent, mismatches: [{key, label, got, want}] }
+    const perCtx = [];
     for (const c of CONTEXTS) {
       if (c.id === 'main') continue;
       const row = values[c.id];
-      if (!row) { absents += 1; continue; }
-      if (row.pagePolicyInjected !== true) policyMissing += 1;
+      if (!row) { absentRealms.push(c.label); perCtx.push({ c, absent: true }); continue; }
+      const policyOk = row.pagePolicyInjected === true;
+      if (!policyOk) policyMissingRealms.push(c.label);
+      const mismatches = [];
       for (const p of PROPERTIES) {
         const s = cellState(c, p, values, baseline);
-        if (s === 'mismatch') mismatches += 1;
+        if (s === 'mismatch') {
+          mismatches.push({ key: p.key, label: p.label, got: String(row[p.key]), want: String(baseline[p.key]) });
+          totalMismatches += 1;
+        }
       }
+      perCtx.push({ c, absent: false, policyOk, mismatches });
     }
 
-    const status = policyMissing > 0 || mismatches > 0 ? 'fail'
-      : absents > 0 ? 'warn' : 'ok';
-    const summary = status === 'ok'
-      ? `${CONTEXTS.length} realms covered, no identity divergence`
-      : policyMissing > 0
-        ? `${policyMissing} realm(s) missing page policy injection`
-        : mismatches > 0
-          ? `${mismatches} property mismatch(es) across realms`
-          : `${absents} realm(s) failed to spawn`;
-    const detail = 'Each non-main context should expose identical static identity values ' +
-      'and have __otfPagePolicyInjected=true. A mismatch in any cell indicates a fingerprinting ' +
-      'bypass — the policy script never reached that realm.';
+    const status = policyMissingRealms.length > 0 || totalMismatches > 0 ? 'fail'
+      : absentRealms.length > 0 ? 'warn' : 'ok';
 
-    // Compact dl-pair rows summarize per-context counts.
-    const rows = CONTEXTS.map((c) => {
-      const row = values[c.id];
-      if (!row) return [c.label, 'failed to spawn'];
-      if (c.id === 'main') return [c.label, 'baseline'];
-      let m = 0, mm = 0, na = 0;
-      for (const p of PROPERTIES) {
-        const s = cellState(c, p, values, baseline);
-        if (s === 'match') m += 1;
-        else if (s === 'mismatch') mm += 1;
-        else if (s === 'na') na += 1;
+    let summary;
+    if (status === 'ok') {
+      summary = `All ${CONTEXTS.length} realms covered — policy injected, no identity divergence`;
+    } else {
+      const parts = [];
+      if (policyMissingRealms.length > 0)
+        parts.push(`policy missing in: ${policyMissingRealms.join(', ')}`);
+      if (totalMismatches > 0)
+        parts.push(`${totalMismatches} property mismatch(es) across realms`);
+      if (absentRealms.length > 0)
+        parts.push(`${absentRealms.length} realm(s) failed to spawn (${absentRealms.join(', ')})`);
+      summary = parts.join(' · ');
+    }
+
+    const detail = 'Each non-main context must have __otfPagePolicyInjected=true and expose ' +
+      'identical static identity values to the main frame. Policy missing = fingerprinting bypass. ' +
+      'Mismatches = different values leaked through an unpatched API.';
+
+    // Rows: one entry per context, then per-mismatch detail lines indented under it.
+    const rows = [];
+    for (const { c, absent, policyOk, mismatches } of perCtx) {
+      if (absent) {
+        rows.push([c.label, 'failed to spawn']);
+        continue;
       }
-      const flag = row.pagePolicyInjected === true ? '✓ policy injected' : '✗ POLICY MISSING';
-      return [c.label, `${flag} · match: ${m}, mismatch: ${mm}, n/a: ${na}`];
-    });
+      const matchCount = PROPERTIES.filter((p) => cellState(c, p, values, baseline) === 'match').length;
+      const naCount = PROPERTIES.filter((p) => cellState(c, p, values, baseline) === 'na').length;
+      const flag = policyOk ? '✓ policy injected' : '✗ POLICY MISSING';
+      rows.push([c.label, `${flag} · match: ${matchCount}, mismatch: ${mismatches.length}, n/a: ${naCount}`]);
+      for (const { label, got, want } of mismatches) {
+        rows.push([`  ↳ ${label}`, `got: ${got} · want: ${want}`]);
+      }
+    }
 
     ctx.set('realm-coverage', status, summary, detail, rows);
     // Hand the page the full grid for the rich detail panel.
