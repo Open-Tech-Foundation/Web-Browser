@@ -65,10 +65,10 @@ static bool HasCommand(const char* command) {
       strchr(command, '\\') != nullptr ||
 #endif
       false) {
-    // For paths, check if file exists and is executable
     struct stat buffer;
-    return (stat(command, &buffer) == 0) && 
-           !(buffer.st_mode & S_IFDIR);
+    return (stat(command, &buffer) == 0) &&
+           S_ISREG(buffer.st_mode) &&
+           (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH));
   }
 
   // For simple command names, search in PATH
@@ -87,21 +87,23 @@ static bool HasCommand(const char* command) {
       std::string full_path = dir + "/" + command;
       struct stat buffer;
       if (stat(full_path.c_str(), &buffer) == 0 &&
-          !(buffer.st_mode & S_IFDIR)) {
+          S_ISREG(buffer.st_mode) &&
+          (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
         return true;
       }
     }
     start = end + 1;
     end = path_str.find(':', start);
   }
-  
+
   // Check last PATH element
   std::string dir = path_str.substr(start);
   if (!dir.empty()) {
     std::string full_path = dir + "/" + command;
     struct stat buffer;
     if (stat(full_path.c_str(), &buffer) == 0 &&
-        !(buffer.st_mode & S_IFDIR)) {
+        S_ISREG(buffer.st_mode) &&
+        (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
       return true;
     }
   }
