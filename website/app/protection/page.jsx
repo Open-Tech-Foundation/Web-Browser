@@ -46,7 +46,7 @@ const statusGlyph = (status) =>
 
 // Reload-banner signal — flipped on by the runner via onReloadNeeded.
 // Resolves on user choice; the runner waits on the resulting Promise.
-const reloadPrompt = signal(null);   // { module, resolve } | null
+const reloadPrompt = signal(null);   // { modules: [...], resolve } | null
 
 const buildJsonReport = () => {
   const tests = rowIds.value.map((id) => {
@@ -87,7 +87,7 @@ export default function ProtectionPage() {
     // If the runner reloaded us mid-suite, pick up where we left off.
     maybeAutoResume({
       onReloadNeeded: (mod) => new Promise((resolve) => {
-        reloadPrompt.value = { module: mod, resolve };
+        reloadPrompt.value = { modules: mod, resolve };
       }),
     });
   });
@@ -98,7 +98,7 @@ export default function ProtectionPage() {
     // user activation is still valid. startSuite handles the dispatch.
     startSuite({
       onReloadNeeded: (mod) => new Promise((resolve) => {
-        reloadPrompt.value = { module: mod, resolve };
+        reloadPrompt.value = { modules: mod, resolve };
       }),
     }).catch((err) => console.error('Suite error:', err));
   };
@@ -166,10 +166,9 @@ export default function ProtectionPage() {
           {reloadPrompt.value ? (
             <div className="reload-banner">
               <div>
-                <strong>This test needs to reload the page.</strong>
+                <strong>Some tests need to reload the page.</strong>
                 <small>
-                  The <code>{reloadPrompt.value.module.module}</code> module compares values
-                  captured across two fresh page loads. Continue to reload now.
+                  These tests compare values across two fresh page loads. Continue to reload now.
                 </small>
               </div>
               <div className="banner-actions">

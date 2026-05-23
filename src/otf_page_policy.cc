@@ -1656,6 +1656,42 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     } catch (_) {}
   })();
 
+  // --- Math fingerprinting protection ------------------------------------
+  // Wraps transcendental/trig Math functions to add a tiny deterministic
+  // per-(session, function, input) perturbation.  The delta is consistent
+  // within a page load (same args → same result) but changes every reload,
+  // so exact-value fingerprints stop working without affecting real math code.
+  (() => {
+    // Noise amplitude: ~1e-13 absolute — affects only the last ~2 significant
+    // digits of a 64-bit double, well below any practical precision threshold.
+    const MATH_NOISE_AMP = 8e-13; // layoutNoiseValue range is [-0.125,0.125]
+
+    const noisyMath = (name) => {
+      const orig = Math[name];
+      if (typeof orig !== 'function') return;
+      const wrapped = makeNative(
+        function(...args) {
+          const result = orig.apply(this, args);
+          if (!isFinite(result) || Math.abs(result) < MATH_NOISE_AMP) return result;
+          const key = 'math.' + name + '.' + args.join(',');
+          return result + layoutNoiseValue(key) * MATH_NOISE_AMP;
+        },
+        'function ' + name + '() { [native code] }'
+      );
+      Math[name] = wrapped;
+    };
+
+    for (const fn of [
+      'sin', 'cos', 'tan',
+      'asin', 'acos', 'atan', 'atan2',
+      'sinh', 'cosh', 'tanh',
+      'asinh', 'acosh', 'atanh',
+      'exp', 'expm1',
+      'log', 'log2', 'log10', 'log1p',
+      'sqrt', 'cbrt', 'pow', 'hypot',
+    ]) { noisyMath(fn); }
+  })();
+
   // Workers: re-apply the same policy in each worker realm that spawns workers
   // of its own. policySource and wrapWorkerCtor live INSIDE applyPagePolicy so
   // that applyPagePolicy.toString() captures them — making the bootstrap blob

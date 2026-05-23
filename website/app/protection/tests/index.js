@@ -11,6 +11,7 @@ import canvas from "./canvas.js";
 import webgl from "./webgl.js";
 import fingerprintSurfaces from "./fingerprint-surfaces.js";
 import audio from "./audio.js";
+import mathFingerprint from "./math-fingerprint.js";
 import localFontApi from "./local-font-api.js";
 import webgpu from "./webgpu.js";
 import navigationScheme from "./navigation-scheme.js";
@@ -29,6 +30,7 @@ export default [
   webgl,
   fingerprintSurfaces,
   audio,            // needsReload
+  mathFingerprint,  // needsReload
   localFontApi,     // needsGesture
   // Security modules
   webgpu,

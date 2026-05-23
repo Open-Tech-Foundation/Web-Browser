@@ -96,35 +96,48 @@ export const startSuite = async ({ onReloadNeeded } = {}) => {
   await Promise.allSettled(normal.map((m) => runOne(m, ctx)));
 
   const reloadModules = modules.filter((m) => m.needsReload);
-  for (const mod of reloadModules) {
-    const prev = reloadStateFor(mod.module).get();
-    if (prev === null) {
-      // Phase 1: capture and signal that a reload is required.
-      runState.value = 'awaiting-reload';
+
+  // Phase 1: capture ALL reload modules that don't have a saved value yet,
+  // then do a single page reload for all of them at once.
+  const toCaptureNow = reloadModules.filter((m) => reloadStateFor(m.module).get() === null);
+
+  if (toCaptureNow.length > 0) {
+    runState.value = 'awaiting-reload';
+    let capturedCount = 0;
+    for (const mod of toCaptureNow) {
       markRunning(mod);
-      let captured = null;
-      try { captured = await mod.capture(ctx); } catch (_) { captured = null; }
-      if (captured === null) {
-        await runOne(mod, ctx);    // module decides how to fail gracefully
-        continue;
-      }
-      reloadStateFor(mod.module).set({ value: captured });
+      try {
+        const captured = await mod.capture(ctx);
+        if (captured !== null && captured !== undefined) {
+          reloadStateFor(mod.module).set({ value: captured });
+          capturedCount++;
+        }
+      } catch (_) {}
+    }
+
+    if (capturedCount > 0) {
       markAutoResume();
       if (onReloadNeeded) {
-        const proceed = await onReloadNeeded(mod);
+        const proceed = await onReloadNeeded(toCaptureNow);
         if (proceed === false) {
-          reloadStateFor(mod.module).set(null);
+          for (const mod of toCaptureNow) reloadStateFor(mod.module).set(null);
           consumeAutoResume();
-          await runOne(mod, ctx);  // fall back to single-shot run
-          continue;
+          for (const mod of reloadModules) await runOne(mod, ctx);
+          runState.value = 'done';
+          return;
         }
       }
       location.reload();
       return;
     }
-    // Phase 2: we have a prior value; let the module finish.
-    await runOne(mod, ctx);
+
+    // All captures failed: fall back to single-shot for these modules.
+    for (const mod of toCaptureNow) await runOne(mod, ctx);
   }
+
+  // Phase 2: run all reload modules — those with a saved value compare across
+  // loads; those without (failed capture) fall back in their own run().
+  for (const mod of reloadModules) await runOne(mod, ctx);
 
   runState.value = 'done';
 };
