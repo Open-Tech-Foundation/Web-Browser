@@ -5,6 +5,7 @@ import {
   clickSelector,
   launchDevBrowser,
   pressKey,
+  typeText,
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
@@ -48,17 +49,8 @@ test('user can create and switch workspaces from the workspace popup',
         Boolean,
       );
 
-      const enteredName = await workspaceCdp.evaluate(`
-        (() => {
-          const input = [...document.querySelectorAll('input')]
-            .find((item) => item.placeholder === 'Workspace name');
-          if (!input) return false;
-          input.value = ${JSON.stringify(uniqueName)};
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          return true;
-        })()
-      `);
-      assert.equal(enteredName, true);
+      await clickSelector(workspaceCdp, 'input[placeholder="Workspace name"]');
+      await typeText(workspaceCdp, uniqueName);
       await pressKey(workspaceCdp, 'Enter');
 
       await waitFor(

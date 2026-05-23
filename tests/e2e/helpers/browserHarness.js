@@ -339,6 +339,34 @@ export async function navigateFromAddressBar(cdp, url) {
   await pressKey(cdp, 'Enter');
 }
 
+export async function allowDownloadOnce(browser, origin, deadlineMs = 15000) {
+  const popupCdp = await browser.connectToTarget((target) =>
+    /downloadrequest\.html/i.test(target.url || '') ||
+    /Download requested/i.test(target.title || ''),
+    deadlineMs,
+  );
+  try {
+    await waitFor(
+      popupCdp,
+      `document.body?.innerText || ""`,
+      (text) => text.includes(origin) && text.includes('Allow once'),
+      deadlineMs,
+    );
+    const clicked = await popupCdp.evaluate(`
+      (() => {
+        const button = [...document.querySelectorAll('button')]
+          .find((item) => (item.textContent || '').trim() === 'Allow once');
+        if (!button) return false;
+        button.click();
+        return true;
+      })()
+    `);
+    assert.equal(clicked, true);
+  } finally {
+    popupCdp.close();
+  }
+}
+
 export async function launchDevBrowser() {
   assert.ok(existsSync(browserBin), `browser binary not found: ${browserBin}`);
 
