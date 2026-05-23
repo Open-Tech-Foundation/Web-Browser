@@ -153,7 +153,10 @@ const SiteData = () => {
             >
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'permissions' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Permissions</div>
               <div className="font-mono text-2xl font-bold">
-                {Object.keys(PERMISSION_LABELS).filter(k => (permissions[k] || 'ask') !== 'ask').length}
+                {Object.keys(PERMISSION_LABELS).filter(k => {
+                  const def = (PERMISSION_SETTING_ORDER[k] || ['ask'])[0];
+                  return (permissions[k] || def) !== def;
+                }).length}
               </div>
             </button>
           </div>
@@ -258,7 +261,10 @@ const SiteData = () => {
         {activeTab === 'permissions' && (
           <section className="mb-8">
             {(() => {
-              const overridden = Object.keys(PERMISSION_LABELS).filter(k => (permissions[k] || 'ask') !== 'ask');
+              const overridden = Object.keys(PERMISSION_LABELS).filter(k => {
+                const def = (PERMISSION_SETTING_ORDER[k] || ['ask'])[0];
+                return (permissions[k] || def) !== def;
+              });
               return (
                 <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">
                   Permissions
