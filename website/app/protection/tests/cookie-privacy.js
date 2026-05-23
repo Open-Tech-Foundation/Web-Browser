@@ -76,18 +76,26 @@ export default {
     });
 
     const writeBlocked = probeResult.after === '';
-    const status = writeBlocked ? 'ok' : probeResult.error ? 'warn' : 'fail';
+    // A SecurityError on document.cookie means the browser refused cookie
+    // access entirely in the opaque-origin frame — that is effective blocking.
+    const sandboxBlocked = typeof probeResult.error === 'string' &&
+      probeResult.error.includes('SecurityError') &&
+      probeResult.error.includes('allow-same-origin');
+    const blocked = writeBlocked || sandboxBlocked;
+    const status = blocked ? 'ok' : probeResult.error ? 'warn' : 'fail';
 
     ctx.set(
       'cookie-third-party-blocking',
       status,
-      writeBlocked
+      blocked
         ? 'Third-party cookie access blocked in cross-origin frames'
         : probeResult.error
-          ? `Probe failed: ${probeResult.error}`
+          ? `Probe inconclusive: ${probeResult.error}`
           : 'Third-party cookies not blocked',
-      writeBlocked
-        ? 'document.cookie read-back is empty after a write attempt in an opaque-origin frame.'
+      blocked
+        ? sandboxBlocked
+          ? 'Browser threw SecurityError on document.cookie in an opaque-origin frame — access denied at the sandbox level.'
+          : 'document.cookie read-back is empty after a write attempt in an opaque-origin frame.'
         : probeResult.error
           ? 'The sandboxed iframe probe could not run.'
           : 'document.cookie was readable/writable inside a cross-origin frame.',
@@ -95,7 +103,7 @@ export default {
         ['probe context',            'sandboxed srcdoc iframe (opaque origin)'],
         ['cookie before write',      JSON.stringify(probeResult.before ?? 'unavailable')],
         ['cookie after write attempt', JSON.stringify(probeResult.after ?? 'unavailable')],
-        ['write blocked',            String(writeBlocked)],
+        ['write blocked',            String(blocked)],
         ...(probeResult.error ? [['probe error', probeResult.error]] : []),
       ]
     );

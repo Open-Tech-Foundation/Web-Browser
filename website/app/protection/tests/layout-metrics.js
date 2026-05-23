@@ -1,69 +1,76 @@
-import { hashText, trackSessionHistory, storageKeys } from "./helpers.js";
+import { reloadStateFor } from "../runner.js";
+import { hashText } from "./helpers.js";
+
+const measureLayout = async () => {
+  const node = document.createElement('span');
+  node.textContent = 'mmmMMMmmmlllmmmLLL₹▁₺₸ẞॿmmmiiimmmIIImmmwwwmmmWWW';
+  node.style.cssText = [
+    'position:absolute', 'left:-10000px', 'top:-10000px',
+    'white-space:nowrap', 'font-size:72px', 'font-family:"Calibri", monospace',
+  ].join(';');
+  document.body.appendChild(node);
+  const rects = [];
+  for (let i = 0; i < 8; i += 1) {
+    const rect = node.getBoundingClientRect();
+    rects.push({
+      x: Number(rect.x).toFixed(4),
+      y: Number(rect.y).toFixed(4),
+      width: Number(rect.width).toFixed(4),
+      height: Number(rect.height).toFixed(4),
+    });
+  }
+  node.remove();
+  const hash = await hashText(JSON.stringify(rects));
+  return { rects, hash };
+};
 
 export default {
   module: 'layout-metrics',
   category: 'privacy',
+  needsReload: true,
   produces: [{
     id: 'layout-metrics',
     label: 'Layout metrics',
     entropy: 'high',
-    description: 'getBoundingClientRect noise — verifies layout values rotate across sessions.',
+    description: 'getBoundingClientRect noise — verifies layout values rotate across page loads.',
   }],
+  async capture(_ctx) {
+    const { hash } = await measureLayout();
+    return hash;
+  },
   async run(ctx) {
-    const node = document.createElement('span');
-    node.textContent = 'mmmMMMmmmlllmmmLLL₹▁₺₸ẞॿmmmiiimmmIIImmmwwwmmmWWW';
-    node.style.cssText = [
-      'position:absolute', 'left:-10000px', 'top:-10000px',
-      'white-space:nowrap', 'font-size:72px', 'font-family:"Calibri", monospace',
-    ].join(';');
-    document.body.appendChild(node);
-    const rects = [];
-    for (let i = 0; i < 8; i += 1) {
-      const rect = node.getBoundingClientRect();
-      rects.push({
-        x: Number(rect.x).toFixed(4),
-        y: Number(rect.y).toFixed(4),
-        width: Number(rect.width).toFixed(4),
-        height: Number(rect.height).toFixed(4),
-        left: Number(rect.left).toFixed(4),
-        top: Number(rect.top).toFixed(4),
-        right: Number(rect.right).toFixed(4),
-        bottom: Number(rect.bottom).toFixed(4),
-      });
-    }
-    node.remove();
+    const state = reloadStateFor('layout-metrics');
+    const prev = state.get()?.value ?? null;
+    const { rects, hash } = await measureLayout();
 
     const widthValues = rects.map((r) => r.width);
     const heightValues = rects.map((r) => r.height);
-    const uniqueWidths = new Set(widthValues).size;
-    const uniqueHeights = new Set(heightValues).size;
     const uniqueRects = new Set(rects.map((r) => JSON.stringify(r))).size;
-    const hash = await hashText(JSON.stringify(rects));
-    const history = trackSessionHistory(storageKeys.layout, hash);
-    const uniqueSessionHashes = new Set(history).size;
-    const sessionCount = history.length;
-    const allUnique = uniqueSessionHashes === sessionCount;
-    const status = sessionCount < 2 ? 'warn' : allUnique ? 'ok' : 'fail';
 
-    ctx.set('layout-metrics', status,
-      sessionCount < 2
-        ? 'Awaiting second session for baseline'
-        : allUnique
-          ? `All ${sessionCount} sessions produced different layout hashes`
-          : 'Duplicate layout hash found across sessions — noise may be stable',
-      `Unique rects this run: ${uniqueRects}/8, sessions recorded: ${sessionCount}, unique session hashes: ${uniqueSessionHashes}/${sessionCount}`,
+    if (prev === null) {
+      ctx.set('layout-metrics', 'warn',
+        'Skipped cross-load check',
+        `Single-shot hash: ${hash}. Re-run to verify rotation.`,
+        [['this-load hash', hash], ['unique rects this run', `${uniqueRects}/8`]]);
+      return;
+    }
+
+    state.set(null);
+    const rotated = prev !== hash;
+    ctx.set('layout-metrics', rotated ? 'ok' : 'fail',
+      rotated
+        ? 'Layout hash rotated across loads — per-session noise confirmed'
+        : 'Layout hash did NOT rotate — noise may be stable or absent',
+      `hash: ${hash}, prev: ${prev}`,
       [
-        ['session history (newest last)', history.join(', ')],
-        ['sessions recorded', String(sessionCount)],
-        ['unique session hashes', `${uniqueSessionHashes}/${sessionCount}`],
-        ['all sessions unique', String(allUnique)],
+        ['this-load hash', hash],
+        ['previous-load hash', prev],
+        ['hashes differ', String(rotated)],
         ['unique rects this run', `${uniqueRects}/8`],
-        ['unique widths', String(uniqueWidths)],
-        ['unique heights', String(uniqueHeights)],
+        ['unique widths', String(new Set(widthValues).size)],
+        ['unique heights', String(new Set(heightValues).size)],
         ['width samples', widthValues.join(', ')],
         ['height samples', heightValues.join(', ')],
-        ['first rect', JSON.stringify(rects[0])],
-        ['last rect', JSON.stringify(rects[rects.length - 1])],
       ]);
   },
 };
