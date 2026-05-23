@@ -543,12 +543,33 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
     return;
   }
 
-  // Whitelist of switches the user is permitted to pass on the command line.
-  // Extend deliberately; never add flags that open security surfaces (e.g.
-  // remote-debugging-port, no-sandbox).
-  static const std::set<std::string> kAllowedSwitches = {
-    "dev-ui-url",  // dev: serve UI overlays from a local Vite dev server
+  // Dev mode: if --dev-ui-url is present, skip all switch filtering so the
+  // dev server and other dev flags (--no-sandbox etc.) work without changes.
+  if (command_line->HasSwitch("dev-ui-url")) {
+    return;
+  }
+
+  // Production: hard-block switches that open security surfaces.
+  // Some (e.g. no-sandbox) are parsed by CEF before this callback fires so
+  // we cannot un-parse them — aborting early prevents an insecure startup.
+  static const std::set<std::string> kBlockedSwitches = {
+    "no-sandbox", "renderer-no-sandbox", "no-zygote",
+    "disable-seccomp-filter-sandbox", "disable-gpu-sandbox",
+    "remote-debugging-port", "remote-debugging-pipe", "remote-allow-origins",
   };
+  {
+    CefCommandLine::SwitchMap all_sw;
+    command_line->GetSwitches(all_sw);
+    for (const auto& kv : all_sw) {
+      if (kBlockedSwitches.count(kv.first.ToString())) {
+        LOG(FATAL) << "Blocked security-sensitive switch: --" << kv.first.ToString();
+        return;
+      }
+    }
+  }
+
+  // Whitelist of switches permitted in production.
+  static const std::set<std::string> kAllowedSwitches = {};
 
   CefCommandLine::SwitchMap all_switches;
   command_line->GetSwitches(all_switches);
