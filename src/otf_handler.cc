@@ -149,7 +149,8 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kZoomBarBrowserViewId ||
          view_id == kDownloadsBrowserViewId ||
          view_id == kCertificateBrowserViewId ||
-         view_id == kImagePreviewBrowserViewId;
+         view_id == kImagePreviewBrowserViewId ||
+         view_id == kLinkPreviewBrowserViewId;
 }
 
 int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
@@ -4141,6 +4142,24 @@ void OtfHandler::OnFullscreenModeChange(CefRefPtr<CefBrowser> browser,
   }
 }
 
+void OtfHandler::OnStatusMessage(CefRefPtr<CefBrowser> browser,
+                                 const CefString& value) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!link_preview_browser_) return;
+  // Only forward status from content tabs, not the overlay browsers themselves.
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (!view || IsNonTabBrowserViewId(view->GetID())) return;
+
+  std::string url = value.ToString();
+  // Escape backslashes and single-quotes for safe embedding in a JS string.
+  for (size_t i = 0; (i = url.find('\\', i)) != std::string::npos; i += 2)
+    url.replace(i, 1, "\\\\");
+  for (size_t i = 0; (i = url.find('\'', i)) != std::string::npos; i += 2)
+    url.replace(i, 1, "\\'");
+  const std::string js = "window.__otfSetLinkPreview('" + url + "');";
+  link_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
+}
+
 void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                       bool isLoading,
                                       bool canGoBack,
@@ -4233,9 +4252,12 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
                browser_view->GetID() == kZoomBarBrowserViewId ||
                browser_view->GetID() == kDownloadsBrowserViewId ||
                browser_view->GetID() == kCertificateBrowserViewId ||
-               browser_view->GetID() == kImagePreviewBrowserViewId) {
+               browser_view->GetID() == kImagePreviewBrowserViewId ||
+               browser_view->GetID() == kLinkPreviewBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
+      } else if (browser_view->GetID() == kLinkPreviewBrowserViewId) {
+        link_preview_browser_ = browser;
       } else if (browser_view->GetID() == kCertificateBrowserViewId) {
         certificate_browser_ = browser;
         OtfApp* app = OtfApp::GetInstance();

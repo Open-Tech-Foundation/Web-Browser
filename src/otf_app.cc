@@ -215,6 +215,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateAppMenuOverlay();
     app->CreateBookmarkOverlay();
     app->CreateImagePreviewOverlay();
+    app->CreateLinkPreviewOverlay();
     // Build any popup registered against the PopupOverlay framework.
     app->CreateAllPopups(window);
 
@@ -240,6 +241,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionAppMenuOverlay();
       app->PositionBookmarkOverlay();
       app->PositionImagePreviewOverlay();
+      app->PositionLinkPreviewOverlay();
       app->RepositionAllPopups();
     }
   }
@@ -916,6 +918,36 @@ void OtfApp::CreateZoomBarOverlay() {
   zoombar_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionZoomBarOverlay();
+}
+
+void OtfApp::CreateLinkPreviewOverlay() {
+  if (!window_) return;
+  std::string url = "browser://linkpreview";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/linkpreview.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 28));
+  view->SetID(kLinkPreviewBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  link_preview_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  link_preview_overlay_->SetVisible(true);
+  PositionLinkPreviewOverlay();
+}
+
+void OtfApp::PositionLinkPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !link_preview_overlay_) return;
+
+  constexpr int kOverlayHeight = 28;
+  CefRect bounds = window_->GetBounds();
+  link_preview_overlay_->SetBounds(
+      CefRect(0, bounds.height - kOverlayHeight, bounds.width, kOverlayHeight));
 }
 
 void OtfApp::CreateDownloadsOverlay() {

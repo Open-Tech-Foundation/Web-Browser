@@ -96,6 +96,8 @@ class OtfHandler : public CefClient,
                           const std::vector<CefString>& icon_urls) override;
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser,
                               bool fullscreen) override;
+  void OnStatusMessage(CefRefPtr<CefBrowser> browser,
+                       const CefString& value) override;
 
   // CefLifeSpanHandler methods:
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
@@ -204,6 +206,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefBrowser> ui_browser_;
   CefRefPtr<CefBrowser> findbar_browser_;
   CefRefPtr<CefBrowser> certificate_browser_;
+  CefRefPtr<CefBrowser> link_preview_browser_;
   std::deque<ClosedTabInfo> recently_closed_tabs_;
 
   void SendEvent(const std::string& event_json);
