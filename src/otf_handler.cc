@@ -99,10 +99,6 @@ static void WriteToClipboard(const std::string& text) {
 
 namespace otf {
 
-static void ApplyJsPermission(CefBrowserSettings& settings,
-                              OtfStore* store,
-                              const std::string& url);
-
 namespace {
 
 OtfHandler* g_instance = nullptr;
@@ -207,6 +203,28 @@ class DeferredImagePreviewPushTask : public CefTask {
  private:
   int tab_id_;
   IMPLEMENT_REFCOUNTING(DeferredImagePreviewPushTask);
+};
+
+class DeferredTabRedirectTask : public CefTask {
+ public:
+  DeferredTabRedirectTask(const std::string& url, int old_tab_id)
+      : url_(url), old_tab_id_(old_tab_id) {}
+
+  void Execute() override {
+    OtfApp* app = OtfApp::GetInstance();
+    OtfHandler* handler = OtfHandler::GetInstance();
+    if (!app || !handler) return;
+    int new_id = app->CreateTab(url_, -1);
+    if (new_id < 0) return;
+    handler->NotifyNewTab(new_id, -1);
+    app->SwitchTab(new_id);
+    handler->CloseTabAndNotify(old_tab_id_);
+  }
+
+ private:
+  std::string url_;
+  int old_tab_id_;
+  IMPLEMENT_REFCOUNTING(DeferredTabRedirectTask);
 };
 
 std::string TrimWhitespaceCopy(const std::string& value) {
@@ -1588,6 +1606,17 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
 
   IMPLEMENT_REFCOUNTING(OtfTiffDecodeClient);
 };
+
+static void ApplyJsPermission(CefBrowserSettings& settings,
+                              OtfStore* store,
+                              const std::string& url) {
+  if (!store) return;
+  const std::string origin = ExtractOrigin(url);
+  if (!origin.empty() &&
+      store->GetSitePermission(origin, "javascript") == "block") {
+    settings.javascript = STATE_DISABLED;
+  }
+}
 
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
@@ -3235,6 +3264,24 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("ok");
       return true;
+    } else if (msg.rfind("get-cross-origin-resources:", 0) == 0) {
+      const std::string origin = msg.substr(27);
+      std::lock_guard<std::mutex> lock(handler->cross_origin_mutex_);
+      auto it = handler->cross_origin_resources_.find(origin);
+      if (it == handler->cross_origin_resources_.end()) {
+        callback->Success("[]");
+      } else {
+        std::string json = "[";
+        bool first = true;
+        for (const auto& res : it->second) {
+          if (!first) json += ",";
+          first = false;
+          json += "\"" + otf::JsonEscape(res) + "\"";
+        }
+        json += "]";
+        callback->Success(json);
+      }
+      return true;
     } else if (msg.rfind("get-permissions-for-site:", 0) == 0) {
       const std::string origin = NormalizeOrigin(msg.substr(25));
       if (handler->store_) {
@@ -3816,20 +3863,19 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
       CefRequestContext::CreateContext(settings, nullptr);
   OtfApp* app = OtfApp::GetInstance();
   if (app) app->RegisterBrowserSchemeForContext(ctx);
+  ApplyAlwaysOnPrivacyPreferences(ctx);
   workspace_contexts_[workspace_id] = ctx;
   return ctx;
 }
 
-// --- Helper: extract scheme://host[:port] origin from a URL. ---
-static void ApplyJsPermission(CefBrowserSettings& settings,
-                              OtfStore* store,
-                              const std::string& url) {
-  if (!store) return;
-  const std::string origin = ExtractOrigin(url);
-  if (!origin.empty() &&
-      store->GetSitePermission(origin, "javascript") == "block") {
-    settings.javascript = STATE_DISABLED;
-  }
+void OtfHandler::ApplyAlwaysOnPrivacyPreferences(
+    CefRefPtr<CefRequestContext> ctx) {
+  if (!ctx) return;
+  CEF_REQUIRE_UI_THREAD();
+  CefRefPtr<CefValue> val = CefValue::Create();
+  val->SetBool(true);
+  CefString error;
+  ctx->SetPreference("enable_do_not_track", val, error);
 }
 
 // --- Helper: best-guess filename from a download URL. ---
@@ -4889,23 +4935,27 @@ OtfHandler::GetResourceRequestHandler(
     bool is_download,
     const CefString& request_initiator,
     bool& disable_default_handling) {
-  if (request->GetResourceType() != RT_IMAGE) {
-    return nullptr;
-  }
+  if (store_ && !request_initiator.empty()) {
+    const std::string raw = request_initiator.ToString();
+    if (raw.rfind("browser://", 0) != 0 &&
+        raw.rfind("file://", 0) != 0) {
+      const std::string page_origin = ExtractOrigin(raw);
+      if (!page_origin.empty()) {
+        // Track cross-origin resources.
+        const std::string resource_url = request->GetURL().ToString();
+        const std::string resource_origin = ExtractOrigin(resource_url);
+        if (!resource_origin.empty() && page_origin != resource_origin) {
+          std::lock_guard<std::mutex> lock(cross_origin_mutex_);
+          cross_origin_resources_[page_origin].insert(resource_origin);
+        }
 
-  if (!store_ || request_initiator.empty()) {
-    return nullptr;
-  }
-
-  const std::string origin = request_initiator.ToString();
-  if (origin.rfind("browser://", 0) == 0 ||
-      origin.rfind("file://", 0) == 0) {
-    return nullptr;
-  }
-
-  const std::string setting = store_->GetSitePermission(origin, "images");
-  if (setting == "block") {
-    return new ImageBlockHandler;
+        // Image permission check.
+        if (request->GetResourceType() == RT_IMAGE &&
+            store_->GetSitePermission(page_origin, "images") == "block") {
+          return new ImageBlockHandler;
+        }
+      }
+    }
   }
 
   return nullptr;
@@ -4920,9 +4970,31 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
 
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-    if (view && tab_manager_) {
-      const std::string current_url = tab_manager_->GetUrl(view->GetID());
+    if (view && tab_manager_ && !IsNonTabBrowserViewId(view->GetID())) {
       const std::string next_url = request->GetURL().ToString();
+      const std::string origin = ExtractOrigin(next_url);
+      const int tab_id = view->GetID();
+
+      if (!origin.empty() && store_) {
+        const bool dest_blocked =
+            store_->GetSitePermission(origin, "javascript") == "block";
+        const bool tab_js_disabled = IsTabJsDisabled(tab_id);
+
+        // Normal tab → blocked site: open a new JS-disabled tab.
+        // JS-disabled tab → non-blocked site: open a new JS-enabled tab.
+        // Both cases use the same redirect task; CreateTab picks the right
+        // browser_settings based on the destination origin.
+        if (dest_blocked != tab_js_disabled) {
+          // Must notify the message router before cancelling so it can clean
+          // up pending queries on this frame — skipping causes use-after-free
+          // on CefFrame when the old tab is closed by the redirect task.
+          if (message_router_) message_router_->OnBeforeBrowse(browser, frame);
+          CefPostTask(TID_UI, new DeferredTabRedirectTask(next_url, tab_id));
+          return true;
+        }
+      }
+
+      const std::string current_url = tab_manager_->GetUrl(view->GetID());
       const bool is_image_preview_url =
           next_url == "browser://imagepreview" ||
           next_url.rfind("browser://image-preview/", 0) == 0 ||
@@ -5254,11 +5326,6 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     return true;
   }
   if (M(Mod::kCtrl, Key::kW)) {
-    std::string url = tab_manager_->GetUrl(cur);
-    if (!url.empty() && !otf::IsLocalFilesystemPathLike(url) &&
-        url.find("browser://") != 0) {
-      last_closed_url_ = url;
-    }
     CloseTabAndNotify(cur);
     return true;
   }
@@ -5440,6 +5507,13 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
   OtfApp* app = OtfApp::GetInstance();
   if (!app) {
     return;
+  }
+  if (tab_manager_) {
+    std::string url = tab_manager_->GetUrl(tab_id);
+    if (!url.empty() && !otf::IsLocalFilesystemPathLike(url) &&
+        url.find("browser://") != 0) {
+      last_closed_url_ = url;
+    }
   }
   app->CloseTab(tab_id);
   SendEvent(JsonObjectBuilder()

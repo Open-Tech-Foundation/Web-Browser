@@ -3,6 +3,7 @@
 import screen from "./screen.js";
 import hardware from "./hardware.js";
 import sideEffects from "./side-effects.js";
+import cookiePrivacy from "./cookie-privacy.js";
 import fonts from "./fonts.js";
 import fontAdvanced from "./font-advanced.js";
 import layoutMetrics from "./layout-metrics.js";
@@ -20,6 +21,7 @@ export default [
   screen,
   hardware,
   sideEffects,
+  cookiePrivacy,
   fonts,
   fontAdvanced,
   layoutMetrics,

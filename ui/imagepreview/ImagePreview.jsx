@@ -163,6 +163,15 @@ const ImagePreview = () => {
     // may have been cancelled or the renderer may have been reloaded. Pull
     // a fresh snapshot whenever we become visible so the page is never
     // left blank.
+    let retryTimer = null;
+    let disposed = false;
+    const scheduleRetry = () => {
+      if (disposed || hasSnapshotRef.current || retryTimer) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        refresh();
+      }, 250);
+    };
     const refresh = () => {
       if (hasSnapshotRef.current) return;
       if (!window.cefQuery) return;
@@ -171,13 +180,22 @@ const ImagePreview = () => {
         onSuccess: (json) => {
           try {
             const ev = JSON.parse(json);
-            if (ev && ev.key === 'load-image') applyLoadImage(ev);
-          } catch (_) {}
+            if (ev && ev.key === 'load-image') {
+              applyLoadImage(ev);
+              if (!ev.displayUrl && !ev.error) scheduleRetry();
+            } else {
+              scheduleRetry();
+            }
+          } catch (_) {
+            scheduleRetry();
+          }
         },
+        onFailure: scheduleRetry,
       });
     };
     const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
     document.addEventListener('visibilitychange', onVis);
+    setTimeout(refresh, 0);
 
     const onKeyDown = (event) => {
       if (event.key === 'Escape' && window.cefQuery) {
@@ -191,6 +209,8 @@ const ImagePreview = () => {
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
       window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('visibilitychange', onVis);
       if (window.__otfApplyImagePreview === applyLoadImage) {

@@ -590,12 +590,15 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   CEF_REQUIRE_UI_THREAD();
 
   CefBrowserSettings browser_settings;
+  bool js_disabled = false;
   OtfHandler* handler = OtfHandler::GetInstance();
   if (handler) {
+    OtfStore* store = handler->GetStore();
     std::string origin = ExtractOrigin(url);
-    if (!origin.empty() &&
-        handler->GetStore()->GetSitePermission(origin, "javascript") == "block") {
+    if (!origin.empty() && store &&
+        store->GetSitePermission(origin, "javascript") == "block") {
       browser_settings.javascript = STATE_DISABLED;
+      js_disabled = true;
     }
   }
   CefRefPtr<CefRequestContext> request_context =
@@ -603,9 +606,13 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
       OtfHandler::GetInstance(), url, browser_settings, MakeBrowserExtraInfo(), request_context,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
+  if (!content_view) return -1;
 
   int tab_id = tab_manager_.AddTab(content_view, parent_id);
   content_view->SetID(tab_id);
+  if (js_disabled && handler) {
+    handler->MarkTabJsDisabled(tab_id);
+  }
   tab_manager_.SetUrl(tab_id, url);
   if (url == "browser://imagepreview" ||
       url.rfind("browser://image-preview/", 0) == 0 ||
@@ -856,6 +863,7 @@ int OtfApp::CloseTab(int tab_id) {
   if (handler) {
     handler->tab_image_preview_subscriptions_.erase(tab_id);
     handler->SetImagePreviewUrlForTab(tab_id, "");
+    handler->UnmarkTabJsDisabled(tab_id);
   }
   if (current_tab_id_ == tab_id) {
     current_tab_id_ = -1;
@@ -1518,11 +1526,14 @@ void OtfApp::OnContextInitialized() {
       new OtfViewDelegate(runtime_style, 65));
   ui_view->SetID(kUiBrowserViewId);
 
+  bool startup_js_disabled = false;
   {
+    OtfStore* store = handler->GetStore();
     std::string origin = ExtractOrigin(start_url);
-    if (!origin.empty() &&
-        handler->GetStore()->GetSitePermission(origin, "javascript") == "block") {
+    if (!origin.empty() && store &&
+        store->GetSitePermission(origin, "javascript") == "block") {
       browser_settings.javascript = STATE_DISABLED;
+      startup_js_disabled = true;
     }
   }
   CefRefPtr<CefRequestContext> startup_request_context =
@@ -1533,6 +1544,9 @@ void OtfApp::OnContextInitialized() {
 
   int tab_id = tab_manager_.AddTab(content_view);
   content_view->SetID(tab_id);
+  if (startup_js_disabled) {
+    handler->MarkTabJsDisabled(tab_id);
+  }
   tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
   if (pending_workspace_restore_first_is_preview_) {
     RestoreImagePreviewStateForTab(tab_id, pending_workspace_restore_first_);

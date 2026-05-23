@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 
 import {
+  addressBarSelector,
   allowDownloadOnce,
+  connectToReadyTarget,
   launchDevBrowser,
   navigateFromAddressBar,
   startStaticServer,
@@ -78,9 +80,43 @@ const BASE_IMAGE_FIXTURES = [
     name: 'image-preview-tiff-multi.tiff',
     format: 'TIFF',
     mime: 'image/tiff',
-    body: Buffer.from('SUkqABoAAAB4nPvPwPB/FI2ikYoAGAD/AQAKAAABAwABAAAAEAAAAAEBAwABAAAAEAAAAAIBAwADAAAAmAAAAAMBAwABAAAACAAAAAYBAwABAAAAAgAAABEBBAABAAAACAAAABUBAwABAAAAAwAAABYBAwABAAAAEAAAABcBBAABAAAAEQAAABwBAwABAAAAAQAAAAAAAAACAAgACAAIAAAASUkqABoAAAB4nGP4z8AwikbRSEUAGPH/AQAKAAABAwABAAAAEAAAAAEBAwABAAAAEAAAAAIBAwADAAAAOAEAAAMBAwABAAAACAAAAAYBAwABAAAAAgAAABEBBAABAAAAqAAAABUBAwABAAAAAwAAABYBAwABAAAAEAAAABcBBAABAAAAEQAAABwBAwABAAAAAQAAAAAAAAAIAAgACAAAAA==', 'base64'),
+    body: Buffer.from('SUkqAAgBAAAoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoDAD+AAQAAQAAAAIAAAAAAQMAAQAAABAAAAABAQMAAQAAABAAAAACAQMAAQAAAAgAAAADAQMAAQAAAAEAAAAGAQMAAQAAAAEAAAARAQQAAQAAAAgAAAASAQMAAQAAAAEAAAAVAQMAAQAAAAEAAAAXAQQAAQAAAAABAAAcAQMAAQAAAAEAAAApAQMAAgAAAAAAAgCeAgAA3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3AwA/gAEAAEAAAACAAAAAAEDAAEAAAAQAAAAAQEDAAEAAAAQAAAAAgEDAAEAAAAIAAAAAwEDAAEAAAABAAAABgEDAAEAAAABAAAAEQEEAAEAAACeAQAAEgEDAAEAAAABAAAAFQEDAAEAAAABAAAAFwEEAAEAAAAAAQAAHAEDAAEAAAABAAAAKQEDAAIAAAABAAIAAAAAAA==', 'base64'),
   },
 ];
+
+const previewStateExpression = `(() => {
+  const i = document.querySelector('img[alt="Preview"]');
+  return {
+    text: document.body?.innerText || '',
+    complete: !!i?.complete,
+    w: i?.naturalWidth || 0,
+    h: i?.naturalHeight || 0,
+  };
+})()`;
+
+const fixtureLinkId = (fixture) => `#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}`;
+
+async function connectFixturePage(browser, server) {
+  const originWithoutScheme = server.origin.replace(/^https?:\/\//, '');
+  await waitFor(
+    browser.cdp,
+    `document.querySelector(${JSON.stringify(addressBarSelector)})?.value || ""`,
+    (value) => value.startsWith(server.origin) || value.startsWith(originWithoutScheme),
+    15000,
+  );
+  return browser.connectToTarget((t) => (t.url || '').startsWith(server.origin), 15000);
+}
+
+async function connectRenderedPreview(browser, format, deadlineMs = 20000) {
+  return connectToReadyTarget(
+    (t) =>
+      (t.url || '').includes('imagepreview.html') ||
+      (t.url || '').startsWith('browser://image-preview/'),
+    previewStateExpression,
+    (s) => s.complete && s.w > 0 && s.h > 0 && s.text.includes(`Format: ${format}`),
+    deadlineMs,
+  );
+}
 
 function imageFixtureServer(fixtures) {
   return (req, res) => {
@@ -125,11 +161,9 @@ test('image preview opens PNG from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -139,10 +173,7 @@ test('image preview opens PNG from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -169,11 +200,9 @@ test('image preview opens JPG from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -183,10 +212,7 @@ test('image preview opens JPG from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -213,11 +239,9 @@ test('image preview opens GIF from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -227,10 +251,7 @@ test('image preview opens GIF from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -257,11 +278,9 @@ test('image preview opens WEBP from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -271,10 +290,7 @@ test('image preview opens WEBP from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -301,11 +317,9 @@ test('image preview opens BMP from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -315,10 +329,7 @@ test('image preview opens BMP from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -345,11 +356,9 @@ test('image preview opens ICO from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -359,10 +368,7 @@ test('image preview opens ICO from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -389,11 +395,9 @@ test('image preview opens SVG from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -403,10 +407,7 @@ test('image preview opens SVG from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -442,11 +443,9 @@ test('image preview opens AVIF from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -456,10 +455,7 @@ test('image preview opens AVIF from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -486,11 +482,9 @@ test('image preview opens single-page TIFF from downloads',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -500,10 +494,7 @@ test('image preview opens single-page TIFF from downloads',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,
@@ -530,11 +521,9 @@ test('image preview opens multi-page TIFF and navigates pages',
     let previewCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await browser.connectToTarget((t) =>
-        (t.url || '').startsWith(server.origin),
-      );
-      await waitFor(pageCdp, `!!document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}')`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector('#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}').click()`);
+      pageCdp = await connectFixturePage(browser, server);
+      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
+      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
       await allowDownloadOnce(browser, server.origin);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
@@ -544,10 +533,7 @@ test('image preview opens multi-page TIFF and navigates pages',
       await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
       const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
       assert.equal(clicked, true);
-      previewCdp = await browser.connectToTarget((t) =>
-        (t.url || '').includes('imagepreview.html') ||
-        (t.url || '').startsWith('browser://image-preview/'),
-      );
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
         `(() => { const i = document.querySelector('img[alt="Preview"]'); return { text: document.body?.innerText || '', complete: !!i?.complete, w: i?.naturalWidth || 0, h: i?.naturalHeight || 0 }; })()`,

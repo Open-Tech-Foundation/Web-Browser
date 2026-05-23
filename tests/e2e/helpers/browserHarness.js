@@ -141,7 +141,7 @@ export async function waitForTarget(predicate, deadlineMs = timeoutMs) {
   let targets = [];
   while (Date.now() < deadline) {
     targets = await getTargets();
-    const target = targets.find((item) => item.type === 'page' &&
+    const target = [...targets].reverse().find((item) => item.type === 'page' &&
       item.webSocketDebuggerUrl &&
       predicate(item));
     if (target) {
@@ -150,6 +150,35 @@ export async function waitForTarget(predicate, deadlineMs = timeoutMs) {
     await sleep(250);
   }
   throw new Error(`timed out waiting for target; last targets: ${JSON.stringify(targets)}`);
+}
+
+export async function connectToReadyTarget(predicate, expression, ready, deadlineMs = timeoutMs) {
+  const deadline = Date.now() + deadlineMs;
+  let targets = [];
+  let lastValue;
+  while (Date.now() < deadline) {
+    targets = await getTargets();
+    const candidates = [...targets].reverse().filter((item) =>
+      item.type === 'page' &&
+      item.webSocketDebuggerUrl &&
+      predicate(item));
+    for (const target of candidates) {
+      const cdp = new CdpClient(target.webSocketDebuggerUrl);
+      try {
+        await cdp.open();
+        await cdp.send('Runtime.enable');
+        lastValue = await cdp.evaluate(expression);
+        if (ready(lastValue)) {
+          return cdp;
+        }
+      } catch (error) {
+        lastValue = error?.message || String(error);
+      }
+      cdp.close();
+    }
+    await sleep(250);
+  }
+  throw new Error(`timed out waiting for ready target; last value: ${JSON.stringify(lastValue)}; last targets: ${JSON.stringify(targets)}`);
 }
 
 export class CdpClient {

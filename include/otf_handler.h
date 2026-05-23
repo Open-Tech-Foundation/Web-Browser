@@ -5,6 +5,7 @@
 #include <set>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <cstdint>
 #include "include/cef_client.h"
 #include "include/cef_download_handler.h"
@@ -346,6 +347,19 @@ class OtfHandler : public CefClient,
   // crash or quit never loses more than the most recent change.
   void PersistWorkspaceTabs(int workspace_id);
   void PersistWorkspaceForTab(int tab_id);
+  void ApplyAlwaysOnPrivacyPreferences(CefRefPtr<CefRequestContext> ctx);
+
+  void MarkTabJsDisabled(int tab_id) { js_disabled_tabs_.insert(tab_id); }
+  void UnmarkTabJsDisabled(int tab_id) { js_disabled_tabs_.erase(tab_id); }
+  bool IsTabJsDisabled(int tab_id) const {
+    return js_disabled_tabs_.count(tab_id) > 0;
+  }
+
+  // Cross-origin resource tracking: page_origin -> set of external origins
+  // accessed on that page. Populated on the IO thread in
+  // GetResourceRequestHandler, read from the UI thread via cefQuery.
+  std::map<std::string, std::set<std::string>> cross_origin_resources_;
+  mutable std::mutex cross_origin_mutex_;
 
  private:
   const bool use_alloy_style_;
@@ -354,6 +368,8 @@ class OtfHandler : public CefClient,
   typedef std::list<CefRefPtr<CefBrowser>> BrowserList;
   BrowserList browser_list_;
   bool is_closing_;
+
+  std::set<int> js_disabled_tabs_;
 
   IMPLEMENT_REFCOUNTING(OtfHandler);
 };

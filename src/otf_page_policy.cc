@@ -1580,6 +1580,73 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     // They are inert without navigator.serviceWorker — no registration path exists.
   })();
 
+  // Do Not Track: always report doNotTrack = "1" so pages honour the preference.
+  (() => {
+    'use strict';
+    try {
+      if (typeof Navigator === 'undefined') return;
+      const proto = Navigator.prototype;
+      if (proto.__otfDntPolicy) return;
+      const desc = Object.getOwnPropertyDescriptor(proto, 'doNotTrack');
+      Object.defineProperty(proto, 'doNotTrack', {
+        get: makeNative(
+          function doNotTrack() { return '1'; },
+          'function get doNotTrack() { [native code] }'
+        ),
+        set: undefined,
+        configurable: false,
+        enumerable: desc ? desc.enumerable : true,
+      });
+      Object.defineProperty(proto, '__otfDntPolicy', {
+        value: true, configurable: false, enumerable: false, writable: false,
+      });
+    } catch (_) {}
+  })();
+
+  // Third-party cookie blocking: in cross-origin sub-frames, shadow
+  // document.cookie so embedded trackers cannot read or write cookies via JS.
+  // Network-level cookies (HTTP headers) are handled separately by the browser.
+  // Accessing window.top.location.href throws a SecurityError in cross-origin
+  // frames, which is the reliable signal that we are a third-party context.
+  (() => {
+    'use strict';
+    try {
+      if (typeof window === 'undefined' || window === window.top) return;
+      let isThirdParty = false;
+      try {
+        void window.top.location.href;
+      } catch (_) {
+        isThirdParty = true;
+      }
+      if (!isThirdParty) return;
+
+      const docProto = globalThis.Document && globalThis.Document.prototype
+          ? globalThis.Document.prototype
+          : Object.getPrototypeOf(document);
+      if (!docProto || docProto.__otfCookiePolicy) return;
+
+      const emptyCookieGetter = makeNative(
+        function cookie() { return ''; },
+        'function get cookie() { [native code] }'
+      );
+      const emptyCookieSetter = makeNative(
+        function cookie(_val) {},
+        'function set cookie(_val) { [native code] }'
+      );
+
+      const existing = Object.getOwnPropertyDescriptor(docProto, 'cookie');
+      Object.defineProperty(docProto, 'cookie', {
+        get: emptyCookieGetter,
+        set: emptyCookieSetter,
+        configurable: false,
+        enumerable: existing ? existing.enumerable : true,
+      });
+      Object.defineProperty(docProto, '__otfCookiePolicy', {
+        value: true, configurable: false, enumerable: false, writable: false,
+      });
+    } catch (_) {}
+  })();
+
   }  // applyPagePolicy
 
   applyPagePolicy();

@@ -37,6 +37,7 @@ const SiteData = () => {
   const [activeTab, setActiveTab] = useState('cookies');
   const [settingBusy, setSettingBusy] = useState({});
   const [jsJustChanged, setJsJustChanged] = useState(false);
+  const [crossOrigins, setCrossOrigins] = useState([]);
   const [selection, setSelection] = useState({
     cookies: true,
     storage: true,
@@ -50,10 +51,11 @@ const SiteData = () => {
 
   const refresh = async () => {
     if (!origin) return;
-    const [cookiesRes, storageRes, permsRes] = await Promise.all([
+    const [cookiesRes, storageRes, permsRes, crossRes] = await Promise.all([
       callQuery(`get-cookies-for-site:${origin}`),
       callQuery(`get-storage-for-site:${origin}`),
       callQuery(`get-permissions-for-site:${origin}`),
+      callQuery(`get-cross-origin-resources:${origin}`),
     ]);
     if (cookiesRes.ok) {
       try { setCookies(JSON.parse(cookiesRes.response)); } catch (_) {}
@@ -66,6 +68,9 @@ const SiteData = () => {
     }
     if (permsRes.ok) {
       try { setPermissions(JSON.parse(permsRes.response)); } catch (_) {}
+    }
+    if (crossRes.ok) {
+      try { setCrossOrigins(JSON.parse(crossRes.response)); } catch (_) {}
     }
   };
 
@@ -116,7 +121,7 @@ const SiteData = () => {
         </header>
 
         <section className="mb-8">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <button
               onClick={() => setActiveTab('cookies')}
               className={`text-left rounded-lg p-4 border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/20 ${
@@ -158,6 +163,18 @@ const SiteData = () => {
                   return (permissions[k] || def) !== def;
                 }).length}
               </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('external')}
+              className={`text-left rounded-lg p-4 border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/20 ${
+                activeTab === 'external'
+                  ? 'border-orange-500 dark:border-orange-500 bg-orange-500/5 dark:bg-orange-500/5 shadow-sm'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <div className={`text-xs mb-1 font-semibold ${activeTab === 'external' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>External</div>
+              <div className="font-mono text-2xl font-bold">{crossOrigins.length}</div>
             </button>
           </div>
         </section>
@@ -323,6 +340,47 @@ const SiteData = () => {
                 change to take effect.
               </div>
             )}
+          </section>
+        )}
+
+        {activeTab === 'external' && (
+          <section className="mb-8">
+            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">
+              Cross-origin resources
+            </h2>
+            {crossOrigins.length === 0 ? (
+              <div className="text-sm text-slate-400">No external origins detected.</div>
+            ) : (
+              <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-800/60">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold">Origin</th>
+                      <th className="text-right px-3 py-2 font-semibold"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crossOrigins.map((res, i) => (
+                      <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2.5 font-mono">{res}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          <button
+                            onClick={() => window.cefQuery?.({ request: `open-site-data-page:${res}` })}
+                            className="px-2 py-1 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 cursor-pointer"
+                          >
+                            Configure
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 mt-2">
+              External origins that this site has loaded resources from. Click <strong>Configure</strong>
+              to manage permissions for that origin.
+            </p>
           </section>
         )}
       </div>
