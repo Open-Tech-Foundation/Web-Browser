@@ -80,6 +80,9 @@ void TestBookmarkAndDownloadHelpers() {
          "https://example.com/path");
   assert(otf::NormalizeBookmarkUrl("https://example.com/path/?q=1") ==
          "https://example.com/path?q=1");
+  assert(otf::NormalizeBookmarkUrl(
+             "https://example.com/path/?utm_campaign=launch&q=1&_ga=abc") ==
+         "https://example.com/path?q=1");
 
   assert(otf::SanitizeFilename("hello/world.txt") == "hello_world.txt");
   assert(otf::SanitizeFilename("file.   ") == "file");

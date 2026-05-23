@@ -827,6 +827,50 @@ bool IsInternalUiUrl(const std::string& url) {
   return IsInternalUiPagePath(url);
 }
 
+namespace {
+
+const char* kTrackingParams[] = {
+  "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+  "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "twclid", "igshid",
+  "mc_cid", "mc_eid",
+  "_ga", "_gl",
+  "yclid", "dclid",
+};
+
+bool IsTrackingParam(const std::string& key) {
+  for (auto* param : kTrackingParams) {
+    if (key == param) return true;
+  }
+  return false;
+}
+
+std::string StripTrackingParams(const std::string& query) {
+  if (query.empty()) return query;
+
+  std::istringstream stream(query);
+  std::string segment;
+  std::string cleaned;
+  bool first = true;
+
+  while (std::getline(stream, segment, '&')) {
+    std::string key = segment;
+    auto eq = segment.find('=');
+    if (eq != std::string::npos) {
+      key = segment.substr(0, eq);
+    }
+
+    if (IsTrackingParam(key)) continue;
+
+    if (!first) cleaned += "&";
+    cleaned += segment;
+    first = false;
+  }
+
+  return cleaned;
+}
+
+}  // namespace
+
 std::string NormalizeBookmarkUrl(const std::string& url) {
   if (!IsPersistableWebUrl(url)) {
     return url;
@@ -841,7 +885,7 @@ std::string NormalizeBookmarkUrl(const std::string& url) {
   const std::string host = CefString(&parts.host).ToString();
   const std::string port = CefString(&parts.port).ToString();
   std::string path = CefString(&parts.path).ToString();
-  const std::string query = CefString(&parts.query).ToString();
+  std::string query = CefString(&parts.query).ToString();
 
   if (path.empty() || path == "/") {
     path = "/";
@@ -850,6 +894,8 @@ std::string NormalizeBookmarkUrl(const std::string& url) {
       path.pop_back();
     }
   }
+
+  query = StripTrackingParams(query);
 
   std::string fallback = scheme + "://" + host;
   if (!port.empty()) {

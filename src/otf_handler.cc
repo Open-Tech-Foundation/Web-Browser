@@ -2645,10 +2645,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             const std::string favicon = handler->tab_manager_->GetFaviconUrl(tab_id);
             handler->store_->AddBookmark(url, title, favicon);
             bookmarked = true;
-            handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
           } else {
             bookmarked = true;
           }
+          handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
           app->ShowBookmarkOverlay();
           callback->Success(bookmarked ? "true" : "false");
           return true;

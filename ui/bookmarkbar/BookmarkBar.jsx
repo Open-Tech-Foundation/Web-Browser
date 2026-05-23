@@ -90,6 +90,31 @@ const S = {
   }
 };
 
+const kTrackingParams = new Set([
+  'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+  'fbclid', 'gclid', 'gbraid', 'wbraid', 'msclkid', 'twclid', 'igshid',
+  'mc_cid', 'mc_eid', '_ga', '_gl', 'yclid', 'dclid',
+]);
+
+const normalizeBookmarkUrl = (url) => {
+  try {
+    const u = new URL(url);
+    const params = new URLSearchParams(u.search);
+    for (const key of params.keys()) {
+      if (kTrackingParams.has(key)) {
+        params.delete(key);
+      }
+    }
+    u.search = params.toString();
+    if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
+      u.pathname = u.pathname.replace(/\/+$/, '');
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+};
+
 const BookmarkBar = () => {
   const [bookmark, setBookmark] = useState(null);
   const [title, setTitle] = useState('');
@@ -123,7 +148,8 @@ const BookmarkBar = () => {
                     if (!mounted) return;
                     try {
                       const bookmarks = JSON.parse(bmsJson);
-                      const activeBm = bookmarks.find(b => b.url === currentUrl);
+                      const cleanUrl = normalizeBookmarkUrl(currentUrl);
+                      const activeBm = bookmarks.find(b => normalizeBookmarkUrl(b.url) === cleanUrl);
                       if (activeBm) {
                         setBookmark(activeBm);
                         setTitle(activeBm.title);
@@ -191,6 +217,8 @@ const BookmarkBar = () => {
 
   const handleRemove = () => {
     if (!bookmark || !window.cefQuery) return;
+    setBookmark(null);
+    setTitle('');
     window.cefQuery({
       request: `remove-bookmark:${bookmark.id}`,
       onSuccess: () => {
@@ -203,7 +231,7 @@ const BookmarkBar = () => {
     <div style={S.wrapper}>
       <div style={S.panel}>
         <div style={S.header}>
-          <div style={{ fontSize: 13, fontWeight: 800 }}>Bookmark Added</div>
+          <div style={{ fontSize: 13, fontWeight: 800 }}>Bookmark</div>
         </div>
         
         {loading ? (

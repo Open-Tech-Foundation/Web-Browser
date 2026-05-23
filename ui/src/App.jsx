@@ -351,6 +351,13 @@ const App = () => {
   const handleToggleBookmark = () => {
     window.cefQuery({
       request: 'toggle-bookmark-current',
+      onSuccess: (value) => {
+        if (state.activeTabId === null) return;
+        dispatch({
+          type: 'UPDATE_TAB',
+          payload: { id: state.activeTabId, key: 'bookmarked', value: value === 'true' }
+        });
+      },
     });
   };
 

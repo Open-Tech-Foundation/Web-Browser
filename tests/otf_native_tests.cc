@@ -137,6 +137,9 @@ void TestBookmarkNormalization() {
          otf::NormalizeBookmarkUrl("https://example.com/"));
   assert(otf::NormalizeBookmarkUrl("https://example.com/path/") ==
          "https://example.com/path");
+  assert(otf::NormalizeBookmarkUrl(
+             "https://example.com/path/?utm_source=newsletter&q=1&fbclid=abc") ==
+         "https://example.com/path?q=1");
 }
 
 void TestIsInternalUiUrl() {
