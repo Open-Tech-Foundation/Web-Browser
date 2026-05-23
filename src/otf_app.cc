@@ -544,10 +544,11 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   // Whitelist of switches the user is permitted to pass on the command line.
-  // Empty for now — no runtime flags are needed in production. Extend this
-  // set deliberately; never add flags that open security surfaces (e.g.
+  // Extend deliberately; never add flags that open security surfaces (e.g.
   // remote-debugging-port, no-sandbox).
-  static const std::set<std::string> kAllowedSwitches = {};
+  static const std::set<std::string> kAllowedSwitches = {
+    "dev-ui-url",  // dev: serve UI overlays from a local Vite dev server
+  };
 
   CefCommandLine::SwitchMap all_switches;
   command_line->GetSwitches(all_switches);
@@ -962,18 +963,25 @@ void OtfApp::CreateLinkPreviewOverlay() {
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   link_preview_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
-  link_preview_overlay_->SetVisible(true);
+  link_preview_overlay_->SetVisible(false);
   PositionLinkPreviewOverlay();
+}
+
+void OtfApp::SetLinkPreviewVisible(bool visible) {
+  CEF_REQUIRE_UI_THREAD();
+  if (link_preview_overlay_)
+    link_preview_overlay_->SetVisible(visible);
 }
 
 void OtfApp::PositionLinkPreviewOverlay() {
   CEF_REQUIRE_UI_THREAD();
-  if (!window_ || !link_preview_overlay_) return;
+  if (!window_ || !link_preview_overlay_ || !content_panel_) return;
 
   constexpr int kOverlayHeight = 28;
-  CefRect bounds = window_->GetBounds();
+  CefRect bounds = content_panel_->GetBounds();
+  const int overlayWidth = bounds.width * 3 / 4;
   link_preview_overlay_->SetBounds(
-      CefRect(0, bounds.height - kOverlayHeight, bounds.width, kOverlayHeight));
+      CefRect(bounds.x, bounds.y + bounds.height - kOverlayHeight, overlayWidth, kOverlayHeight));
 }
 
 void OtfApp::CreateDownloadsOverlay() {

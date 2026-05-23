@@ -11,7 +11,7 @@ const S = {
   },
   chip: {
     display: 'inline-block',
-    maxWidth: '50%',
+    maxWidth: '100%',
     padding: '3px 10px 4px',
     background: '#ffffff',
     border: '1px solid #dadce0',

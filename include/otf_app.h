@@ -99,6 +99,9 @@ class OtfApp : public CefApp,
   void CreateAppMenuOverlay();
   void CreateBookmarkOverlay();
   void CreateImagePreviewOverlay();
+  void CreateLinkPreviewOverlay();
+  void PositionLinkPreviewOverlay();
+  void SetLinkPreviewVisible(bool visible);
   void FocusCurrentTabContent();
   void OpenPendingStartupTabs();
   void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
@@ -139,6 +142,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> appmenu_overlay_;
   CefRefPtr<CefOverlayController> bookmark_overlay_;
   CefRefPtr<CefOverlayController> image_preview_overlay_;
+  CefRefPtr<CefOverlayController> link_preview_overlay_;
 
  private:
   void ApplyFullscreenState();

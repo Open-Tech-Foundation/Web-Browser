@@ -20,6 +20,9 @@
 #include <fstream>
 #include <regex>
 #include <vector>
+#include <cstring>
+#include <cstdlib>
+#include <sys/stat.h>
 #include "otf_utils.h"
 
 #if defined(_WIN32)
@@ -52,10 +55,58 @@
 #include "include/cef_urlrequest.h"
 
 static bool HasCommand(const char* command) {
-  std::string check = "command -v ";
-  check += command;
-  check += " >/dev/null 2>&1";
-  return std::system(check.c_str()) == 0;
+  if (!command || command[0] == '\0') {
+    return false;
+  }
+
+  // Check if command contains path separators (absolute or relative path)
+  if (strchr(command, '/') != nullptr ||
+#if defined(_WIN32)
+      strchr(command, '\\') != nullptr ||
+#endif
+      false) {
+    // For paths, check if file exists and is executable
+    struct stat buffer;
+    return (stat(command, &buffer) == 0) && 
+           !(buffer.st_mode & S_IFDIR);
+  }
+
+  // For simple command names, search in PATH
+  const char* path_env = getenv("PATH");
+  if (!path_env) {
+    return false;
+  }
+
+  std::string path_str(path_env);
+  size_t start = 0;
+  size_t end = path_str.find(':');
+  
+  while (end != std::string::npos) {
+    std::string dir = path_str.substr(start, end - start);
+    if (!dir.empty()) {
+      std::string full_path = dir + "/" + command;
+      struct stat buffer;
+      if (stat(full_path.c_str(), &buffer) == 0 &&
+          !(buffer.st_mode & S_IFDIR)) {
+        return true;
+      }
+    }
+    start = end + 1;
+    end = path_str.find(':', start);
+  }
+  
+  // Check last PATH element
+  std::string dir = path_str.substr(start);
+  if (!dir.empty()) {
+    std::string full_path = dir + "/" + command;
+    struct stat buffer;
+    if (stat(full_path.c_str(), &buffer) == 0 &&
+        !(buffer.st_mode & S_IFDIR)) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 // Cross-platform clipboard write — CEF Alloy provides no clipboard API,
@@ -4151,11 +4202,17 @@ void OtfHandler::OnStatusMessage(CefRefPtr<CefBrowser> browser,
   if (!view || IsNonTabBrowserViewId(view->GetID())) return;
 
   std::string url = value.ToString();
+  OtfApp* app = OtfApp::GetInstance();
+  if (url.empty()) {
+    if (app) app->SetLinkPreviewVisible(false);
+    return;
+  }
   // Escape backslashes and single-quotes for safe embedding in a JS string.
   for (size_t i = 0; (i = url.find('\\', i)) != std::string::npos; i += 2)
     url.replace(i, 1, "\\\\");
   for (size_t i = 0; (i = url.find('\'', i)) != std::string::npos; i += 2)
     url.replace(i, 1, "\\'");
+  if (app) app->SetLinkPreviewVisible(true);
   const std::string js = "window.__otfSetLinkPreview('" + url + "');";
   link_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
 }
