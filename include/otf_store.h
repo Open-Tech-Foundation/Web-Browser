@@ -2,6 +2,7 @@
 #define OTF_BROWSER_STORE_H_
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -131,6 +132,7 @@ class OtfStore {
   int64_t Now() const;
 
   sqlite3* db_;
+  mutable std::mutex db_mutex_;
 };
 
 }  // namespace otf

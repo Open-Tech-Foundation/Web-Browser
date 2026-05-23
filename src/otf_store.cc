@@ -668,6 +668,7 @@ std::string OtfStore::GetSitePermissionsJson(const std::string& origin) const {
 std::string OtfStore::GetSitePermission(const std::string& origin,
                                         const std::string& permission) const {
   if (!db_ || origin.empty() || permission.empty()) return {};
+  const std::lock_guard<std::mutex> lock(db_mutex_);
   const std::string norm = NormalizeOrigin(origin);
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(db_,
@@ -691,6 +692,7 @@ bool OtfStore::SetSitePermission(const std::string& origin,
                                  const std::string& permission,
                                  const std::string& setting) {
   if (!db_ || origin.empty() || permission.empty()) return false;
+  const std::lock_guard<std::mutex> lock(db_mutex_);
   const std::string norm = NormalizeOrigin(origin);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =

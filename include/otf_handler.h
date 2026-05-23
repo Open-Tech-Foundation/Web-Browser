@@ -8,6 +8,7 @@
 #include <cstdint>
 #include "include/cef_client.h"
 #include "include/cef_download_handler.h"
+#include "include/cef_resource_request_handler.h"
 #include "include/wrapper/cef_message_router.h"
 #include "otf_browser_shell.h"
 #include "otf_devtools_bridge.h"
@@ -144,6 +145,14 @@ class OtfHandler : public CefClient,
                             EventFlags event_flags) override;
 
   // CefRequestHandler methods:
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(
+      CefRefPtr<CefBrowser> browser,
+      CefRefPtr<CefFrame> frame,
+      CefRefPtr<CefRequest> request,
+      bool is_navigation,
+      bool is_download,
+      const CefString& request_initiator,
+      bool& disable_default_handling) override;
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                       CefRefPtr<CefFrame> frame,
                       CefRefPtr<CefRequest> request,

@@ -16,9 +16,14 @@ const callQuery = (request) => new Promise((resolve) => {
 const PERMISSION_LABELS = {
   popup: 'Pop-ups',
   downloads: 'Downloads',
+  images: 'Images',
 };
 
-const SETTING_ORDER = ['ask', 'allow', 'block'];
+const PERMISSION_SETTING_ORDER = {
+  popup: ['ask', 'allow', 'block'],
+  downloads: ['ask', 'allow', 'block'],
+  images: ['allow', 'block'],
+};
 
 const SiteData = () => {
   const [origin, setOrigin] = useState('');
@@ -270,9 +275,11 @@ const SiteData = () => {
                 </thead>
                 <tbody>
                   {Object.entries(PERMISSION_LABELS).map(([key, label], i) => {
-                    const current = permissions[key] || 'ask';
-                    const nextIdx = (SETTING_ORDER.indexOf(current) + 1) % SETTING_ORDER.length;
-                    const next = SETTING_ORDER[nextIdx];
+                    const order = PERMISSION_SETTING_ORDER[key] || ['ask', 'allow', 'block'];
+                    const defaultSetting = order[0];
+                    const current = permissions[key] || defaultSetting;
+                    const nextIdx = (order.indexOf(current) + 1) % order.length;
+                    const next = order[nextIdx];
                     return (
                       <tr key={key} className="border-t border-slate-100 dark:border-slate-800">
                         <td className="px-3 py-2.5">{label}</td>

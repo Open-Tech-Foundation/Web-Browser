@@ -4863,6 +4863,54 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
   return false;
 }
 
+namespace {
+
+class ImageBlockHandler : public CefResourceRequestHandler {
+ public:
+  ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser,
+                                   CefRefPtr<CefFrame> frame,
+                                   CefRefPtr<CefRequest> request,
+                                   CefRefPtr<CefCallback> callback) override {
+    return RV_CANCEL;
+  }
+
+ private:
+  IMPLEMENT_REFCOUNTING(ImageBlockHandler);
+};
+
+}  // namespace
+
+CefRefPtr<CefResourceRequestHandler>
+OtfHandler::GetResourceRequestHandler(
+    CefRefPtr<CefBrowser> browser,
+    CefRefPtr<CefFrame> frame,
+    CefRefPtr<CefRequest> request,
+    bool is_navigation,
+    bool is_download,
+    const CefString& request_initiator,
+    bool& disable_default_handling) {
+  if (request->GetResourceType() != RT_IMAGE) {
+    return nullptr;
+  }
+
+  if (!store_ || request_initiator.empty()) {
+    return nullptr;
+  }
+
+  const std::string origin = request_initiator.ToString();
+  if (origin.rfind("browser://", 0) == 0 ||
+      origin.rfind("file://", 0) == 0) {
+    return nullptr;
+  }
+
+  const std::string setting = store_->GetSitePermission(origin, "images");
+  if (setting == "block") {
+    return new ImageBlockHandler;
+  }
+
+  return nullptr;
+}
+
 bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                  CefRefPtr<CefFrame> frame,
                                  CefRefPtr<CefRequest> request,
