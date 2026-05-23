@@ -135,7 +135,7 @@ const CertificateViewer = () => {
   };
 
   return (
-    <div className="w-full h-full bg-card border-r border-main shadow-2xl flex flex-col overflow-hidden relative rounded-r-2xl text-main transition-colors duration-200">
+    <div className="w-full h-full bg-card shadow-2xl flex flex-col overflow-hidden relative rounded-r-2xl text-main transition-colors duration-200">
       {/* Header */}
       <div className="p-5 border-b border-main flex items-center justify-between bg-main/30 backdrop-blur-md">
         <div className="flex items-center gap-3">

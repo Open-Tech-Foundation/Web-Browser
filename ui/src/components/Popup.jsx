@@ -23,7 +23,7 @@ const Popup = ({ name, title, children, className = '' }) => {
 
   return (
     <div className="w-full h-full p-1.5 bg-transparent box-border">
-      <div className={`popup-container w-full h-full bg-white dark:bg-[#161921] text-slate-900 dark:text-slate-100 p-6 flex flex-col text-sm rounded-xl border border-slate-200/80 dark:border-slate-700/50 shadow-xl overflow-hidden ${className}`}>
+      <div className={`popup-container w-full h-full bg-white dark:bg-[#0a0a0c] text-slate-900 dark:text-slate-100 p-6 flex flex-col text-sm rounded-2xl border border-slate-200 dark:border-white/10 shadow-2xl overflow-hidden ${className}`}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
           <button

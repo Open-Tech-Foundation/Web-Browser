@@ -446,6 +446,7 @@ const App = () => {
             sslError={currentActiveTab?.sslError}
             blockedPopupOrigin={blockedPopupOrigin}
             onShowBlockedPopup={handleShowBlockedPopup}
+            onShowCertificate={handleShowCertificate}
             onShowQr={handleShowQr}
             onShowClearSiteData={handleShowClearSiteData}
           />
