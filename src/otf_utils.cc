@@ -51,7 +51,7 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
   if (page == "newtab" || page == "settings" || page == "findbar" ||
       page == "history" || page == "bookmarks" || page == "downloads" ||
       page == "security" || page == "insecure-blocked" ||
-      page == "fingerprints") {
+      page == "fingerprints" || page == "linkpreview") {
     if (page_name) {
       *page_name = page;
     }
@@ -785,7 +785,7 @@ const char* const kInternalUiPages[] = {
     "/fingerprints.html",  "/insecure-blocked.html",
     "/pdfviewer.html",     "/certificate.html",    "/imagepreview.html",
     "/cleardata.html",     "/sitedata.html",       "/workspace.html",
-    "/qr.html"};
+    "/qr.html",            "/linkpreview.html"};
 }  // namespace
 
 bool IsInternalUiPagePath(const std::string& url) {
