@@ -1,5 +1,6 @@
 #include "otf_app.h"
 
+#include <set>
 #include <string>
 #include "otf_utils.h"
 #include <unistd.h>
@@ -542,6 +543,33 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
     return;
   }
 
+  // Whitelist of switches the user is permitted to pass on the command line.
+  // Empty for now — no runtime flags are needed in production. Extend this
+  // set deliberately; never add flags that open security surfaces (e.g.
+  // remote-debugging-port, no-sandbox).
+  static const std::set<std::string> kAllowedSwitches = {};
+
+  CefCommandLine::SwitchMap all_switches;
+  command_line->GetSwitches(all_switches);
+
+  CefCommandLine::ArgumentList all_args;
+  command_line->GetArguments(all_args);
+
+  const CefString program = command_line->GetProgram();
+  command_line->Reset();
+  command_line->SetProgram(program);
+
+  for (const auto& kv : all_switches) {
+    if (kAllowedSwitches.count(kv.first.ToString())) {
+      if (kv.second.empty())
+        command_line->AppendSwitch(kv.first);
+      else
+        command_line->AppendSwitchWithValue(kv.first, kv.second);
+    }
+  }
+  for (const auto& arg : all_args)
+    command_line->AppendArgument(arg);
+
   command_line->AppendSwitch("enable-unsafe-webgpu");
 
   // Disable Service Workers entirely. They run in a separate realm outside
@@ -561,9 +589,7 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   // the correct, documented configuration for Alloy, not a workaround.
   // Do not "fix" this to auto/wayland without first switching to
   // CEF_RUNTIME_STYLE_CHROME everywhere.
-  if (!command_line->HasSwitch("ozone-platform")) {
-    command_line->AppendSwitchWithValue("ozone-platform", "x11");
-  }
+  command_line->AppendSwitchWithValue("ozone-platform", "x11");
 
 #if defined(__linux__)
   // Set the window class and desktop name so that X11/Wayland task monitors
