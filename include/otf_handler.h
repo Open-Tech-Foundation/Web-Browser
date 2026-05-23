@@ -1,6 +1,7 @@
 #ifndef OTF_BROWSER_HANDLER_H_
 #define OTF_BROWSER_HANDLER_H_
 
+#include <deque>
 #include <map>
 #include <set>
 #include <list>
@@ -43,6 +44,16 @@ class OtfHandler : public CefClient,
     int page = 0;
     int page_count = 1;
     bool is_tiff = false;
+  };
+
+  struct ClosedTabInfo {
+    std::string url;
+    std::string title;
+    std::string favicon;
+    int workspace_id = 0;
+    bool is_image_preview = false;
+    std::string preview_local_path;
+    int preview_page = 0;
   };
 
   explicit OtfHandler(bool use_alloy_style);
@@ -193,7 +204,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefBrowser> ui_browser_;
   CefRefPtr<CefBrowser> findbar_browser_;
   CefRefPtr<CefBrowser> certificate_browser_;
-  std::string last_closed_url_;
+  std::deque<ClosedTabInfo> recently_closed_tabs_;
 
   void SendEvent(const std::string& event_json);
 

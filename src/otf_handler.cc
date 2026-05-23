@@ -5330,14 +5330,33 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     return true;
   }
   if (M(Mod::kCtrl|Mod::kShift, Key::kT)) {
-    if (!last_closed_url_.empty() && !otf::IsLocalFilesystemPathLike(last_closed_url_) &&
-        (otf::IsAllowedStartupUrl(last_closed_url_) ||
-         last_closed_url_.rfind("browser://image-preview/", 0) == 0)) {
-      int id = app->CreateTab(last_closed_url_);
-      if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, -1); } // Re-opening closed tab goes to the end
-      app->SwitchTab(id);
+    while (!recently_closed_tabs_.empty()) {
+      ClosedTabInfo info = std::move(recently_closed_tabs_.front());
+      recently_closed_tabs_.pop_front();
+      if (info.workspace_id != active_workspace_id_) {
+        continue;
+      }
+      int id = -1;
+      if (info.is_image_preview) {
+        WorkspaceTab wt;
+        wt.url = info.url;
+        wt.title = info.title;
+        wt.is_image_preview = true;
+        wt.preview_local_path = info.preview_local_path;
+        wt.preview_page = info.preview_page;
+        id = app->CreateRestoredTab(wt);
+      } else if (!info.url.empty() && !otf::IsLocalFilesystemPathLike(info.url) &&
+                 otf::IsAllowedStartupUrl(info.url)) {
+        id = app->CreateTab(info.url);
+      }
+      if (id >= 0) {
+        if (OtfHandler* ui_handler = OtfHandler::GetInstance()) {
+          ui_handler->NotifyNewTab(id, -1);
+        }
+        app->SwitchTab(id);
+        break;
+      }
     }
-    last_closed_url_.clear();
     return true;
   }
   if (M(Mod::kCtrl, Key::kTab) || M(Mod::kCtrl|Mod::kShift, Key::kTab)) {
@@ -5503,6 +5522,10 @@ std::string OtfHandler::GetImagePreviewFormatForTab(int tab_id) const {
   return it != tab_image_preview_formats_.end() ? it->second : "";
 }
 
+namespace {
+constexpr size_t kMaxClosedTabs = 25;
+}  // namespace
+
 void OtfHandler::CloseTabAndNotify(int tab_id) {
   OtfApp* app = OtfApp::GetInstance();
   if (!app) {
@@ -5510,9 +5533,23 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
   }
   if (tab_manager_) {
     std::string url = tab_manager_->GetUrl(tab_id);
-    if (!url.empty() && !otf::IsLocalFilesystemPathLike(url) &&
-        url.find("browser://") != 0) {
-      last_closed_url_ = url;
+    const bool is_image_preview =
+        tab_manager_->GetImagePreviewMode(tab_id) == ImagePreviewMode::kDedicated;
+    if (otf::IsPersistableWebUrl(url) || is_image_preview) {
+      ClosedTabInfo info;
+      info.url = std::move(url);
+      info.title = tab_manager_->GetTitle(tab_id);
+      info.favicon = tab_manager_->GetFaviconUrl(tab_id);
+      info.workspace_id = tab_manager_->GetWorkspaceId(tab_id);
+      info.is_image_preview = is_image_preview;
+      if (is_image_preview) {
+        info.preview_local_path = GetImagePreviewLocalFileForTab(tab_id);
+        info.preview_page = GetImagePreviewPageForTab(tab_id);
+      }
+      recently_closed_tabs_.push_front(std::move(info));
+      if (recently_closed_tabs_.size() > kMaxClosedTabs) {
+        recently_closed_tabs_.pop_back();
+      }
     }
   }
   app->CloseTab(tab_id);
