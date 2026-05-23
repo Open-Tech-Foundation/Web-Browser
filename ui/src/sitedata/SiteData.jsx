@@ -17,12 +17,14 @@ const PERMISSION_LABELS = {
   popup: 'Pop-ups',
   downloads: 'Downloads',
   images: 'Images',
+  javascript: 'JavaScript',
 };
 
 const PERMISSION_SETTING_ORDER = {
   popup: ['ask', 'allow', 'block'],
   downloads: ['ask', 'allow', 'block'],
   images: ['allow', 'block'],
+  javascript: ['allow', 'block'],
 };
 
 const SiteData = () => {
@@ -34,6 +36,7 @@ const SiteData = () => {
   const [status, setStatus] = useState('');
   const [activeTab, setActiveTab] = useState('cookies');
   const [settingBusy, setSettingBusy] = useState({});
+  const [jsJustChanged, setJsJustChanged] = useState(false);
   const [selection, setSelection] = useState({
     cookies: true,
     storage: true,
@@ -72,6 +75,7 @@ const SiteData = () => {
     setSettingBusy((s) => ({ ...s, [perm]: false }));
     if (res.ok) {
       setPermissions((p) => ({ ...p, [perm]: setting }));
+      if (perm === 'javascript') setJsJustChanged(true);
     }
   };
 
@@ -307,6 +311,12 @@ const SiteData = () => {
             <p className="text-[10px] text-slate-400 mt-2">
               Click a setting to cycle: Ask → Allow → Block → Ask.
             </p>
+            {jsJustChanged && (
+              <div className="mt-3 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 text-[10px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                JavaScript changes apply to newly opened tabs. Close and reopen the tab for the
+                change to take effect.
+              </div>
+            )}
           </section>
         )}
       </div>

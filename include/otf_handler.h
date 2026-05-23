@@ -48,6 +48,7 @@ class OtfHandler : public CefClient,
   ~OtfHandler() override;
 
   static OtfHandler* GetInstance();
+  OtfStore* GetStore() { return store_.get(); }
 
   // CefClient methods:
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {

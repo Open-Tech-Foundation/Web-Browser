@@ -10,6 +10,7 @@
 
 namespace otf {
 
+std::string ExtractOrigin(const std::string& url);
 std::string JsonEscape(const std::string& s);
 std::string JsonString(const std::string& s);
 

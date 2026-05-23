@@ -591,6 +591,13 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
 
   CefBrowserSettings browser_settings;
   OtfHandler* handler = OtfHandler::GetInstance();
+  if (handler) {
+    std::string origin = ExtractOrigin(url);
+    if (!origin.empty() &&
+        handler->GetStore()->GetSitePermission(origin, "javascript") == "block") {
+      browser_settings.javascript = STATE_DISABLED;
+    }
+  }
   CefRefPtr<CefRequestContext> request_context =
       handler ? handler->GetActiveWorkspaceRequestContext() : nullptr;
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
@@ -1511,6 +1518,13 @@ void OtfApp::OnContextInitialized() {
       new OtfViewDelegate(runtime_style, 65));
   ui_view->SetID(kUiBrowserViewId);
 
+  {
+    std::string origin = ExtractOrigin(start_url);
+    if (!origin.empty() &&
+        handler->GetStore()->GetSitePermission(origin, "javascript") == "block") {
+      browser_settings.javascript = STATE_DISABLED;
+    }
+  }
   CefRefPtr<CefRequestContext> startup_request_context =
       handler->GetActiveWorkspaceRequestContext();
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(

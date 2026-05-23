@@ -908,6 +908,27 @@ std::string NormalizeBookmarkUrl(const std::string& url) {
   return fallback;
 }
 
+std::string ExtractOrigin(const std::string& url) {
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) return {};
+  std::string scheme = CefString(&parts.scheme).ToString();
+  std::string host = CefString(&parts.host).ToString();
+  std::string port = CefString(&parts.port).ToString();
+  if (scheme.empty() || host.empty()) {
+    if (url.rfind("file://", 0) == 0) return "file://";
+    return {};
+  }
+  std::string origin = scheme + "://" + host;
+  if (!port.empty()) {
+    if ((scheme == "http" && port != "80") ||
+        (scheme == "https" && port != "443") ||
+        (scheme != "http" && scheme != "https")) {
+      origin += ":" + port;
+    }
+  }
+  return origin;
+}
+
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id) {
   if (tab_ids.empty()) {
     return -1;
@@ -1029,6 +1050,20 @@ bool FinishVipsToBase64(VipsImage* in, int page, std::string& out_png_base64, in
   return true;
 }
 
+int CountVipsPages(const std::string& image_path) {
+  VipsImage* in = vips_image_new_from_file(image_path.c_str(), NULL);
+  if (!in) {
+    vips_error_clear();
+    return 1;
+  }
+  int n_pages = 1;
+  if (vips_image_get_typeof(in, "n-pages") == G_TYPE_INT) {
+    vips_image_get_int(in, "n-pages", &n_pages);
+  }
+  g_object_unref(in);
+  return n_pages < 1 ? 1 : n_pages;
+}
+
 }  // namespace
 
 bool IsTiffUrl(const std::string& url) {
@@ -1067,7 +1102,11 @@ bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& 
     vips_error_clear();
     return false;
   }
-  return FinishVipsToBase64(in, page, out_png_base64, out_page_count);
+  if (!FinishVipsToBase64(in, page, out_png_base64, out_page_count)) {
+    return false;
+  }
+  out_page_count = std::max(out_page_count, CountVipsPages(tiff_path));
+  return true;
 }
 
 bool DecodeTiffBufferToPngBase64(const void* data, size_t size, int page, std::string& out_png_base64, int& out_page_count) {

@@ -99,6 +99,10 @@ static void WriteToClipboard(const std::string& text) {
 
 namespace otf {
 
+static void ApplyJsPermission(CefBrowserSettings& settings,
+                              OtfStore* store,
+                              const std::string& url);
+
 namespace {
 
 OtfHandler* g_instance = nullptr;
@@ -3283,8 +3287,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         wi.bounds = CefRect(100, 100, 800, 600);
         wi.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
         ++handler->pending_external_popups_;
+        CefBrowserSettings bs;
+        ApplyJsPermission(bs, handler->store_.get(), it->second.url);
         CefBrowserHost::CreateBrowser(wi, self, it->second.url,
-                                      CefBrowserSettings(), extra, rc);
+                                      bs, extra, rc);
         if (app) {
           if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
         }
@@ -3325,8 +3331,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           wi.bounds = CefRect(100, 100, 800, 600);
           wi.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
           ++handler->pending_external_popups_;
+          CefBrowserSettings bs;
+          ApplyJsPermission(bs, handler->store_.get(), it->second.url);
           CefBrowserHost::CreateBrowser(wi, self, it->second.url,
-                                        CefBrowserSettings(), extra, rc);
+                                        bs, extra, rc);
           if (app) {
             if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
           }
@@ -3813,25 +3821,15 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
 }
 
 // --- Helper: extract scheme://host[:port] origin from a URL. ---
-static std::string ExtractOrigin(const std::string& url) {
-  CefURLParts parts;
-  if (!CefParseURL(url, parts)) return {};
-  std::string scheme = CefString(&parts.scheme).ToString();
-  std::string host = CefString(&parts.host).ToString();
-  std::string port = CefString(&parts.port).ToString();
-  if (scheme.empty() || host.empty()) {
-    if (url.rfind("file://", 0) == 0) return "file://";
-    return {};
+static void ApplyJsPermission(CefBrowserSettings& settings,
+                              OtfStore* store,
+                              const std::string& url) {
+  if (!store) return;
+  const std::string origin = ExtractOrigin(url);
+  if (!origin.empty() &&
+      store->GetSitePermission(origin, "javascript") == "block") {
+    settings.javascript = STATE_DISABLED;
   }
-  std::string origin = scheme + "://" + host;
-  if (!port.empty()) {
-    if ((scheme == "http" && port != "80") ||
-        (scheme == "https" && port != "443") ||
-        (scheme != "http" && scheme != "https")) {
-      origin += ":" + port;
-    }
-  }
-  return origin;
 }
 
 // --- Helper: best-guess filename from a download URL. ---
@@ -4396,6 +4394,7 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
           extra = a->MakeBrowserExtraInfo();
         }
         ++pending_external_popups_;
+        ApplyJsPermission(popup_settings, store_.get(), popup_url);
         CefBrowserHost::CreateBrowser(popup_info, self, popup_url,
                                       popup_settings, extra, rc);
         return true;
@@ -4418,6 +4417,7 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
     extra = a->MakeBrowserExtraInfo();
   }
   ++pending_external_popups_;
+  ApplyJsPermission(popup_settings, store_.get(), popup_url);
   CefBrowserHost::CreateBrowser(popup_info, self, popup_url,
                                 popup_settings, extra, rc);
   return true;
