@@ -1666,13 +1666,17 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     // digits of a 64-bit double, well below any practical precision threshold.
     const MATH_NOISE_AMP = 8e-13; // layoutNoiseValue range is [-0.125,0.125]
 
+    // Keep a reference to the native Math.abs BEFORE we wrap it, so the
+    // near-zero guard inside the wrapper always uses the real implementation.
+    const _nativeAbs = Math.abs;
+
     const noisyMath = (name) => {
       const orig = Math[name];
       if (typeof orig !== 'function') return;
       const wrapped = makeNative(
         function(...args) {
           const result = orig.apply(this, args);
-          if (!isFinite(result) || Math.abs(result) < MATH_NOISE_AMP) return result;
+          if (!isFinite(result) || _nativeAbs(result) < MATH_NOISE_AMP) return result;
           const key = 'math.' + name + '.' + args.join(',');
           return result + layoutNoiseValue(key) * MATH_NOISE_AMP;
         },
@@ -1689,6 +1693,7 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
       'exp', 'expm1',
       'log', 'log2', 'log10', 'log1p',
       'sqrt', 'cbrt', 'pow', 'hypot',
+      'abs',
     ]) { noisyMath(fn); }
   })();
 
