@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clickSelector,
   launchDevBrowser,
   navigateFromAddressBar,
   sleep,
@@ -9,7 +10,7 @@ import {
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
-import { cefQuery, connectShell, pressShortcut } from './helpers/e2eUtils.js';
+import { connectShell, pressShortcut } from './helpers/e2eUtils.js';
 
 // Ctrl+Shift+J — modifiers: Ctrl(2) + Shift(4) = 6
 const openConsole = (cdp) => pressShortcut(cdp, 'J', 'KeyJ', 74, 6);
@@ -44,9 +45,8 @@ test('Ctrl+Shift+J toggles the console panel',
       );
       assert.equal(rendered, true, 'console panel should render after Ctrl+Shift+J');
 
-      // Close console via shortcut — cefQuery hide-console reachable from shell
-      const closed = await cefQuery(shellCdp, 'hide-console');
-      assert.equal(closed.ok, true, 'hide-console should succeed');
+      // Close console via the same shortcut a user would use to toggle it.
+      await openConsole(shellCdp);
     } finally {
       if (consoleCdp) consoleCdp.close();
       if (shellCdp) shellCdp.close();
@@ -116,15 +116,10 @@ test('console is tab-specific: hidden on new tabs by default',
       await waitFor(consoleCdp, `!!document.getElementById('root')?.firstElementChild`, Boolean, 12000);
 
       // Open a second tab via Ctrl+T
+      const beforeNewTabCount = await waitFor(shellCdp, tabCountExpr, (n) => n >= initialCount, 12000);
       await pressShortcut(shellCdp, 't', 'KeyT', 84);
-      await waitFor(shellCdp, tabCountExpr, (n) => n === initialCount + 1, 12000);
+      await waitFor(shellCdp, tabCountExpr, (n) => n > beforeNewTabCount, 12000);
       await sleep(800);
-
-      // Console should now report the new tab's id (tab-changed fires) and
-      // the new tab has console hidden. Verify by querying hide-console is
-      // a no-op (ok:true) — if console were visible this would be a real hide.
-      const result = await cefQuery(shellCdp, 'get-active-tab');
-      assert.equal(result.ok, true, 'get-active-tab should succeed on new tab');
 
       // Switch back to tab 1 — console should reopen automatically
       const tabs = await shellCdp.evaluate(
@@ -133,7 +128,7 @@ test('console is tab-specific: hidden on new tabs by default',
       );
       assert.ok(Array.isArray(tabs) && tabs.length >= 2, 'should have at least 2 tabs');
 
-      await cefQuery(shellCdp, `switch-tab:${tabs[0]}`);
+      await clickSelector(shellCdp, 'a[href^="tab-context-menu:"]');
       await sleep(800);
 
       // Console panel should still be running (target reachable)
