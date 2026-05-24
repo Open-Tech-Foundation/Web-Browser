@@ -143,3 +143,114 @@ test('History records visited web pages but not internal Settings page',
       await staticServer.close();
     }
   });
+
+test('user can remove individual history items and clear all history',
+  { timeout: timeoutMs + 20000 },
+  async () => {
+    const unique = Date.now();
+    const titles = [`History Remove ${unique}`, `History Clear ${unique}`];
+    const removePath = `/remove-${unique}`;
+    const clearPath = `/clear-${unique}`;
+    const staticServer = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      const title = req.url.includes('clear') ? titles[1] : titles[0];
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<!doctype html>
+        <html>
+          <head><title>${title}</title></head>
+          <body><main><h1>${title}</h1></main></body>
+        </html>`);
+    });
+
+    const browser = await launchDevBrowser({
+      settings: {
+        searchEngine: 'google',
+        historyEnabled: true,
+        downloadsEnabled: true,
+        startupBehavior: 'newtab',
+        startupUrls: [],
+        httpsOnly: false,
+        blockInsecure: false,
+        appearanceMode: 'auto',
+      },
+    });
+    let historyCdp = null;
+    try {
+      await navigateFromAddressBar(browser.cdp, `${staticServer.origin}${removePath}`);
+      await waitFor(
+        browser.cdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes(removePath),
+        15000,
+      );
+
+      await navigateFromAddressBar(browser.cdp, `${staticServer.origin}${clearPath}`);
+      await waitFor(
+        browser.cdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes(clearPath),
+        15000,
+      );
+
+      await navigateFromAddressBar(browser.cdp, 'browser://history');
+      historyCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'History' ||
+        /history\.html/i.test(target.url || ''),
+      );
+
+      await waitFor(
+        historyCdp,
+        `document.body.innerText`,
+        (text) => text.includes(removePath) && text.includes(clearPath),
+        15000,
+      );
+
+      const removedOne = await historyCdp.evaluate(`
+        (() => {
+          const row = [...document.querySelectorAll('.group')]
+            .find((item) => (item.textContent || '').includes(${JSON.stringify(removePath)}));
+          const button = row?.querySelector('button[title="Remove from history"]');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()
+      `);
+      assert.equal(removedOne, true);
+
+      await waitFor(
+        historyCdp,
+        `document.body.innerText`,
+        (text) => !text.includes(removePath) && text.includes(clearPath),
+        15000,
+      );
+
+      const clearedAll = await historyCdp.evaluate(`
+        (() => {
+          window.confirm = () => true;
+          const button = [...document.querySelectorAll('button')]
+            .find((item) => (item.textContent || '').includes('Clear History'));
+          if (!button) return false;
+          button.click();
+          return true;
+        })()
+      `);
+      assert.equal(clearedAll, true);
+
+      await waitFor(
+        historyCdp,
+        `document.body.innerText`,
+        (text) => text.includes('No History Yet') && !text.includes(clearPath),
+        15000,
+      );
+    } finally {
+      if (historyCdp) {
+        historyCdp.close();
+      }
+      await browser.close();
+      await staticServer.close();
+    }
+  });
