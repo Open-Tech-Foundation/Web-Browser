@@ -54,6 +54,11 @@ The first feature test is `tabs.test.js`. It uses only visible UI controls:
 - switch to it by clicking its row
 - observe the shell workspace label changes
 
+`keyboard-shortcuts.test.js` verifies native shortcut handling:
+
+- press Ctrl+L and observe the address bar is focused
+- press Ctrl+T and Ctrl+W and observe the active tab opens and closes
+
 Run the current E2E suite with:
 
 ```bash
