@@ -2,39 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clickSelector,
   launchDevBrowser,
+  navigateFromAddressBar,
   startStaticServer,
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
+import { setSitePermissionFromUi } from './helpers/e2eUtils.js';
 
 const PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC',
   'base64',
 );
 
-function cefQuery(cdp, request) {
-  return cdp.evaluate(`
-    new Promise((resolve) => {
-      window.cefQuery?.({
-        request: ${JSON.stringify(request)},
-        onSuccess: (value) => resolve({ ok: true, value }),
-        onFailure: (_, message) => resolve({ ok: false, value: message || '' }),
-      });
-    })
-  `);
-}
-
-async function setSitePermission(cdp, origin, permission, setting) {
-  const result = await cefQuery(
-    cdp,
-    `set-permission-for-site:${origin}:${permission}:${setting}`,
-  );
-  assert.equal(
-    result.ok,
-    true,
-    `set ${permission}=${setting} should succeed: ${result.value}`,
-  );
+async function openNewTabUrl(cdp, url) {
+  await clickSelector(cdp, 'button[title="New tab"]');
+  await navigateFromAddressBar(cdp, url);
 }
 
 test(
@@ -70,9 +54,8 @@ test(
       const tagA = 'img-allow-' + String(Date.now());
       const tagB = 'img-block-' + String(Date.now());
 
-      // 1. Open a new tab — images allowed by default.
-      const resA = await cefQuery(browser.cdp, `new-tab:${server.origin}/?tag=${tagA}`);
-      assert.equal(resA.ok, true);
+      // 1. Open a new tab through the visible UI — images allowed by default.
+      await openNewTabUrl(browser.cdp, `${server.origin}/?tag=${tagA}`);
       allowedCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes(tagA),
         15000,
@@ -92,11 +75,10 @@ test(
       assert.equal(allowedLoads, true, 'image should load by default');
 
       // 2. Set images to "block" for the origin.
-      await setSitePermission(browser.cdp, server.origin, 'images', 'block');
+      await setSitePermissionFromUi(browser, server.origin, 'images', 'block');
 
-      // 3. Open another new tab — images should be blocked.
-      const resB = await cefQuery(browser.cdp, `new-tab:${server.origin}/?tag=${tagB}`);
-      assert.equal(resB.ok, true);
+      // 3. Open another new tab through the visible UI. Images should be blocked.
+      await openNewTabUrl(browser.cdp, `${server.origin}/?tag=${tagB}`);
       blockedCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes(tagB),
         15000,
@@ -154,11 +136,10 @@ test(
     const browser = await launchDevBrowser();
     let newTabCdp = null;
     try {
-      await setSitePermission(browser.cdp, server.origin, 'images', 'allow');
+      await setSitePermissionFromUi(browser, server.origin, 'images', 'allow');
 
       const tag = 'img-allow-' + String(Date.now());
-      const res = await cefQuery(browser.cdp, `new-tab:${server.origin}/?tag=${tag}`);
-      assert.equal(res.ok, true);
+      await openNewTabUrl(browser.cdp, `${server.origin}/?tag=${tag}`);
 
       newTabCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes(tag),
