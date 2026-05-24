@@ -4615,123 +4615,113 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   (void)extra_info;
   (void)no_javascript_access;
 
-  // Middle-click → new background tab, ctrl+click → new foreground tab.
-  if (target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
-      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB) {
-    const std::string url = target_url.ToString();
-    if (!url.empty()) {
-      pending_new_tab_urls_.insert(url);
+  // Popup gate. Returning true cancels the popup; returning false lets CEF
+  // create it. The policy is intentionally simple: deny by default, only the
+  // explicit-allow branch creates a window. Do not add fall-through paths
+  // that call CreateBrowser — every new condition must end in an explicit
+  // allow or block decision.
+
+  const std::string raw_target = target_url.ToString();
+  const bool is_new_tab_disposition =
+      target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB;
+
+  // 1. Dangerous schemes are never allowed via window.open.
+  //    An empty target_url is treated as dangerous too: Chromium strips
+  //    javascript:/data: down to empty before delivering OnBeforePopup, so
+  //    "empty" is the fingerprint of a stripped dangerous scheme — not a
+  //    legitimate navigation. Plain window.open() with no URL is rare enough
+  //    that denying it is the right default.
+  if (raw_target.empty() || IsDangerousSchemeUrl(raw_target)) {
+    return true;
+  }
+
+  // 2. Resolve the popup permission for the opener origin.
+  //    No store, or no parseable origin → deny. We cannot ask the user for
+  //    permission on behalf of an origin we cannot identify.
+  //    The permission gate covers every popup variant — window.open popups,
+  //    target=_blank links, middle-click and ctrl-click new tabs — so a site
+  //    can never spawn a new window/tab without an explicit "allow" setting.
+  const std::string origin =
+      frame ? ExtractOrigin(frame->GetURL().ToString()) : std::string();
+  if (!store_ || origin.empty()) {
+    return true;
+  }
+
+  const std::string setting = store_->GetSitePermission(origin, "popup");
+
+  // 3. Explicit allow → create. Dispatch by disposition: new-tab dispositions
+  //    open inside the existing window's tab strip; everything else opens a
+  //    standalone OS popup window.
+  if (setting == "allow") {
+    if (is_new_tab_disposition) {
+      pending_new_tab_urls_.insert(raw_target);
       OtfApp* app = OtfApp::GetInstance();
       if (app && tab_manager_) {
         int parent_id = tab_manager_->GetId(browser);
-        int new_id = app->CreateTab(url, parent_id);
-        if (url.rfind("browser://", 0) == 0) {
-          tab_manager_->SetSchemeUrl(new_id, url);
+        int new_id = app->CreateTab(raw_target, parent_id);
+        if (raw_target.rfind("browser://", 0) == 0) {
+          tab_manager_->SetSchemeUrl(new_id, raw_target);
         }
         NotifyNewTab(new_id, parent_id);
         if (target_disposition == CEF_WOD_NEW_FOREGROUND_TAB) {
           app->SwitchTab(new_id);
         }
       }
+      return true;
     }
+
+    CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
+    if (!self) return true;
+    CefWindowInfo popup_info;
+    popup_info.bounds = CefRect(100, 100, 800, 600);
+    popup_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
+    CefBrowserSettings popup_settings;
+    CefRefPtr<CefRequestContext> rc = GetActiveWorkspaceRequestContext();
+    CefRefPtr<CefDictionaryValue> extra;
+    if (OtfApp* a = OtfApp::GetInstance()) extra = a->MakeBrowserExtraInfo();
+    ++pending_external_popups_;
+    ApplyJsPermission(popup_settings, store_.get(), raw_target);
+    CefBrowserHost::CreateBrowser(popup_info, self, raw_target,
+                                  popup_settings, extra, rc);
     return true;
   }
 
-  // Check per-site popup permission.
-  if (store_) {
-    const std::string origin = ExtractOrigin(frame->GetURL().ToString());
-    if (!origin.empty()) {
-      std::string setting = store_->GetSitePermission(origin, "popup");
-      const std::string popup_url =
-          !target_url.empty() ? target_url.ToString() : "about:blank";
-      const int parent_tab_id =
-          tab_manager_ ? tab_manager_->GetId(browser) : 0;
+  // Block: record the pending popup, surface the prompt if needed, notify UI.
+  const int parent_tab_id = tab_manager_ ? tab_manager_->GetId(browser) : 0;
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  for (auto pit = pending_popups_.begin(); pit != pending_popups_.end();) {
+    if (pit->second.expires_at > 0 && pit->second.expires_at < now)
+      pit = pending_popups_.erase(pit);
+    else
+      ++pit;
+  }
+  const int pending_id = next_pending_popup_id_++;
+  pending_popups_[pending_id] = {raw_target, origin, parent_tab_id, now + 30};
+  popup_ask_pending_id_ = pending_id;
+  popup_ask_pending_url_ = raw_target;
+  popup_ask_pending_origin_ = origin;
 
-      // Prune stale pending popups (>30s old).
-      const int64_t now = static_cast<int64_t>(std::time(nullptr));
-      for (auto pit = pending_popups_.begin(); pit != pending_popups_.end();) {
-        if (pit->second.expires_at > 0 && pit->second.expires_at < now)
-          pit = pending_popups_.erase(pit);
-        else
-          ++pit;
-      }
-
-      if (setting == "block" || setting == "ask" || setting.empty()) {
-        const int popup_id = next_pending_popup_id_++;
-        pending_popups_[popup_id] = {popup_url, origin, parent_tab_id,
-                                     now + 30};
-
-        // Store for the blockedpopup overlay restore producer.
-        popup_ask_pending_id_ = popup_id;
-        popup_ask_pending_url_ = popup_url;
-        popup_ask_pending_origin_ = origin;
-
-        if (OtfApp* a = OtfApp::GetInstance()) {
-          if (auto* ov = a->GetPopup("blockedpopup")) {
-            int* pid = &popup_ask_pending_id_;
-            std::string* purl = &popup_ask_pending_url_;
-            std::string* porigin = &popup_ask_pending_origin_;
-            ov->SetRestoreProducer([pid, purl, porigin]() {
-              return JsonObjectBuilder()
-                  .AddInt("id", *pid)
-                  .AddString("url", *purl)
-                  .AddString("origin", *porigin)
-                  .Build();
-            });
-            if (setting == "ask" || setting.empty()) {
-              ov->Show();
-            }
-          }
-        }
-        SendEvent(JsonObjectBuilder()
-                      .AddString("key", "popup-blocked")
-                      .AddString("origin", origin)
-                      .AddInt("count", static_cast<int>(pending_popups_.size()))
-                      .Build());
-        return true;
-      }
-      if (setting == "allow") {
-        CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
-        if (!self) return true;
-        const std::string popup_url =
-            !target_url.empty() ? target_url.ToString() : "about:blank";
-        CefWindowInfo popup_info;
-        popup_info.bounds = CefRect(100, 100, 800, 600);
-        popup_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-        CefBrowserSettings popup_settings;
-        CefRefPtr<CefRequestContext> rc =
-            store_ ? GetActiveWorkspaceRequestContext() : nullptr;
-        CefRefPtr<CefDictionaryValue> extra;
-        if (OtfApp* a = OtfApp::GetInstance()) {
-          extra = a->MakeBrowserExtraInfo();
-        }
-        ++pending_external_popups_;
-        ApplyJsPermission(popup_settings, store_.get(), popup_url);
-        CefBrowserHost::CreateBrowser(popup_info, self, popup_url,
-                                      popup_settings, extra, rc);
-        return true;
-      }
+  if (OtfApp* a = OtfApp::GetInstance()) {
+    if (auto* ov = a->GetPopup("blockedpopup")) {
+      int* pid = &popup_ask_pending_id_;
+      std::string* purl = &popup_ask_pending_url_;
+      std::string* porigin = &popup_ask_pending_origin_;
+      ov->SetRestoreProducer([pid, purl, porigin]() {
+        return JsonObjectBuilder()
+            .AddInt("id", *pid)
+            .AddString("url", *purl)
+            .AddString("origin", *porigin)
+            .Build();
+      });
+      if (setting != "block") ov->Show();
     }
   }
-
-  CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
-  if (!self) return true;
-  const std::string popup_url =
-      !target_url.empty() ? target_url.ToString() : "about:blank";
-  CefWindowInfo popup_info;
-  popup_info.bounds = CefRect(100, 100, 800, 600);
-  popup_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-  CefBrowserSettings popup_settings;
-  CefRefPtr<CefRequestContext> rc =
-      store_ ? GetActiveWorkspaceRequestContext() : nullptr;
-  CefRefPtr<CefDictionaryValue> extra;
-  if (OtfApp* a = OtfApp::GetInstance()) {
-    extra = a->MakeBrowserExtraInfo();
-  }
-  ++pending_external_popups_;
-  ApplyJsPermission(popup_settings, store_.get(), popup_url);
-  CefBrowserHost::CreateBrowser(popup_info, self, popup_url,
-                                popup_settings, extra, rc);
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "popup-blocked")
+                .AddString("origin", origin)
+                .AddInt("count", static_cast<int>(pending_popups_.size()))
+                .Build());
   return true;
 }
 
@@ -5233,6 +5223,15 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                  bool user_gesture,
                                  bool is_redirect) {
   CEF_REQUIRE_UI_THREAD();
+
+  // Block javascript: and vbscript: navigations in any frame — covers
+  // iframe.src = 'javascript:...' which bypasses the OnBeforePopup check.
+  {
+    const std::string url = request->GetURL().ToString();
+    if (url.rfind("javascript:", 0) == 0 || url.rfind("vbscript:", 0) == 0) {
+      return true;
+    }
+  }
 
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);

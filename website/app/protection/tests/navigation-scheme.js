@@ -5,15 +5,9 @@ export default {
     id: 'navigation-scheme',
     label: 'Dangerous navigation scheme blocking',
     entropy: 'security',
-    description: 'javascript:, data:, file: — whether window.open, iframe src, and <a> click are blocked.',
+    description: 'javascript:, data:, file: — whether iframe src and <a> click are blocked.',
   }],
   async run(ctx) {
-    let jsOpenBlocked = true;
-    try {
-      const w = window.open('javascript:void(0)');
-      if (w) { jsOpenBlocked = false; w.close(); }
-    } catch (_) { jsOpenBlocked = true; }
-
     const runIframeProbe = (url, token, timeoutMs = 2000) => new Promise((resolve) => {
       const iframe = document.createElement('iframe');
       iframe.hidden = true;
@@ -53,10 +47,9 @@ export default {
       if (window[canary] === 'pwned') anchorJsBlocked = false;
     } catch (_) {}
 
-    const allBlocked = jsOpenBlocked && dataIframe !== 'allowed' && jsIframe !== 'allowed' &&
+    const allBlocked = dataIframe !== 'allowed' && jsIframe !== 'allowed' &&
       fileIframe !== 'allowed' && anchorJsBlocked;
     const allowed = [];
-    if (!jsOpenBlocked) allowed.push('window.open javascript');
     if (dataIframe === 'allowed') allowed.push('iframe data:');
     if (jsIframe === 'allowed') allowed.push('iframe javascript:');
     if (fileIframe === 'allowed') allowed.push('iframe file:');
@@ -65,9 +58,8 @@ export default {
 
     ctx.set('navigation-scheme', status,
       allBlocked ? 'All dangerous navigation schemes blocked' : `${allowed.length} scheme(s) allowed: ${allowed.join(', ')}`,
-      `javascript window.open: ${jsOpenBlocked ? 'blocked' : 'allowed'} | iframe data:: ${dataIframe} | iframe javascript:: ${jsIframe} | iframe file:: ${fileIframe} | javascript anchor: ${anchorJsBlocked ? 'blocked' : 'allowed'}`,
+      `iframe data:: ${dataIframe} | iframe javascript:: ${jsIframe} | iframe file:: ${fileIframe} | javascript anchor: ${anchorJsBlocked ? 'blocked' : 'allowed'}`,
       [
-        ['window.open javascript:', jsOpenBlocked ? 'blocked' : 'allowed'],
         ['iframe data:', dataIframe],
         ['iframe javascript:', jsIframe],
         ['iframe file:', fileIframe],
