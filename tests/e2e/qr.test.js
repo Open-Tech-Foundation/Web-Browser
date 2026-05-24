@@ -66,8 +66,6 @@ test('user can open QR share popup for the current page',
         5000,
       );
       if (firstRestore === '') {
-        await qrCdp.evaluate(`window.cefQuery?.({ request: 'hide-popup:qr' })`);
-        await sleep(500);
         await clickSelector(shellCdp, 'button[title="Share via QR Code"]');
       }
 
