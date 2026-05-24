@@ -2,34 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clickSelector,
   launchDevBrowser,
+  navigateFromAddressBar,
   startStaticServer,
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
+import { setSitePermissionFromUi } from './helpers/e2eUtils.js';
 
-function cefQuery(cdp, request) {
-  return cdp.evaluate(`
-    new Promise((resolve) => {
-      window.cefQuery?.({
-        request: ${JSON.stringify(request)},
-        onSuccess: (value) => resolve({ ok: true, value }),
-        onFailure: (_, message) => resolve({ ok: false, value: message || '' }),
-      });
-    })
-  `);
-}
-
-async function setSitePermission(cdp, origin, permission, setting) {
-  const result = await cefQuery(
-    cdp,
-    `set-permission-for-site:${origin}:${permission}:${setting}`,
-  );
-  assert.equal(
-    result.ok,
-    true,
-    `set ${permission}=${setting} should succeed: ${result.value}`,
-  );
+async function openNewTabUrl(cdp, url) {
+  await clickSelector(cdp, 'button[title="New tab"]');
+  await navigateFromAddressBar(cdp, url);
 }
 
 test(
@@ -63,8 +47,7 @@ test(
       const tagB = 'js-block-' + String(Date.now());
 
       // 1. Open a new tab with JS allowed (default).
-      const resA = await cefQuery(browser.cdp, `new-tab:${server.origin}/?tag=${tagA}`);
-      assert.equal(resA.ok, true);
+      await openNewTabUrl(browser.cdp, `${server.origin}/?tag=${tagA}`);
       allowedCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes(tagA),
         15000,
@@ -81,11 +64,10 @@ test(
       assert.equal(jsRan, 'JavaScript ran', 'JS should work by default');
 
       // 2. Set JS to "block" for the origin.
-      await setSitePermission(browser.cdp, server.origin, 'javascript', 'block');
+      await setSitePermissionFromUi(browser, server.origin, 'javascript', 'block');
 
-      // 3. Open another new tab — JS should be blocked.
-      const resB = await cefQuery(browser.cdp, `new-tab:${server.origin}/?tag=${tagB}`);
-      assert.equal(resB.ok, true);
+      // 3. Open another new tab through the visible UI. JS should be blocked.
+      await openNewTabUrl(browser.cdp, `${server.origin}/?tag=${tagB}`);
       blockedCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes(tagB),
         15000,
@@ -135,11 +117,10 @@ test(
     const browser = await launchDevBrowser();
     let newTabCdp = null;
     try {
-      await setSitePermission(browser.cdp, server.origin, 'javascript', 'allow');
+      await setSitePermissionFromUi(browser, server.origin, 'javascript', 'allow');
 
       const tag = 'js-allow-' + String(Date.now());
-      const res = await cefQuery(browser.cdp, `new-tab:${server.origin}/?tag=${tag}`);
-      assert.equal(res.ok, true);
+      await openNewTabUrl(browser.cdp, `${server.origin}/?tag=${tag}`);
 
       newTabCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes(tag),
