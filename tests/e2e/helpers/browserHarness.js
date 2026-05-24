@@ -348,8 +348,75 @@ export async function pressKey(cdp, key, code = key) {
   });
 }
 
+function keyInfo(char) {
+  if (/^[a-z]$/.test(char)) {
+    return { key: char, code: `Key${char.toUpperCase()}`, windowsVirtualKeyCode: char.toUpperCase().charCodeAt(0) };
+  }
+  if (/^[A-Z]$/.test(char)) {
+    return { key: char, code: `Key${char}`, windowsVirtualKeyCode: char.charCodeAt(0) };
+  }
+  if (/^[0-9]$/.test(char)) {
+    return { key: char, code: `Digit${char}`, windowsVirtualKeyCode: char.charCodeAt(0) };
+  }
+  const special = {
+    ':': { key: ':', code: 'Semicolon', windowsVirtualKeyCode: 186 },
+    '/': { key: '/', code: 'Slash', windowsVirtualKeyCode: 191 },
+    '.': { key: '.', code: 'Period', windowsVirtualKeyCode: 190 },
+    '-': { key: '-', code: 'Minus', windowsVirtualKeyCode: 189 },
+    '_': { key: '_', code: 'Minus', windowsVirtualKeyCode: 189 },
+    '?': { key: '?', code: 'Slash', windowsVirtualKeyCode: 191 },
+    '=': { key: '=', code: 'Equal', windowsVirtualKeyCode: 187 },
+    '&': { key: '&', code: 'Digit7', windowsVirtualKeyCode: 55 },
+    '%': { key: '%', code: 'Digit5', windowsVirtualKeyCode: 53 },
+    '+': { key: '+', code: 'Equal', windowsVirtualKeyCode: 187 },
+    ' ': { key: ' ', code: 'Space', windowsVirtualKeyCode: 32 },
+  };
+  return special[char] || { key: char, code: '', windowsVirtualKeyCode: char.charCodeAt(0) };
+}
+
 export async function typeText(cdp, text) {
   await cdp.send('Input.insertText', { text });
+}
+
+export async function typeTextWithKeys(cdp, text) {
+  for (const char of text) {
+    const info = keyInfo(char);
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: info.key,
+      code: info.code,
+      windowsVirtualKeyCode: info.windowsVirtualKeyCode,
+      nativeVirtualKeyCode: info.windowsVirtualKeyCode,
+      text: char,
+      unmodifiedText: char,
+    });
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: info.key,
+      code: info.code,
+      windowsVirtualKeyCode: info.windowsVirtualKeyCode,
+      nativeVirtualKeyCode: info.windowsVirtualKeyCode,
+    });
+  }
+}
+
+export async function selectAll(cdp) {
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'a',
+    code: 'KeyA',
+    windowsVirtualKeyCode: 65,
+    nativeVirtualKeyCode: 65,
+    modifiers: 2,
+  });
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'a',
+    code: 'KeyA',
+    windowsVirtualKeyCode: 65,
+    nativeVirtualKeyCode: 65,
+    modifiers: 2,
+  });
 }
 
 export const addressBarSelector = 'input[placeholder="Search or enter address..."]';
@@ -357,14 +424,8 @@ export const addressBarSelector = 'input[placeholder="Search or enter address...
 export async function navigateFromAddressBar(cdp, url) {
   await waitFor(cdp, `!!document.querySelector(${JSON.stringify(addressBarSelector)})`, Boolean);
   await clickSelector(cdp, addressBarSelector);
-  await cdp.evaluate(`
-    (() => {
-      const input = document.querySelector(${JSON.stringify(addressBarSelector)});
-      input.focus();
-      input.select();
-    })()
-  `);
-  await typeText(cdp, url);
+  await selectAll(cdp);
+  await typeTextWithKeys(cdp, url);
   await pressKey(cdp, 'Enter');
 }
 
