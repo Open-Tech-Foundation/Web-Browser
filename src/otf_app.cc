@@ -1631,6 +1631,10 @@ void OtfApp::OnContextInitialized() {
 
   int tab_id = tab_manager_.AddTab(content_view);
   content_view->SetID(tab_id);
+  tab_manager_.SetUrl(tab_id, start_url);
+  if (start_url.rfind("browser://", 0) == 0) {
+    tab_manager_.SetSchemeUrl(tab_id, start_url);
+  }
   if (startup_js_disabled) {
     handler->MarkTabJsDisabled(tab_id);
   }

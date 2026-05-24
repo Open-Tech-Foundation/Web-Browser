@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -396,17 +396,28 @@ export async function allowDownloadOnce(browser, origin, deadlineMs = 15000) {
   }
 }
 
-export async function launchDevBrowser() {
+export async function launchDevBrowser(options = {}) {
   assert.ok(existsSync(browserBin), `browser binary not found: ${browserBin}`);
 
   let vite = null;
   let browser = null;
   let cdp = null;
-  const profileRoot = await mkdtemp(path.join(os.tmpdir(), 'otf-browser-test-profile-'));
-  const tempHome = path.join(profileRoot, 'home');
-  const userDataDir = path.join(profileRoot, 'cef_user_data');
+  const ownsProfileRoot = !options.profileRoot;
+  const profileRoot = options.profileRoot ||
+    await mkdtemp(path.join(os.tmpdir(), 'otf-browser-test-profile-'));
+  const tempHome = options.homeDir || path.join(profileRoot, 'home');
+  const userDataDir = options.userDataDir || path.join(profileRoot, 'cef_user_data');
 
   try {
+    if (options.settings) {
+      const settingsDir = path.join(tempHome, '.otf-browser-dev');
+      await mkdir(settingsDir, { recursive: true });
+      await writeFile(
+        path.join(settingsDir, 'settings.json'),
+        JSON.stringify(options.settings),
+      );
+    }
+
     if (process.env.OTF_E2E_SKIP_VITE !== '1') {
       try {
         await waitForHttp(devUrl, 1000);
@@ -453,6 +464,9 @@ export async function launchDevBrowser() {
     return {
       cdp,
       devUrl,
+      profileRoot,
+      homeDir: tempHome,
+      userDataDir,
       async connectToTarget(predicate, deadlineMs = timeoutMs) {
         const target = await waitForTarget(predicate, deadlineMs);
         const targetCdp = new CdpClient(target.webSocketDebuggerUrl);
@@ -469,7 +483,9 @@ export async function launchDevBrowser() {
         browser = null;
         await stopProcess(vite);
         vite = null;
-        await rm(profileRoot, { recursive: true, force: true });
+        if (!options.preserveProfile && ownsProfileRoot) {
+          await rm(profileRoot, { recursive: true, force: true });
+        }
       },
     };
   } catch (error) {
@@ -478,7 +494,9 @@ export async function launchDevBrowser() {
     }
     await stopProcess(browser);
     await stopProcess(vite);
-    await rm(profileRoot, { recursive: true, force: true });
+    if (!options.preserveProfile && ownsProfileRoot) {
+      await rm(profileRoot, { recursive: true, force: true });
+    }
     throw error;
   }
 }

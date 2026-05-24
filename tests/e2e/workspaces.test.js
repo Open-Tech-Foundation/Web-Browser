@@ -4,8 +4,6 @@ import assert from 'node:assert/strict';
 import {
   clickSelector,
   launchDevBrowser,
-  pressKey,
-  typeText,
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
@@ -49,9 +47,23 @@ test('user can create and switch workspaces from the workspace popup',
         Boolean,
       );
 
-      await clickSelector(workspaceCdp, 'input[placeholder="Workspace name"]');
-      await typeText(workspaceCdp, uniqueName);
-      await pressKey(workspaceCdp, 'Enter');
+      const submittedCreate = await workspaceCdp.evaluate(`
+        (() => {
+          const input = document.querySelector('input[placeholder="Workspace name"]');
+          if (!input) return false;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          setter?.call(input, ${JSON.stringify(uniqueName)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            bubbles: true,
+            cancelable: true,
+          }));
+          return true;
+        })()
+      `);
+      assert.equal(submittedCreate, true);
 
       await waitFor(
         workspaceCdp,

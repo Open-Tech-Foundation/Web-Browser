@@ -352,7 +352,14 @@ class TabManager {
     }
     // Sort the workspace slots by the desired order.
     std::sort(ws_slots.begin(), ws_slots.end(),
-              [&pos](int a, int b) { return pos.at(a) < pos.at(b); });
+              [&pos](int a, int b) {
+                const auto ait = pos.find(a);
+                const auto bit = pos.find(b);
+                if (ait == pos.end() && bit == pos.end()) return false;
+                if (ait == pos.end()) return false;
+                if (bit == pos.end()) return true;
+                return ait->second < bit->second;
+              });
     // Write sorted IDs back into the same indices in tab_order_.
     for (size_t k = 0; k < ws_idx.size(); ++k) {
       tab_order_[ws_idx[k]] = ws_slots[k];
