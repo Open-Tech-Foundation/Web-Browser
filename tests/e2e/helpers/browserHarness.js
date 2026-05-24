@@ -266,71 +266,63 @@ export async function waitFor(cdp, expression, predicate, deadlineMs = 10000) {
   throw new Error(`timed out waiting for ${expression}; last value: ${JSON.stringify(value)}`);
 }
 
-export async function clickSelector(cdp, selector) {
-  const rect = await cdp.evaluate(`
-    (() => {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return null;
-      const rect = el.getBoundingClientRect();
-      return {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-        width: rect.width,
-        height: rect.height,
-      };
-    })()
-  `);
-  assert.ok(rect, `selector not found: ${selector}`);
-  assert.ok(rect.width > 0 && rect.height > 0, `selector is not visible: ${selector}`);
+// Dispatch a full, realistic left click at a viewport point: hover, then
+// press, then release with the correct `buttons` bitmask. The mouseMoved +
+// buttons state matters — a bare press/release pair isn't always treated as a
+// genuine user gesture, and Chromium gates link navigation / downloads on
+// user activation, so an incomplete click silently no-ops.
+async function dispatchClickAt(cdp, x, y) {
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, buttons: 0 });
   await cdp.send('Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    x: rect.x,
-    y: rect.y,
-    button: 'left',
-    clickCount: 1,
+    type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1,
   });
   await cdp.send('Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    x: rect.x,
-    y: rect.y,
-    button: 'left',
-    clickCount: 1,
+    type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1,
   });
 }
 
-export async function clickByText(cdp, selector, text) {
+// Resolve an element to a clickable viewport point: scroll it into view, then
+// reject it if it's hidden or non-interactable so failures are clear.
+async function resolveClickPoint(cdp, findExpr, label) {
   const rect = await cdp.evaluate(`
     (() => {
-      const wanted = ${JSON.stringify(text)}.toLowerCase();
-      const elements = [...document.querySelectorAll(${JSON.stringify(selector)})];
-      const el = elements.find((item) => (item.textContent || '').toLowerCase().includes(wanted));
+      const el = ${findExpr};
       if (!el) return null;
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' ||
+          style.pointerEvents === 'none') return null;
       const rect = el.getBoundingClientRect();
       return {
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
         width: rect.width,
         height: rect.height,
-        text: el.textContent || '',
       };
     })()
   `);
-  assert.ok(rect, `selector with text not found: ${selector} / ${text}`);
-  assert.ok(rect.width > 0 && rect.height > 0, `selector with text is not visible: ${selector} / ${text}`);
-  await cdp.send('Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    x: rect.x,
-    y: rect.y,
-    button: 'left',
-    clickCount: 1,
-  });
-  await cdp.send('Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    x: rect.x,
-    y: rect.y,
-    button: 'left',
-    clickCount: 1,
-  });
+  assert.ok(rect, `not found or not interactable: ${label}`);
+  assert.ok(rect.width > 0 && rect.height > 0, `not visible: ${label}`);
+  return rect;
+}
+
+export async function clickSelector(cdp, selector) {
+  const rect = await resolveClickPoint(
+    cdp,
+    `document.querySelector(${JSON.stringify(selector)})`,
+    selector,
+  );
+  await dispatchClickAt(cdp, rect.x, rect.y);
+}
+
+export async function clickByText(cdp, selector, text) {
+  const findExpr = `(() => {
+    const wanted = ${JSON.stringify(text)}.toLowerCase();
+    return [...document.querySelectorAll(${JSON.stringify(selector)})]
+      .find((item) => (item.textContent || '').toLowerCase().includes(wanted));
+  })()`;
+  const rect = await resolveClickPoint(cdp, findExpr, `${selector} / ${text}`);
+  await dispatchClickAt(cdp, rect.x, rect.y);
 }
 
 export async function pressKey(cdp, key, code = key) {

@@ -1,8 +1,8 @@
 import test from 'node:test';
-import assert from 'node:assert/strict';
 
 import {
   allowDownloadOnce,
+  clickByText,
   clickSelector,
   launchDevBrowser,
   navigateFromAddressBar,
@@ -66,15 +66,7 @@ test('user can download a file and clear finished downloads from the downloads p
         Boolean,
         15000,
       );
-      const clickedDownload = await pageCdp.evaluate(`
-        (() => {
-          const link = document.querySelector('#download-link');
-          if (!link) return false;
-          link.click();
-          return true;
-        })()
-      `);
-      assert.equal(clickedDownload, true);
+      await clickSelector(pageCdp, '#download-link');
       await allowDownloadOnce(browser, staticServer.origin);
       await waitFor(
         pageCdp,
@@ -96,16 +88,41 @@ test('user can download a file and clear finished downloads from the downloads p
         15000,
       );
 
-      const clickedClear = await downloadsCdp.evaluate(`
-        (() => {
-          const button = [...document.querySelectorAll('button')]
-            .find((item) => (item.textContent || '').trim() === 'Clear Finished');
-          if (!button) return false;
-          button.click();
-          return true;
-        })()
-      `);
-      assert.equal(clickedClear, true);
+      if (downloadsCdp) {
+        downloadsCdp.close();
+        downloadsCdp = null;
+      }
+      await navigateFromAddressBar(browser.cdp, staticServer.origin);
+      await waitFor(browser.cdp, `!!document.querySelector('button[title="Downloads"]')`, Boolean, 15000);
+      await clickSelector(browser.cdp, 'button[title="Downloads"]');
+      downloadsCdp = await browser.connectToTarget((target) =>
+        /downloadsbar\.html/i.test(target.url || ''),
+        15000,
+      );
+      await waitFor(
+        downloadsCdp,
+        `document.body.innerText`,
+        (text) => text.includes(uniqueName) && text.includes('Show All Downloads'),
+        15000,
+      );
+
+      await clickByText(downloadsCdp, 'button', 'Show All Downloads');
+      downloadsCdp.close();
+      downloadsCdp = null;
+
+      downloadsCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Downloads' ||
+        /downloads\.html/i.test(target.url || ''),
+        15000,
+      );
+      await waitFor(
+        downloadsCdp,
+        `document.body.innerText`,
+        (text) => text.includes(uniqueName),
+        15000,
+      );
+
+      await clickByText(downloadsCdp, 'button', 'Clear Finished');
 
       await waitFor(
         downloadsCdp,
