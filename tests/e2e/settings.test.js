@@ -33,16 +33,7 @@ test('user can change appearance mode in Settings',
         (text) => /Search Engine/i.test(text) && /Appearance/i.test(text),
       );
 
-      const clickedAppearance = await settingsCdp.evaluate(`
-        (() => {
-          const button = [...document.querySelectorAll('aside nav button')]
-            .find((item) => (item.textContent || '').includes('Appearance'));
-          if (!button) return false;
-          button.click();
-          return true;
-        })()
-      `);
-      assert.equal(clickedAppearance, true);
+      await clickByText(settingsCdp, 'aside nav button', 'Appearance');
       await waitFor(
         settingsCdp,
         `document.body.innerText`,
@@ -71,6 +62,54 @@ test('user can change appearance mode in Settings',
       if (settingsCdp) {
         settingsCdp.close();
       }
+      await browser.close();
+    }
+  });
+
+test('settings reset section exposes optional reset items',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let settingsCdp = null;
+    try {
+      await clickSelector(browser.cdp, 'button[title="Settings"]');
+      settingsCdp = await browser.connectToTarget((target) =>
+        /settings/i.test(target.title || '') ||
+        /settings\.html/i.test(target.url || ''),
+      );
+
+      await clickByText(settingsCdp, 'aside nav button', 'Reset Settings');
+      await waitFor(settingsCdp, `document.body.innerText`, (text) => /default reset items/i.test(text), 15000);
+
+      const before = await settingsCdp.evaluate(`
+        (() => {
+          const buttons = [...document.querySelectorAll('main button')];
+          const history = buttons.find((item) => (item.textContent || '').includes('Browsing history'));
+          const downloads = buttons.find((item) => (item.textContent || '').includes('Download history'));
+          return {
+            hasHistory: Boolean(history),
+            hasDownloads: Boolean(downloads),
+            className: history?.querySelector('div')?.className || '',
+          };
+        })()
+      `);
+      assert.equal(before.hasHistory, true);
+      assert.equal(before.hasDownloads, true);
+      await clickByText(settingsCdp, 'main button', 'Browsing history');
+
+      const after = await waitFor(
+        settingsCdp,
+        `(() => {
+          const buttons = [...document.querySelectorAll('main button')];
+          const history = buttons.find((item) => (item.textContent || '').includes('Browsing history'));
+          return history?.querySelector('div')?.className || '';
+        })()`,
+        (className) => className !== before.className,
+        5000,
+      );
+      assert.notEqual(before.className, after);
+    } finally {
+      if (settingsCdp) settingsCdp.close();
       await browser.close();
     }
   });
