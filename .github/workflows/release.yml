@@ -281,3 +281,104 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          bun-version: "1.3.12"
+
+      - name: Install Node dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore / Install vcpkg dependencies
+        run: |
+          vcpkg install --triplet x64-windows
+
+      - name: Cache CEF SDK
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: third_party/cef
+          key: cef-win64-${{ hashFiles('CEF_VERSION', 'CEF_SHA256_WIN64') }}
+
+      - name: Install Dependencies (CEF)
+        run: bash setup_deps.sh windows64
+
+      - name: Build UI Assets
+        run: bun run build:ui
+
+      - name: Build C++ Engine
+        env:
+          OTF_VERSION: ${{ github.ref_name != '' && (startsWith(github.ref_name, 'v') && github.ref_name || '') || '' }}
+        run: |
+          $version = "$env:OTF_VERSION"
+          if ($version -and $version.StartsWith("v")) {
+            $version = $version.Substring(1)
+            Write-Host "Embedding OTF_VERSION=$version"
+          }
+          $env:OTF_VERSION = $version
+          $env:CMAKE_TOOLCHAIN_FILE = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          mkdir build -Force
+          cd build
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" ..
+          ninja otf-browser
+
+      - name: Run C++ Tests
+        run: |
+          cd build
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" ..
+          ninja `
+            otf-browser-native-tests `
+            otf-browser-extra-tests `
+            otf-browser-url-policy-tests `
+            otf-browser-json-bridge-tests `
+            otf-browser-tab-manager-tests `
+            otf-browser-store-tests
+          ctest --output-on-failure -C Release
+
+      - name: Run JS Tests
+        run: bun run test:js
+
+      - name: Package Release
+        run: |
+          $version = "$env:GITHUB_REF_NAME"
+          $packageName = "otf-browser-windows-x64-$version"
+          mkdir $packageName -Force
+          Copy-Item "build/Release/*" "$packageName/" -Recurse
+          Remove-Item "$packageName/otf-browser-native-tests.exe" -ErrorAction SilentlyContinue
+          Remove-Item "$packageName/otf-browser-extra-tests.exe" -ErrorAction SilentlyContinue
+          Remove-Item "$packageName/otf-browser-url-policy-tests.exe" -ErrorAction SilentlyContinue
+          Remove-Item "$packageName/otf-browser-json-bridge-tests.exe" -ErrorAction SilentlyContinue
+          Remove-Item "$packageName/otf-browser-tab-manager-tests.exe" -ErrorAction SilentlyContinue
+          Remove-Item "$packageName/otf-browser-store-tests.exe" -ErrorAction SilentlyContinue
+          Copy-Item LICENSE "$packageName/LICENSE"
+          Copy-Item "third_party/cef/LICENSE.txt" "$packageName/LICENSE-cef.txt"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $packageName), "$packageName.zip")
+          $hash = (Get-FileHash "$packageName.zip" -Algorithm SHA256).Hash.ToLower()
+          Set-Content "$packageName.zip.sha256" $hash
+          Write-Host "PACKAGE_NAME=$packageName"
+          echo "PACKAGE_NAME=$packageName" >> $env:GITHUB_ENV
+          echo "ASSET_PATH=$packageName.zip" >> $env:GITHUB_ENV
+          echo "ASSET_SHA256_PATH=$packageName.zip.sha256" >> $env:GITHUB_ENV
+          echo "ASSET_NAME=$packageName.zip" >> $env:GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            ${{ env.ASSET_PATH }}
+            ${{ env.ASSET_SHA256_PATH }}
+          generate_release_notes: false
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

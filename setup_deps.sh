@@ -2,11 +2,14 @@
 
 # Dependency Setup Script for OTF Browser
 # This script downloads and extracts the required CEF version.
+#
+# Usage: ./setup_deps.sh [platform]
+#   platform - target platform: linux64 (default) or windows64
 
 set -e
 
 CEF_VERSION=$(cat CEF_VERSION)
-CEF_PLATFORM="linux64"
+CEF_PLATFORM="${1:-linux64}"
 # Use the "minimal" distribution — drops Debug/ binaries and the
 # cefclient/cefsimple sample-app sources we don't build. About half the
 # size of the standard distribution (~300 MB vs ~640 MB), which matters
@@ -22,7 +25,13 @@ CEF_DOWNLOAD_URL="https://cef-builds.spotifycdn.com/cef_binary_${CEF_URL_VERSION
 THIRD_PARTY_DIR="third_party"
 CEF_TARGET_DIR="${THIRD_PARTY_DIR}/cef"
 
-echo "Setting up dependencies..."
+# Pick the platform-appropriate SHA256 verification file
+SHA256_FILE="CEF_SHA256"
+if [ "${CEF_PLATFORM}" = "windows64" ]; then
+    SHA256_FILE="CEF_SHA256_WIN64"
+fi
+
+echo "Setting up dependencies for ${CEF_PLATFORM}..."
 mkdir -p "${THIRD_PARTY_DIR}"
 
 if [ -d "${CEF_TARGET_DIR}" ]; then
@@ -43,12 +52,12 @@ fi
 # Verify the archive matches the SHA256 pinned in the repo before doing
 # anything with it. Without this, a compromised CDN (or TLS MITM) could
 # silently swap a backdoored CEF/Chromium into the release build.
-if [ ! -f CEF_SHA256 ]; then
-    echo "Error: CEF_SHA256 file is missing. Refusing to extract unverified CEF archive." >&2
+if [ ! -f "${SHA256_FILE}" ]; then
+    echo "Error: ${SHA256_FILE} file is missing. Refusing to extract unverified CEF archive." >&2
     rm -f "${CEF_ARCHIVE}"
     exit 1
 fi
-EXPECTED_SHA256=$(tr -d '[:space:]' < CEF_SHA256)
+EXPECTED_SHA256=$(tr -d '[:space:]' < "${SHA256_FILE}")
 echo "Verifying CEF archive checksum..."
 if ! echo "${EXPECTED_SHA256}  ${CEF_ARCHIVE}" | sha256sum -c -; then
     echo "Error: CEF archive checksum mismatch. Refusing to extract." >&2

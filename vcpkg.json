@@ -1,0 +1,8 @@
+{
+  "name": "otf-browser",
+  "version": "0.1.0",
+  "dependencies": [
+    "libvips",
+    "sqlite3"
+  ]
+}
