@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clickByText,
   clickSelector,
   launchDevBrowser,
   navigateFromAddressBar,
@@ -10,42 +11,7 @@ import {
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
-
-function cefQuery(cdp, request) {
-  return cdp.evaluate(`
-    new Promise((resolve) => {
-      window.cefQuery?.({
-        request: ${JSON.stringify(request)},
-        onSuccess: (value) => resolve({ ok: true, value }),
-        onFailure: (_, message) => resolve({ ok: false, value: message || '' }),
-      });
-    })
-  `);
-}
-
-async function setSitePermission(cdp, origin, permission, setting) {
-  const result = await cefQuery(cdp, `set-permission-for-site:${origin}:${permission}:${setting}`);
-  assert.equal(result.ok, true, `set ${permission}=${setting} should succeed: ${result.value}`);
-}
-
-async function getDownloads(cdp) {
-  const result = await cefQuery(cdp, 'get-downloads');
-  assert.equal(result.ok, true, `get-downloads should succeed: ${result.value}`);
-  return JSON.parse(result.value || '[]');
-}
-
-async function clickByText(cdp, text) {
-  const clicked = await cdp.evaluate(`
-    (() => {
-      const button = [...document.querySelectorAll('button')]
-        .find((item) => (item.textContent || '').trim() === ${JSON.stringify(text)});
-      if (!button) return false;
-      button.click();
-      return true;
-    })()
-  `);
-  assert.equal(clicked, true, `expected to click button: ${text}`);
-}
+import { setSitePermissionFromUi } from './helpers/e2eUtils.js';
 
 test('download site permission block denies downloads and allow permits them',
   { timeout: timeoutMs + 20000 },
@@ -86,6 +52,7 @@ test('download site permission block denies downloads and allow permits them',
 
     const browser = await launchDevBrowser();
     let pageCdp = null;
+    let downloadsCdp = null;
     try {
       await navigateFromAddressBar(browser.cdp, server.origin);
       await waitFor(
@@ -103,38 +70,54 @@ test('download site permission block denies downloads and allow permits them',
 
       await waitFor(pageCdp, `!!document.querySelector('#blocked-download')`, Boolean, 15000);
 
-      await setSitePermission(browser.cdp, server.origin, 'downloads', 'block');
+      await setSitePermissionFromUi(browser, server.origin, 'downloads', 'block');
+      await navigateFromAddressBar(browser.cdp, server.origin);
+      if (pageCdp) pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(server.origin) ||
+        /Download Permission E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#blocked-download')`, Boolean, 15000);
       await clickSelector(pageCdp, '#blocked-download');
       await sleep(1000);
 
-      let downloads = await getDownloads(browser.cdp);
-      assert.equal(downloads.some((item) => String(item.suggestedName || '').includes(blockedName)), false);
-
-      await setSitePermission(browser.cdp, server.origin, 'downloads', 'allow');
-      await clickSelector(pageCdp, '#allowed-download');
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Downloads' ||
+        /downloads\.html/i.test(target.url || ''),
+      );
       await waitFor(
-        browser.cdp,
-        `new Promise((resolve) => window.cefQuery?.({
-          request: 'get-downloads',
-          onSuccess: (json) => {
-            try {
-              resolve(JSON.parse(json).some((item) =>
-                String(item.suggestedName || '').includes(${JSON.stringify(allowedName)}) &&
-                !item.isInProgress
-              ));
-            } catch {
-              resolve(false);
-            }
-          },
-          onFailure: () => resolve(false),
-        }))`,
-        Boolean,
+        downloadsCdp,
+        `document.body.innerText`,
+        (text) => !text.includes(blockedName),
         15000,
       );
+      downloadsCdp.close();
+      downloadsCdp = null;
 
-      downloads = await getDownloads(browser.cdp);
-      assert.equal(downloads.some((item) => String(item.suggestedName || '').includes(allowedName)), true);
+      await setSitePermissionFromUi(browser, server.origin, 'downloads', 'allow');
+      await navigateFromAddressBar(browser.cdp, server.origin);
+      if (pageCdp) pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(server.origin) ||
+        /Download Permission E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#allowed-download')`, Boolean, 15000);
+      await clickSelector(pageCdp, '#allowed-download');
+      await sleep(1000);
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Downloads' ||
+        /downloads\.html/i.test(target.url || ''),
+      );
+      await waitFor(
+        downloadsCdp,
+        `document.body.innerText`,
+        (text) => text.includes(allowedName),
+        15000,
+      );
     } finally {
+      if (downloadsCdp) downloadsCdp.close();
       if (pageCdp) pageCdp.close();
       await browser.close();
       await server.close();
@@ -196,7 +179,14 @@ test('popup site permission prompts once, blocks, and allows by site setting',
       );
       await waitFor(pageCdp, `!!document.querySelector('#ask-popup')`, Boolean, 15000);
 
-      await setSitePermission(browser.cdp, server.origin, 'popup', 'ask');
+      await setSitePermissionFromUi(browser, server.origin, 'popup', 'ask');
+      await navigateFromAddressBar(browser.cdp, server.origin);
+      if (pageCdp) pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(server.origin) ||
+        /Popup Permission E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#ask-popup')`, Boolean, 15000);
       await clickSelector(pageCdp, '#ask-popup');
       await waitFor(browser.cdp, `!!document.querySelector('button[title="Pop-up blocked"]')`, Boolean, 15000);
       await clickSelector(browser.cdp, 'button[title="Pop-up blocked"]');
@@ -211,7 +201,7 @@ test('popup site permission prompts once, blocks, and allows by site setting',
         (text) => text.includes(server.origin) && text.includes('Allow once'),
         15000,
       );
-      await clickByText(blockedPopupCdp, 'Allow once');
+      await clickByText(blockedPopupCdp, 'button', 'Allow once');
       popupCdp = await browser.connectToTarget((target) =>
         (target.url || '').startsWith(`${server.origin}/popup?case=ask`) ||
         /Popup Target ask/i.test(target.title || ''),
@@ -223,13 +213,27 @@ test('popup site permission prompts once, blocks, and allows by site setting',
       blockedPopupCdp.close();
       blockedPopupCdp = null;
 
-      await setSitePermission(browser.cdp, server.origin, 'popup', 'block');
+      await setSitePermissionFromUi(browser, server.origin, 'popup', 'block');
+      await navigateFromAddressBar(browser.cdp, server.origin);
+      if (pageCdp) pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(server.origin) ||
+        /Popup Permission E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#blocked-popup')`, Boolean, 15000);
       const beforeBlocked = popupRequestCount;
       await clickSelector(pageCdp, '#blocked-popup');
       await sleep(1000);
       assert.equal(popupRequestCount, beforeBlocked, 'blocked popup should not reach the test server');
 
-      await setSitePermission(browser.cdp, server.origin, 'popup', 'allow');
+      await setSitePermissionFromUi(browser, server.origin, 'popup', 'allow');
+      await navigateFromAddressBar(browser.cdp, server.origin);
+      if (pageCdp) pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(server.origin) ||
+        /Popup Permission E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#allowed-popup')`, Boolean, 15000);
       await clickSelector(pageCdp, '#allowed-popup');
       popupCdp = await browser.connectToTarget((target) =>
         (target.url || '').startsWith(`${server.origin}/popup?case=allowed`) ||
