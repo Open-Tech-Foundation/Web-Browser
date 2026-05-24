@@ -97,7 +97,7 @@ test('user can clear cookies and storage for a site from the clear site data pop
       const openedDetails = await popupCdp.evaluate(`
         (() => {
           const button = [...document.querySelectorAll('button')]
-            .find((item) => (item.textContent || '').includes('View detailed site data'));
+            .find((item) => (item.textContent || '').includes('Manage'));
           if (!button) return false;
           button.click();
           return true;

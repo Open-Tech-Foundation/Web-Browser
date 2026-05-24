@@ -130,6 +130,14 @@ const SiteData = () => {
                   : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${activeTab === 'cookies' ? 'bg-amber-500/10 text-amber-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5Z"/>
+                  <circle cx="8" cy="14" r="1" fill="currentColor"/>
+                  <circle cx="12" cy="16" r="1" fill="currentColor"/>
+                  <circle cx="16" cy="11" r="1" fill="currentColor"/>
+                </svg>
+              </div>
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'cookies' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Cookies</div>
               <div className="font-mono text-2xl font-bold">{cookies.length}</div>
             </button>
@@ -142,6 +150,13 @@ const SiteData = () => {
                   : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${activeTab === 'storage' ? 'bg-blue-500/10 text-blue-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                  <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/>
+                </svg>
+              </div>
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'storage' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Storage</div>
               <div className="font-mono text-2xl font-bold">
                 {storage && typeof storage.usage === 'number' ? formatBytes(storage.usage) : '—'}
@@ -156,6 +171,11 @@ const SiteData = () => {
                   : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${activeTab === 'permissions' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+              </div>
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'permissions' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Permissions</div>
               <div className="font-mono text-2xl font-bold">
                 {Object.keys(PERMISSION_LABELS).filter(k => {
@@ -173,6 +193,13 @@ const SiteData = () => {
                   : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${activeTab === 'external' ? 'bg-purple-500/10 text-purple-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M2 12h20"/>
+                  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+                </svg>
+              </div>
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'external' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>External</div>
               <div className="font-mono text-2xl font-bold">{crossOrigins.length}</div>
             </button>
