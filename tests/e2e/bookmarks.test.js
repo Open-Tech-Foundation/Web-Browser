@@ -5,9 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  clickByText,
   clickSelector,
   launchDevBrowser,
   navigateFromAddressBar,
+  pressKey,
   sleep,
   startStaticServer,
   timeoutMs,
@@ -73,7 +75,7 @@ test('user can bookmark a page, reopen the bookmark popup, and remove it',
         15000,
       );
 
-      await bookmarkbarCdp.evaluate(`window.cefQuery?.({ request: 'hide-bookmarkbar' })`);
+      await pressKey(bookmarkbarCdp, 'Escape');
       bookmarkbarCdp.close();
       bookmarkbarCdp = null;
 
@@ -96,16 +98,7 @@ test('user can bookmark a page, reopen the bookmark popup, and remove it',
         15000,
       );
 
-      const clickedRemove = await bookmarkbarCdp.evaluate(`
-        (() => {
-          const button = [...document.querySelectorAll('button')]
-            .find((item) => (item.textContent || '').trim() === 'Remove');
-          if (!button) return false;
-          button.click();
-          return true;
-        })()
-      `);
-      assert.equal(clickedRemove, true);
+      await clickByText(bookmarkbarCdp, 'button', 'Remove');
 
       await waitFor(
         cdp,
@@ -237,20 +230,7 @@ test('bookmarks persist across restart and open from the bookmarks page',
         `expected persisted bookmark in list, got ${bookmarksText}`,
       );
 
-      const clickedOpen = await bookmarksCdp.evaluate(`
-        (() => {
-          const path = ${JSON.stringify(bookmarkPath)};
-          const cards = [...document.querySelectorAll('div')].filter((item) =>
-            (item.textContent || '').includes(path));
-          const card = cards.find((item) =>
-            item.querySelector('button[title="Open in current tab"]'));
-          const button = card?.querySelector('button[title="Open in current tab"]');
-          if (!button) return false;
-          button.click();
-          return true;
-        })()
-      `);
-      assert.equal(clickedOpen, true);
+      await clickSelector(bookmarksCdp, 'button[title="Open in current tab"]');
 
       await waitFor(
         browser.cdp,
