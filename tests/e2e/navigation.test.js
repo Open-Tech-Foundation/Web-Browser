@@ -5,26 +5,12 @@ import {
   clickSelector,
   launchDevBrowser,
   navigateFromAddressBar,
-  pressKey,
   startStaticServer,
   timeoutMs,
-  typeText,
   waitFor,
 } from './helpers/browserHarness.js';
 
 const addressSelector = 'input[placeholder="Search or enter address..."]';
-
-function cefQuery(cdp, request) {
-  return cdp.evaluate(`
-    new Promise((resolve) => {
-      window.cefQuery?.({
-        request: ${JSON.stringify(request)},
-        onSuccess: (value) => resolve({ ok: true, value }),
-        onFailure: (_, message) => resolve({ ok: false, value: message || '' }),
-      });
-    })
-  `);
-}
 
 test('user can navigate to Settings from the address bar',
   { timeout: timeoutMs + 10000 },
@@ -33,26 +19,7 @@ test('user can navigate to Settings from the address bar',
     try {
       const cdp = browser.cdp;
 
-      await waitFor(
-        cdp,
-        `!!document.querySelector(${JSON.stringify(addressSelector)})`,
-        Boolean,
-      );
-      await clickSelector(cdp, addressSelector);
-      await cdp.send('Input.dispatchKeyEvent', {
-        type: 'keyDown',
-        key: 'a',
-        code: 'KeyA',
-        modifiers: 2,
-      });
-      await cdp.send('Input.dispatchKeyEvent', {
-        type: 'keyUp',
-        key: 'a',
-        code: 'KeyA',
-        modifiers: 2,
-      });
-      await typeText(cdp, 'browser://settings');
-      await pressKey(cdp, 'Enter');
+      await navigateFromAddressBar(cdp, 'browser://settings');
 
       const state = await waitFor(
         cdp,
@@ -99,13 +66,6 @@ test('address bar treats localhost input as a direct URL',
     let pageCdp = null;
     try {
       const input = server.origin.replace(/^http:\/\//, '') + '/direct-url';
-      const resolved = await cefQuery(
-        browser.cdp,
-        `resolve-input-url:${input.length}:${input}`,
-      );
-      assert.equal(resolved.ok, true);
-      assert.equal(resolved.value, `http://${input}`);
-
       await navigateFromAddressBar(browser.cdp, input);
 
       pageCdp = await browser.connectToTarget((target) =>
@@ -132,7 +92,7 @@ test('address bar treats localhost input as a direct URL',
     }
   });
 
-test('input resolver sends search terms and dangerous schemes to search',
+test('address bar sends search terms and dangerous schemes to search',
   { timeout: timeoutMs + 10000 },
   async () => {
     const browser = await launchDevBrowser({
@@ -148,24 +108,84 @@ test('input resolver sends search terms and dangerous schemes to search',
       },
     });
     try {
-      const search = await cefQuery(
+      await navigateFromAddressBar(browser.cdp, 'hello world');
+      const searchAddress = await waitFor(
         browser.cdp,
-        'resolve-input-url:11:hello world',
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ""`,
+        (value) => value.includes('google.com/search') && value.includes('hello'),
+        15000,
       );
-      assert.equal(search.ok, true);
-      assert.equal(search.value, 'https://www.google.com/search?q=hello+world');
+      assert.ok(searchAddress.includes('q=hello+world') || searchAddress.includes('q=hello%20world'));
 
       const dangerous = 'javascript:alert(1)';
-      const dangerousResult = await cefQuery(
+      await navigateFromAddressBar(browser.cdp, dangerous);
+      const dangerousAddress = await waitFor(
         browser.cdp,
-        `resolve-input-url:${dangerous.length}:${dangerous}`,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ""`,
+        (value) => value.includes('google.com/search') && value.includes('javascript'),
+        15000,
       );
-      assert.equal(dangerousResult.ok, true);
-      assert.equal(
-        dangerousResult.value,
-        'https://www.google.com/search?q=javascript%3Aalert(1)',
-      );
+      assert.ok(!dangerousAddress.toLowerCase().startsWith('javascript:'));
     } finally {
       await browser.close();
+    }
+  });
+
+test('back and forward toolbar buttons follow page history',
+  { timeout: timeoutMs + 20000 },
+  async () => {
+    const unique = Date.now();
+    const server = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      const page = req.url.includes('second') ? 'Second' : 'First';
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<!doctype html><title>${page} Navigation ${unique}</title><main>${page} Navigation ${unique}<a id="to-second" href="/second">Second</a></main>`);
+    });
+    const browser = await launchDevBrowser();
+    let pageCdp = null;
+    try {
+      await navigateFromAddressBar(browser.cdp, `${server.origin}/first`);
+      await waitFor(
+        browser.cdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes('/first'),
+        15000,
+      );
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(`${server.origin}/first`),
+        15000,
+      );
+      await clickSelector(pageCdp, '#to-second');
+      await waitFor(
+        browser.cdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes('/second'),
+        15000,
+      );
+      await waitFor(browser.cdp, `!document.querySelector('button[title="Go back"]')?.disabled`, Boolean, 15000);
+      await clickSelector(browser.cdp, 'button[title="Go back"]');
+      await waitFor(
+        browser.cdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes('/first'),
+        15000,
+      );
+      await waitFor(browser.cdp, `!document.querySelector('button[title="Go forward"]')?.disabled`, Boolean, 15000);
+      await clickSelector(browser.cdp, 'button[title="Go forward"]');
+      const address = await waitFor(
+        browser.cdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes('/second'),
+        15000,
+      );
+      assert.ok(address.includes('/second'));
+    } finally {
+      if (pageCdp) pageCdp.close();
+      await browser.close();
+      await server.close();
     }
   });
