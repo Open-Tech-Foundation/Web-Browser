@@ -71,6 +71,34 @@ The first feature test is `tabs.test.js`. It uses only visible UI controls:
 - observe tracking parameters are stripped from the shared URL
 - observe the QR canvas renders for the current page
 
+`app-menu.test.js` verifies the app menu:
+
+- open the toolbar menu
+- choose a browser page entry
+- observe the shell navigates to that page
+
+`zoom.test.js` verifies zoom controls:
+
+- open the zoom overlay
+- zoom in and reset through the overlay
+- update zoom through keyboard shortcuts
+
+`certificate.test.js` verifies certificate viewer fallback state:
+
+- open the certificate viewer from an HTTP page
+- observe the no-certificate message
+
+`site-data.test.js` verifies site data permissions:
+
+- open the site data page for an origin
+- switch to permissions
+- change a site permission through the UI
+
+`newtab.test.js` verifies the New Tab search box:
+
+- observe the configured search engine in the placeholder
+- navigate a direct URL from the New Tab page
+
 Run the current E2E suite with:
 
 ```bash
