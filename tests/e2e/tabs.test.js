@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clickSelector,
   launchDevBrowser,
+  navigateFromAddressBar,
   startStaticServer,
   timeoutMs,
   waitFor,
@@ -19,18 +21,6 @@ const tabStateExpression = `(() => [...document.querySelectorAll('a[href^="tab-c
     };
   }))()`;
 
-function cefQuery(cdp, request) {
-  return cdp.evaluate(`
-    new Promise((resolve) => {
-      window.cefQuery?.({
-        request: ${JSON.stringify(request)},
-        onSuccess: (value) => resolve({ ok: true, value }),
-        onFailure: (_, message) => resolve({ ok: false, value: message || '' }),
-      });
-    })
-  `);
-}
-
 async function waitForTabTitles(cdp, titles) {
   return waitFor(
     cdp,
@@ -39,6 +29,55 @@ async function waitForTabTitles(cdp, titles) {
       tabs.some((tab) => tab.text.includes(title))),
     30000,
   );
+}
+
+async function clickTabCloseButton(cdp, titleNeedle) {
+  const rect = await cdp.evaluate(`
+    (() => {
+      const needle = ${JSON.stringify(titleNeedle)};
+      const tab = [...document.querySelectorAll('a[href^="tab-context-menu:"]')]
+        .find((item) => (item.textContent || '').includes(needle));
+      const button = tab?.querySelector('button[title="Close tab"]');
+      if (!button) return null;
+      const rect = button.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        width: rect.width,
+        height: rect.height,
+      };
+    })()
+  `);
+  assert.ok(rect, `close button not found for tab: ${titleNeedle}`);
+  assert.ok(rect.width > 0 && rect.height > 0, `close button is not visible for tab: ${titleNeedle}`);
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: rect.x,
+    y: rect.y,
+  });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: rect.x,
+    y: rect.y,
+    button: 'left',
+    clickCount: 1,
+  });
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: rect.x,
+    y: rect.y,
+    button: 'left',
+    clickCount: 1,
+  });
+}
+
+async function openTabsFromAddressBar(cdp, origin, slugs) {
+  for (const slug of slugs) {
+    const before = await waitFor(cdp, tabCountExpression, (count) => count >= 1, 15000);
+    await clickSelector(cdp, 'button[title="New tab"]');
+    await waitFor(cdp, tabCountExpression, (count) => count === before + 1, 15000);
+    await navigateFromAddressBar(cdp, `${origin}/${slug}`);
+  }
 }
 
 test('user can open and close a tab from the tab strip',
@@ -53,15 +92,7 @@ test('user can open and close a tab from the tab strip',
         (count) => count >= 1,
       );
 
-      const clickedNewTab = await cdp.evaluate(`
-        (() => {
-          const button = document.querySelector('button[aria-label="New tab"], button[title="New tab"]');
-          if (!button) return false;
-          button.click();
-          return true;
-        })()
-      `);
-      assert.equal(clickedNewTab, true);
+      await clickSelector(cdp, 'button[title="New tab"]');
 
       await waitFor(
         cdp,
@@ -69,17 +100,7 @@ test('user can open and close a tab from the tab strip',
         (count) => count === initialCount + 1,
       );
 
-      const closedNewTab = await cdp.evaluate(`
-        (() => {
-          const tabs = [...document.querySelectorAll('a[href^="tab-context-menu:"]')];
-          const newest = tabs[tabs.length - 1];
-          const close = newest?.querySelector('button[title="Close tab"]');
-          if (!close) return false;
-          close.click();
-          return true;
-        })()
-      `);
-      assert.equal(closedNewTab, true);
+      await clickTabCloseButton(cdp, 'New Tab');
 
       const finalCount = await waitFor(
         cdp,
@@ -113,18 +134,12 @@ test('closing the active tab activates the previous tab in the workspace',
     });
     const browser = await launchDevBrowser();
     try {
-      for (const slug of ['alpha', 'beta', 'gamma']) {
-        const opened = await cefQuery(browser.cdp, `new-tab:${server.origin}/${slug}`);
-        assert.equal(opened.ok, true, opened.value);
-      }
+      await openTabsFromAddressBar(browser.cdp, server.origin, ['alpha', 'beta', 'gamma']);
 
       let tabs = await waitForTabTitles(browser.cdp, titles);
       assert.ok(tabs.find((tab) => tab.text.includes(titles[2]))?.active);
 
-      const gamma = tabs.find((tab) => tab.text.includes(titles[2]));
-      assert.ok(gamma?.id > 0, 'gamma tab id should be available');
-      const closed = await cefQuery(browser.cdp, `close-tab:${gamma.id}`);
-      assert.equal(closed.ok, true, closed.value);
+      await clickTabCloseButton(browser.cdp, titles[2]);
 
       tabs = await waitFor(
         browser.cdp,
@@ -162,18 +177,12 @@ test('closing a background tab keeps the active tab selected',
     });
     const browser = await launchDevBrowser();
     try {
-      for (const slug of ['alpha', 'beta']) {
-        const opened = await cefQuery(browser.cdp, `new-tab:${server.origin}/${slug}`);
-        assert.equal(opened.ok, true, opened.value);
-      }
+      await openTabsFromAddressBar(browser.cdp, server.origin, ['alpha', 'beta']);
 
       let tabs = await waitForTabTitles(browser.cdp, titles);
       assert.ok(tabs.find((tab) => tab.text.includes(titles[1]))?.active);
 
-      const alpha = tabs.find((tab) => tab.text.includes(titles[0]));
-      assert.ok(alpha?.id > 0, 'alpha tab id should be available');
-      const closed = await cefQuery(browser.cdp, `close-tab:${alpha.id}`);
-      assert.equal(closed.ok, true, closed.value);
+      await clickTabCloseButton(browser.cdp, titles[0]);
 
       tabs = await waitFor(
         browser.cdp,
