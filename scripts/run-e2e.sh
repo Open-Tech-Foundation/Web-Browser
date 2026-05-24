@@ -8,7 +8,9 @@ DEV_URL="${OTF_E2E_DEV_URL:-http://127.0.0.1:${PORT}}"
 
 cd "$ROOT_DIR"
 
-"$BUN_BIN" run build:ui >/dev/null
+if [[ "${OTF_E2E_SKIP_UI_BUILD:-0}" != "1" ]]; then
+  "$BUN_BIN" run build:ui >/dev/null
+fi
 BUN_SERVER_CODE="$(cat <<'JS'
 import path from 'node:path';
 

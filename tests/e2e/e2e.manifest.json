@@ -1,0 +1,50 @@
+{
+  "groups": [
+    {
+      "name": "ui",
+      "parallel": false,
+      "tests": [
+        "dev-browser-smoke.test.js",
+        "settings.test.js",
+        "keyboard-shortcuts.test.js",
+        "web-worker.test.js",
+        "tabs.test.js",
+        "navigation.test.js",
+        "findbar.test.js",
+        "qr.test.js"
+      ]
+    },
+    {
+      "name": "state",
+      "parallel": false,
+      "tests": [
+        "history.test.js",
+        "bookmarks.test.js",
+        "workspaces.test.js",
+        "session-restore.test.js",
+        "startup-urls.test.js"
+      ]
+    },
+    {
+      "name": "media",
+      "parallel": false,
+      "tests": [
+        "downloads.test.js",
+        "image-preview.test.js"
+      ]
+    },
+    {
+      "name": "security",
+      "parallel": false,
+      "tests": [
+        "security.test.js",
+        "insecure-blocked.test.js",
+        "clear-site-data.test.js",
+        "fingerprints.test.js",
+        "permission-controls.test.js",
+        "javascript-permission.test.js",
+        "image-permission.test.js"
+      ]
+    }
+  ]
+}
