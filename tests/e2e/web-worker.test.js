@@ -13,6 +13,25 @@ import {
 // http.createServer handles everything without a filesystem worker file.
 function makeHandler() {
   return (req, res) => {
+    // helper.js — imported via relative importScripts inside the worker.
+    if (req.url === '/helper.js') {
+      res.writeHead(200, { 'content-type': 'application/javascript' });
+      res.end(`function helperAdd(a, b) { return a + b; }`);
+      return;
+    }
+
+    // worker-rel.js — uses relative importScripts to load helper.js.
+    if (req.url === '/worker-rel.js') {
+      res.writeHead(200, { 'content-type': 'application/javascript' });
+      res.end(`
+        importScripts('helper.js');
+        self.onmessage = (e) => {
+          self.postMessage({ result: helperAdd(e.data.a, e.data.b) });
+        };
+      `);
+      return;
+    }
+
     if (req.url === '/favicon.ico') {
       res.writeHead(204);
       res.end();
@@ -97,6 +116,39 @@ function makeHandler() {
       </html>`);
   };
 }
+
+test('worker using relative importScripts works without breaking',
+  { timeout: timeoutMs + 15000 },
+  async () => {
+    const staticServer = await startStaticServer(makeHandler());
+    const browser = await launchDevBrowser();
+    let pageCdp = null;
+    try {
+      await navigateFromAddressBar(browser.cdp, staticServer.origin);
+      pageCdp = await browser.connectToTarget(
+        (t) => (t.url || '').startsWith(staticServer.origin),
+      );
+
+      const result = await pageCdp.evaluate(`
+        new Promise((resolve) => {
+          const w = new Worker('/worker-rel.js');
+          w.onerror = (e) => resolve({ error: e.message || String(e) });
+          w.onmessage = (e) => { w.terminate(); resolve(e.data); };
+          setTimeout(() => { w.terminate(); resolve({ error: 'timeout' }); }, 8000);
+          w.postMessage({ a: 10, b: 5 });
+        })
+      `);
+
+      assert.equal(result.error, undefined,
+        `Worker with relative importScripts should not error: ${result.error}`);
+      assert.equal(result.result, 15,
+        `helperAdd(10, 5) should return 15, got: ${result.result}`);
+    } finally {
+      if (pageCdp) pageCdp.close();
+      await browser.close();
+      await staticServer.close();
+    }
+  });
 
 test('classic Web Worker spawns and communicates correctly',
   { timeout: timeoutMs + 15000 },
