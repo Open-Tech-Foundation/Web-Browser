@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   clickSelector,
   launchDevBrowser,
   navigateFromAddressBar,
+  sleep,
   startStaticServer,
   timeoutMs,
   waitFor,
@@ -160,5 +164,113 @@ test('user can bookmark a page, reopen the bookmark popup, and remove it',
       }
       await browser.close();
       await staticServer.close();
+    }
+  });
+
+test('bookmarks persist across restart and open from the bookmarks page',
+  { timeout: timeoutMs + 45000 },
+  async () => {
+    const unique = Date.now();
+    const uniqueTitle = `OTF Bookmark Persist ${unique}`;
+    const bookmarkPath = `/bookmark-persist-${unique}`;
+    const profileRoot = await mkdtemp(path.join(os.tmpdir(), 'otf-browser-bookmark-persist-'));
+    const staticServer = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<!doctype html>
+        <html>
+          <head><title>${uniqueTitle}</title></head>
+          <body><main><h1>${uniqueTitle}</h1><p>${bookmarkPath}</p></main></body>
+        </html>`);
+    });
+    const visitedUrl = `${staticServer.origin}${bookmarkPath}`;
+
+    let browser = null;
+    let bookmarksCdp = null;
+    try {
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true });
+      await navigateFromAddressBar(browser.cdp, visitedUrl);
+      await waitFor(
+        browser.cdp,
+        `(() => {
+          const address = document.querySelector(${JSON.stringify(addressSelector)})?.value || '';
+          const text = document.body.innerText || '';
+          return { address, text };
+        })()`,
+        (value) => value.address.includes(bookmarkPath) &&
+          (value.text.includes(uniqueTitle) || value.text.includes(bookmarkPath)),
+        15000,
+      );
+
+      await waitFor(browser.cdp, `!!document.querySelector('button[title="Bookmark this page"]')`, Boolean);
+      await clickSelector(browser.cdp, 'button[title="Bookmark this page"]');
+      await waitFor(
+        browser.cdp,
+        `!!document.querySelector('button[title="Remove bookmark"]')`,
+        Boolean,
+        15000,
+      );
+
+      await browser.close();
+      browser = null;
+      await sleep(1000);
+
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true });
+      await navigateFromAddressBar(browser.cdp, 'browser://bookmarks');
+      bookmarksCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Bookmarks' ||
+        /bookmarks\.html/i.test(target.url || ''),
+      );
+
+      const bookmarksText = await waitFor(
+        bookmarksCdp,
+        `document.body.innerText`,
+        (text) => text.includes(uniqueTitle) || text.includes(bookmarkPath),
+        15000,
+      );
+      assert.ok(
+        bookmarksText.includes(uniqueTitle) || bookmarksText.includes(bookmarkPath),
+        `expected persisted bookmark in list, got ${bookmarksText}`,
+      );
+
+      const clickedOpen = await bookmarksCdp.evaluate(`
+        (() => {
+          const path = ${JSON.stringify(bookmarkPath)};
+          const cards = [...document.querySelectorAll('div')].filter((item) =>
+            (item.textContent || '').includes(path));
+          const card = cards.find((item) =>
+            item.querySelector('button[title="Open in current tab"]'));
+          const button = card?.querySelector('button[title="Open in current tab"]');
+          if (!button) return false;
+          button.click();
+          return true;
+        })()
+      `);
+      assert.equal(clickedOpen, true);
+
+      await waitFor(
+        browser.cdp,
+        `(() => {
+          const address = document.querySelector(${JSON.stringify(addressSelector)})?.value || '';
+          const text = document.body.innerText || '';
+          return { address, text };
+        })()`,
+        (value) => value.address.includes(bookmarkPath) &&
+          (value.text.includes(uniqueTitle) || value.text.includes(bookmarkPath)),
+        15000,
+      );
+    } finally {
+      if (bookmarksCdp) {
+        bookmarksCdp.close();
+      }
+      if (browser) {
+        await browser.close();
+      }
+      await staticServer.close();
+      await rm(profileRoot, { recursive: true, force: true });
     }
   });
