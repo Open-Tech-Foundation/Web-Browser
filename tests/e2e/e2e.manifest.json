@@ -6,12 +6,18 @@
       "tests": [
         "dev-browser-smoke.test.js",
         "settings.test.js",
+        "app-menu.test.js",
+        "console.test.js",
         "keyboard-shortcuts.test.js",
+        "zoom.test.js",
+        "certificate.test.js",
         "web-worker.test.js",
+        "newtab.test.js",
         "tabs.test.js",
         "navigation.test.js",
         "findbar.test.js",
-        "qr.test.js"
+        "qr.test.js",
+        "site-data.test.js"
       ]
     },
     {

@@ -201,11 +201,21 @@ class OtfWindowDelegate : public CefWindowDelegate {
       layout->SetFlexForView(ui_view_.get(), 0);
     }
 
-    // Create a container for content tabs with FillLayout
+    // Horizontal split: tab content (flex=1) | console panel (flex=0, hidden by default)
+    app->content_area_panel_ = CefPanel::CreatePanel(nullptr);
+    CefBoxLayoutSettings h_settings;
+    h_settings.horizontal = true;
+    h_settings.between_child_spacing = 0;
+    h_settings.cross_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH;
+    app->content_area_layout_ = app->content_area_panel_->SetToBoxLayout(h_settings);
+
     app->content_panel_ = CefPanel::CreatePanel(nullptr);
     app->content_panel_->SetToFillLayout();
-    window->AddChildView(app->content_panel_);
-    layout->SetFlexForView(app->content_panel_.get(), 1);
+    app->content_area_panel_->AddChildView(app->content_panel_);
+    app->content_area_layout_->SetFlexForView(app->content_panel_.get(), 1);
+
+    window->AddChildView(app->content_area_panel_);
+    layout->SetFlexForView(app->content_area_panel_.get(), 1);
 
     window->Layout();
 
@@ -217,6 +227,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateBookmarkOverlay();
     app->CreateImagePreviewOverlay();
     app->CreateLinkPreviewOverlay();
+    app->CreateConsoleOverlay();
     // Build any popup registered against the PopupOverlay framework.
     app->CreateAllPopups(window);
 
@@ -275,21 +286,29 @@ class OtfWindowDelegate : public CefWindowDelegate {
 
 class OtfViewDelegate : public CefBrowserViewDelegate {
  public:
-  explicit OtfViewDelegate(cef_runtime_style_t runtime_style, int height = 0)
-      : runtime_style_(runtime_style), height_(height) {}
+  // height=0 → unconstrained; fixed_width=0 → unconstrained
+  explicit OtfViewDelegate(cef_runtime_style_t runtime_style,
+                           int height = 0,
+                           int fixed_width = 0)
+      : runtime_style_(runtime_style), height_(height), fixed_width_(fixed_width) {}
+
+  void SetFixedWidth(int w) { fixed_width_ = w; }
 
   CefSize GetPreferredSize(CefRefPtr<CefView> view) override {
+    if (fixed_width_ > 0) return CefSize(fixed_width_, height_ > 0 ? height_ : 600);
     if (height_ > 0) return CefSize(800, height_);
     return CefSize(800, 600);
   }
 
   CefSize GetMinimumSize(CefRefPtr<CefView> view) override {
+    if (fixed_width_ > 0) return CefSize(fixed_width_, 0);
     if (height_ > 0) return CefSize(800, height_);
     return CefSize(0, 0);
   }
 
   CefSize GetMaximumSize(CefRefPtr<CefView> view) override {
-    if (height_ > 0) return CefSize(0, height_); // Max width 0 means unconstrained
+    if (fixed_width_ > 0) return CefSize(fixed_width_, 0); // 0 = unconstrained height
+    if (height_ > 0) return CefSize(0, height_);
     return CefSize(0, 0);
   }
 
@@ -304,6 +323,7 @@ class OtfViewDelegate : public CefBrowserViewDelegate {
  private:
   const cef_runtime_style_t runtime_style_;
   const int height_;
+  int fixed_width_;
 
   IMPLEMENT_REFCOUNTING(OtfViewDelegate);
 };
@@ -865,6 +885,25 @@ void OtfApp::SwitchTab(int tab_id) {
                              .AddInt("id", tab_id)
                              .Build());
       handler->NotifyBookmarkStateForTab(tab_id);
+      if (handler->console_subscription_) {
+        handler->console_subscription_->Success(
+            JsonObjectBuilder()
+                .AddString("key", "console-tab-changed")
+                .AddInt("tabId", tab_id)
+                .Build());
+      }
+      // Restore per-tab console visibility
+      if (console_view_) {
+        const bool should_show = tab_manager_.IsConsoleVisible(tab_id);
+        const bool is_shown = console_view_->IsVisible();
+        if (should_show && !is_shown) {
+          console_view_->SetVisible(true);
+          content_area_panel_->Layout();
+        } else if (!should_show && is_shown) {
+          console_view_->SetVisible(false);
+          content_area_panel_->Layout();
+        }
+      }
     }
 
     if (tab_manager_.IsFindVisible(tab_id)) {
@@ -996,10 +1035,14 @@ void OtfApp::SetLinkPreviewVisible(bool visible) {
 
 void OtfApp::PositionLinkPreviewOverlay() {
   CEF_REQUIRE_UI_THREAD();
-  if (!window_ || !link_preview_overlay_ || !content_panel_) return;
+  if (!window_ || !link_preview_overlay_ || !content_panel_ || !content_area_panel_) return;
 
   constexpr int kOverlayHeight = 28;
-  CefRect bounds = content_panel_->GetBounds();
+  // content_panel_ is inside content_area_panel_; GetBounds() is parent-relative.
+  // Add content_area_panel_'s window-relative offset to get window-relative bounds.
+  CefRect area = content_area_panel_->GetBounds();
+  CefRect panel = content_panel_->GetBounds();
+  CefRect bounds = {area.x + panel.x, area.y + panel.y, panel.width, panel.height};
   const int overlayWidth = bounds.width * 3 / 4;
   link_preview_overlay_->SetBounds(
       CefRect(bounds.x, bounds.y + bounds.height - kOverlayHeight, overlayWidth, kOverlayHeight));
@@ -1269,8 +1312,8 @@ void OtfApp::PositionAppMenuOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (!window_ || !appmenu_overlay_) return;
 
-  constexpr int kOverlayWidth = 300;
-  constexpr int kOverlayHeight = 140;
+  constexpr int kOverlayWidth = 320;
+  constexpr int kOverlayHeight = 480;
   constexpr int kOverlayTop = 60;
   constexpr int kOverlayRightMargin = 16;
 
@@ -1434,8 +1477,11 @@ void OtfApp::CreateImagePreviewOverlay() {
 
 void OtfApp::PositionImagePreviewOverlay() {
   CEF_REQUIRE_UI_THREAD();
-  if (!window_ || !image_preview_overlay_ || !content_panel_) return;
-  CefRect bounds = content_panel_->GetBounds();
+  if (!window_ || !image_preview_overlay_ || !content_panel_ || !content_area_panel_) return;
+  // content_panel_ is inside content_area_panel_; compute window-relative bounds.
+  CefRect area = content_area_panel_->GetBounds();
+  CefRect panel = content_panel_->GetBounds();
+  CefRect bounds = {area.x + panel.x, area.y + panel.y, panel.width, panel.height};
   image_preview_overlay_->SetBounds(bounds);
 }
 
@@ -1461,6 +1507,74 @@ void OtfApp::HideImagePreviewOverlay() {
   if (image_preview_overlay_) {
     image_preview_overlay_->SetVisible(false);
     FocusCurrentTabContent();
+  }
+}
+
+void OtfApp::CreateConsoleOverlay() {
+  if (!content_area_panel_ || !content_area_layout_) return;
+  std::string url = "browser://console";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/console.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(255, 15, 23, 42);
+  auto* delegate = new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 0, console_width_);
+  console_delegate_ = static_cast<void*>(delegate);
+  console_view_ = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
+      delegate);
+  console_view_->SetID(kConsoleBrowserViewId);
+  content_area_panel_->AddChildView(console_view_);
+  content_area_layout_->SetFlexForView(console_view_.get(), 0);
+  console_view_->SetVisible(false);
+}
+
+void OtfApp::SetConsoleWidth(int w) {
+  CEF_REQUIRE_UI_THREAD();
+  w = std::max(240, std::min(w, 900));
+  console_width_ = w;
+  if (console_delegate_)
+    static_cast<OtfViewDelegate*>(console_delegate_)->SetFixedWidth(w);
+  if (!content_area_panel_) return;
+  // InvalidateLayout() marks the panel dirty so the subsequent Layout() call
+  // is not a no-op. Layout() then recomputes bounds for both children in one
+  // atomic pass via the BoxLayout, which schedules a single repaint for the
+  // whole panel — avoiding the frame-split flicker that two SetBounds() calls
+  // produce (each triggers its own OS-level repaint event).
+  content_area_panel_->InvalidateLayout();
+  content_area_panel_->Layout();
+}
+
+void OtfApp::PositionConsoleOverlay() {
+  // Layout is managed by content_area_layout_ automatically on resize.
+}
+
+void OtfApp::ShowConsoleOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!console_view_ || !content_area_panel_) return;
+  if (current_tab_id_ >= 0) tab_manager_.SetConsoleVisible(current_tab_id_, true);
+  console_view_->SetVisible(true);
+  content_area_panel_->Layout();
+  console_view_->RequestFocus();
+}
+
+void OtfApp::HideConsoleOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!console_view_ || !content_area_panel_) return;
+  if (current_tab_id_ >= 0) tab_manager_.SetConsoleVisible(current_tab_id_, false);
+  console_view_->SetVisible(false);
+  content_area_panel_->Layout();
+  FocusCurrentTabContent();
+}
+
+void OtfApp::ToggleConsoleOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!console_view_) return;
+  if (console_view_->IsVisible()) {
+    HideConsoleOverlay();
+  } else {
+    ShowConsoleOverlay();
   }
 }
 

@@ -7,6 +7,9 @@
 
 #include "include/cef_app.h"
 #include "include/wrapper/cef_message_router.h"
+#include "include/views/cef_box_layout.h"
+#include "include/views/cef_browser_view.h"
+#include "include/views/cef_panel.h"
 #include "include/views/cef_window.h"
 #include "otf_browser_shell.h"
 #include "otf_popup_overlay.h"
@@ -100,8 +103,14 @@ class OtfApp : public CefApp,
   void CreateBookmarkOverlay();
   void CreateImagePreviewOverlay();
   void CreateLinkPreviewOverlay();
+  void CreateConsoleOverlay();
   void PositionLinkPreviewOverlay();
   void SetLinkPreviewVisible(bool visible);
+  void PositionConsoleOverlay();
+  void ShowConsoleOverlay();
+  void HideConsoleOverlay();
+  void ToggleConsoleOverlay();
+  void SetConsoleWidth(int w);
   void FocusCurrentTabContent();
   void OpenPendingStartupTabs();
   void RestoreFindSessionForTab(int tab_id, bool focus_findbar);
@@ -144,6 +153,14 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> image_preview_overlay_;
   CefRefPtr<CefOverlayController> link_preview_overlay_;
 
+  // Console side panel — a proper CefBrowserView child of content_area_panel_,
+  // not an overlay, so the tab content resizes when it is shown/hidden.
+  CefRefPtr<CefPanel> content_area_panel_;
+  CefRefPtr<CefBoxLayout> content_area_layout_;
+  CefRefPtr<CefBrowserView> console_view_;
+
+  static constexpr int kConsoleWidth = 420;
+
  private:
   void ApplyFullscreenState();
   bool fullscreen_ = false;
@@ -161,6 +178,8 @@ class OtfApp : public CefApp,
   bool pending_workspace_restore_first_is_preview_ = false;
   CefRefPtr<CefMessageRouterRendererSide> renderer_side_router_;
   std::map<std::string, std::unique_ptr<PopupOverlay>> popups_;
+  int console_width_ = kConsoleWidth;
+  void* console_delegate_ = nullptr; // OtfViewDelegate*, type is file-local to otf_app.cc
 
   // Resolved screen profile JSON.
   //

@@ -1774,6 +1774,73 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   wrapWorkerCtor('Worker');
   wrapWorkerCtor('SharedWorker');
 
+  // Override console.table and console.dir so they reach our console panel.
+  // Use a plain ASCII sentinel (__OTF_TABLE__:) — null bytes get mangled
+  // through the CEF/C++ string pipeline.
+  (function() {
+    if (typeof console === 'undefined') return;
+
+    if (typeof console.table === 'function') {
+      console.table = function(data, columns) {
+        try {
+          const isObj = data !== null && typeof data === 'object';
+          const entries = isObj
+            ? (Array.isArray(data)
+                ? data
+                : Object.entries(data).map(([k, v]) => ({ '(index)': k, Value: v })))
+            : [{ Value: String(data) }];
+          const keys = (columns && columns.length > 0)
+            ? columns
+            : Array.from(new Set(
+                entries.flatMap(r =>
+                  (r !== null && typeof r === 'object') ? Object.keys(r) : ['Value']
+                )
+              ));
+          const payload = JSON.stringify({
+            keys,
+            rows: entries.map(r => {
+              if (r === null || typeof r !== 'object') return { Value: String(r) };
+              const out = {};
+              keys.forEach(k => { out[k] = r[k]; });
+              return out;
+            })
+          });
+          console.log('__OTF_TABLE__:' + payload);
+        } catch(e) {
+          console.log('[table]', data);
+        }
+      };
+    }
+
+    if (typeof console.dir === 'function') {
+      console.dir = function(obj, opts) {
+        try {
+          const depth = (opts && typeof opts.depth === 'number') ? opts.depth : 2;
+          function serialize(val, d) {
+            if (val === null) return 'null';
+            if (val === undefined) return 'undefined';
+            const t = typeof val;
+            if (t === 'string') return JSON.stringify(val);
+            if (t !== 'object' && t !== 'function') return String(val);
+            if (d <= 0) return Array.isArray(val) ? '[Array]' : '[Object]';
+            if (Array.isArray(val)) {
+              const items = val.slice(0, 50).map(v => serialize(v, d - 1));
+              return '[' + items.join(', ') + (val.length > 50 ? ', ...' : '') + ']';
+            }
+            try {
+              const keys = Object.keys(val).slice(0, 30);
+              const pairs = keys.map(k => k + ': ' + serialize(val[k], d - 1));
+              return '{ ' + pairs.join(', ') + (Object.keys(val).length > 30 ? ', ...' : '') + ' }';
+            } catch(e) { return String(val); }
+          }
+          console.log(serialize(obj, depth));
+        } catch(e) {
+          console.log(String(obj));
+        }
+      };
+    }
+  })();
+
   }  // applyPagePolicy
 
   applyPagePolicy();

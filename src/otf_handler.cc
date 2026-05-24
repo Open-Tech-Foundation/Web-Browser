@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <limits>
@@ -203,7 +204,8 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kDownloadsBrowserViewId ||
          view_id == kCertificateBrowserViewId ||
          view_id == kImagePreviewBrowserViewId ||
-         view_id == kLinkPreviewBrowserViewId;
+         view_id == kLinkPreviewBrowserViewId ||
+         view_id == kConsoleBrowserViewId;
 }
 
 int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
@@ -3755,6 +3757,102 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         handler->ui_browser_->GetHost()->SetFocus(true);
       }
       callback->Success("");
+    } else if (msg == "toggle-console") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) app->ToggleConsoleOverlay();
+      callback->Success("");
+    } else if (msg == "show-console") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) app->ShowConsoleOverlay();
+      callback->Success("");
+    } else if (msg == "hide-console") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) app->HideConsoleOverlay();
+      callback->Success("");
+    } else if (msg == "subscribe-console") {
+      handler->console_subscription_ = callback;
+      // Send all buffered entries for the current tab on subscribe.
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && handler->tab_manager_) {
+        const int tab_id = app->GetCurrentTabId();
+        const auto& logs = handler->tab_manager_->GetConsoleLogs(tab_id);
+        auto esc = [](const std::string& s) -> std::string {
+          std::string out;
+          out.reserve(s.size() + 4);
+          for (unsigned char c : s) {
+            if (c == '"') out += "\\\"";
+            else if (c == '\\') out += "\\\\";
+            else if (c == '\n') out += "\\n";
+            else if (c == '\r') out += "\\r";
+            else if (c == '\t') out += "\\t";
+            else out += static_cast<char>(c);
+          }
+          return out;
+        };
+        for (const auto& e : logs) {
+          std::string event =
+              "{\"key\":\"console-entry\",\"tabId\":" + std::to_string(tab_id) +
+              ",\"level\":" + std::to_string(e.level) +
+              ",\"message\":\"" + esc(e.message) + "\"" +
+              ",\"source\":\"" + esc(e.source) + "\"" +
+              ",\"line\":" + std::to_string(e.line) +
+              ",\"ts\":" + std::to_string(e.timestamp_ms) + "}";
+          callback->Success(event);
+        }
+      }
+      // Persistent — don't call Success again here; entries stream in via OnConsoleMessage.
+      return true;
+    } else if (msg.rfind("get-console-logs:", 0) == 0) {
+      const auto tab_id_opt = ParseIntStrict(
+          std::string_view(msg).substr(std::strlen("get-console-logs:")));
+      if (!tab_id_opt || !handler->tab_manager_) {
+        callback->Success("[]");
+        return true;
+      }
+      const int tab_id = *tab_id_opt;
+      const auto& logs = handler->tab_manager_->GetConsoleLogs(tab_id);
+      auto esc = [](const std::string& s) -> std::string {
+        std::string out;
+        out.reserve(s.size() + 4);
+        for (unsigned char c : s) {
+          if (c == '"') out += "\\\"";
+          else if (c == '\\') out += "\\\\";
+          else if (c == '\n') out += "\\n";
+          else if (c == '\r') out += "\\r";
+          else if (c == '\t') out += "\\t";
+          else out += static_cast<char>(c);
+        }
+        return out;
+      };
+      std::string json = "[";
+      bool first = true;
+      for (const auto& e : logs) {
+        if (!first) json += ",";
+        first = false;
+        json += "{\"level\":" + std::to_string(e.level) +
+                ",\"message\":\"" + esc(e.message) + "\"" +
+                ",\"source\":\"" + esc(e.source) + "\"" +
+                ",\"line\":" + std::to_string(e.line) +
+                ",\"ts\":" + std::to_string(e.timestamp_ms) + "}";
+      }
+      json += "]";
+      callback->Success(json);
+    } else if (msg.rfind("clear-console:", 0) == 0) {
+      const auto tab_id_opt = ParseIntStrict(
+          std::string_view(msg).substr(std::strlen("clear-console:")));
+      if (tab_id_opt && handler->tab_manager_) {
+        handler->tab_manager_->ClearConsoleLogs(*tab_id_opt);
+      }
+      callback->Success("");
+    } else if (msg.rfind("set-console-width:", 0) == 0) {
+      const auto w_opt = ParseIntStrict(
+          std::string_view(msg).substr(std::strlen("set-console-width:")));
+      if (w_opt) {
+        CefPostTask(TID_UI, base::BindOnce([]( int w) {
+          if (auto* app = OtfApp::GetInstance()) app->SetConsoleWidth(w);
+        }, *w_opt));
+      }
+      callback->Success("");
     } else {
       return false;
     }
@@ -4219,6 +4317,70 @@ void OtfHandler::OnStatusMessage(CefRefPtr<CefBrowser> browser,
   link_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
 }
 
+bool OtfHandler::OnConsoleMessage(CefRefPtr<CefBrowser> browser,
+                                  cef_log_severity_t level,
+                                  const CefString& message,
+                                  const CefString& source,
+                                  int line) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!tab_manager_) return false;
+
+  // Only capture messages from real content tabs.
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view && IsNonTabBrowserViewId(view->GetID())) return false;
+
+  const int tab_id = ResolveRealTabIdForBrowser(browser, tab_manager_);
+  if (tab_id < 0) return false;
+
+  // Suppress the ResizeObserver loop warning — it is a browser-internal
+  // notification fired when the content panel is resized (e.g. console open/
+  // resize) and is not actionable user code output.
+  {
+    const std::string msg = message.ToString();
+    if (msg.find("ResizeObserver loop") != std::string::npos) return false;
+  }
+
+  // Timestamp in milliseconds since epoch.
+  const int64_t now_ms = static_cast<int64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count());
+
+  ConsoleEntry entry{
+    static_cast<int>(level),
+    message.ToString(),
+    source.ToString(),
+    line,
+    now_ms,
+  };
+  tab_manager_->AddConsoleEntry(tab_id, entry);
+
+  if (console_subscription_) {
+    // Escape JSON strings.
+    auto esc = [](const std::string& s) -> std::string {
+      std::string out;
+      out.reserve(s.size() + 4);
+      for (unsigned char c : s) {
+        if (c == '"') out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else out += static_cast<char>(c);
+      }
+      return out;
+    };
+    std::string event =
+        "{\"key\":\"console-entry\",\"tabId\":" + std::to_string(tab_id) +
+        ",\"level\":" + std::to_string(static_cast<int>(level)) +
+        ",\"message\":\"" + esc(entry.message) + "\"" +
+        ",\"source\":\"" + esc(entry.source) + "\"" +
+        ",\"line\":" + std::to_string(line) +
+        ",\"ts\":" + std::to_string(now_ms) + "}";
+    console_subscription_->Success(event);
+  }
+  return false;
+}
+
 void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                       bool isLoading,
                                       bool canGoBack,
@@ -4312,7 +4474,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
                browser_view->GetID() == kDownloadsBrowserViewId ||
                browser_view->GetID() == kCertificateBrowserViewId ||
                browser_view->GetID() == kImagePreviewBrowserViewId ||
-               browser_view->GetID() == kLinkPreviewBrowserViewId) {
+               browser_view->GetID() == kLinkPreviewBrowserViewId ||
+               browser_view->GetID() == kConsoleBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
       } else if (browser_view->GetID() == kLinkPreviewBrowserViewId) {
@@ -4451,6 +4614,28 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   (void)settings;
   (void)extra_info;
   (void)no_javascript_access;
+
+  // Middle-click → new background tab, ctrl+click → new foreground tab.
+  if (target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB) {
+    const std::string url = target_url.ToString();
+    if (!url.empty()) {
+      pending_new_tab_urls_.insert(url);
+      OtfApp* app = OtfApp::GetInstance();
+      if (app && tab_manager_) {
+        int parent_id = tab_manager_->GetId(browser);
+        int new_id = app->CreateTab(url, parent_id);
+        if (url.rfind("browser://", 0) == 0) {
+          tab_manager_->SetSchemeUrl(new_id, url);
+        }
+        NotifyNewTab(new_id, parent_id);
+        if (target_disposition == CEF_WOD_NEW_FOREGROUND_TAB) {
+          app->SwitchTab(new_id);
+        }
+      }
+    }
+    return true;
+  }
 
   // Check per-site popup permission.
   if (store_) {
@@ -5106,6 +5291,16 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
         }
       }
     }
+    // If this URL is being opened in a new tab via middle-click or ctrl+click,
+    // cancel the navigation in the source tab.
+    if (!pending_new_tab_urls_.empty()) {
+      std::string nav_url = request->GetURL().ToString();
+      auto it = pending_new_tab_urls_.find(nav_url);
+      if (it != pending_new_tab_urls_.end()) {
+        pending_new_tab_urls_.erase(it);
+        return true;
+      }
+    }
   }
 
   message_router_->OnBeforeBrowse(browser, frame);
@@ -5396,6 +5591,11 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     int id = app->CreateTab("browser://downloads");
     if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, tab_manager_->GetId(browser)); }
     app->SwitchTab(id);
+    return true;
+  }
+  if (M(Mod::kCtrl|Mod::kShift, Key::kJ) || M(Mod::kNone, Key::kF12)) {
+    *is_keyboard_shortcut = true;
+    app->ToggleConsoleOverlay();
     return true;
   }
 

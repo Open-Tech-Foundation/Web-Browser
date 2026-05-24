@@ -6,6 +6,7 @@
 #include <map>
 #include <unordered_map>
 #include <algorithm>
+#include <deque>
 #include "include/cef_browser.h"
 #include "include/views/cef_browser_view.h"
 
@@ -25,6 +26,15 @@ constexpr int kQrBrowserViewId = 1008;
 constexpr int kBlockedPopupBrowserViewId = 1009;
 constexpr int kDownloadRequestBrowserViewId = 1010;
 constexpr int kLinkPreviewBrowserViewId = 1011;
+constexpr int kConsoleBrowserViewId = 1012;
+
+struct ConsoleEntry {
+  int level;        // cef_log_severity_t value
+  std::string message;
+  std::string source;
+  int line;
+  int64_t timestamp_ms;
+};
 
 enum class ImagePreviewMode {
   kNone = 0,
@@ -84,6 +94,8 @@ class TabManager {
     image_preview_info_visible_map_.erase(tab_id);
     image_preview_mode_map_.erase(tab_id);
     muted_map_.erase(tab_id);
+    console_visible_map_.erase(tab_id);
+    console_log_map_.erase(tab_id);
     
     auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
     if (it != tab_order_.end()) {
@@ -125,6 +137,15 @@ class TabManager {
     auto it = muted_map_.find(tab_id);
     if (it != muted_map_.end()) return it->second;
     return false;
+  }
+
+  void SetConsoleVisible(int tab_id, bool visible) {
+    console_visible_map_[tab_id] = visible;
+  }
+
+  bool IsConsoleVisible(int tab_id) const {
+    auto it = console_visible_map_.find(tab_id);
+    return it != console_visible_map_.end() ? it->second : false;
   }
 
   void SetBrowser(int tab_id, CefRefPtr<CefBrowser> browser) {
@@ -388,8 +409,29 @@ class TabManager {
   std::map<int, bool> image_preview_info_visible_map_;
   std::map<int, ImagePreviewMode> image_preview_mode_map_;
   std::map<int, bool> muted_map_;
+  std::map<int, bool> console_visible_map_;
+  std::map<int, std::deque<ConsoleEntry>> console_log_map_;
   std::vector<int> tab_order_;
   int next_tab_id_;
+
+ public:
+  static constexpr size_t kMaxConsoleEntries = 500;
+
+  void AddConsoleEntry(int tab_id, ConsoleEntry entry) {
+    auto& log = console_log_map_[tab_id];
+    if (log.size() >= kMaxConsoleEntries) log.pop_front();
+    log.push_back(std::move(entry));
+  }
+
+  const std::deque<ConsoleEntry>& GetConsoleLogs(int tab_id) const {
+    static const std::deque<ConsoleEntry> kEmpty;
+    auto it = console_log_map_.find(tab_id);
+    return it != console_log_map_.end() ? it->second : kEmpty;
+  }
+
+  void ClearConsoleLogs(int tab_id) {
+    console_log_map_.erase(tab_id);
+  }
 };
 
 } // namespace otf

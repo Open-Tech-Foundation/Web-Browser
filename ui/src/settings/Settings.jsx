@@ -606,6 +606,8 @@ const Settings = () => {
                       ['F11', 'Toggle fullscreen'],
                       ['Ctrl + H', 'Open history page'],
                       ['Ctrl + J', 'Open downloads page'],
+                      ['Ctrl + Shift + J', 'Toggle page console'],
+                      ['F12', 'Toggle page console'],
                       ['Space', 'Scroll down'],
                       ['Shift + Space', 'Scroll up'],
                     ]],

@@ -39,7 +39,8 @@ export default defineConfig({
         qr: resolve(__dirname, 'qr.html'),
         blockedpopup: resolve(__dirname, 'blockedpopup.html'),
         downloadrequest: resolve(__dirname, 'downloadrequest.html'),
-        linkpreview: resolve(__dirname, 'linkpreview.html')
+        linkpreview: resolve(__dirname, 'linkpreview.html'),
+        console: resolve(__dirname, 'console.html')
       }
     }
   }

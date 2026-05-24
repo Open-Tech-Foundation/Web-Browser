@@ -98,6 +98,11 @@ class OtfHandler : public CefClient,
                               bool fullscreen) override;
   void OnStatusMessage(CefRefPtr<CefBrowser> browser,
                        const CefString& value) override;
+  bool OnConsoleMessage(CefRefPtr<CefBrowser> browser,
+                        cef_log_severity_t level,
+                        const CefString& message,
+                        const CefString& source,
+                        int line) override;
 
   // CefLifeSpanHandler methods:
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser,
@@ -218,6 +223,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> certificate_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> bookmark_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> image_preview_subscription_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> console_subscription_;
   // The cleardata popup ships its origin to the renderer via a restore
   // producer attached to the PopupOverlay. The producer reads this field,
   // which is set by the show-clear-site-data:<origin> handler.
@@ -329,6 +335,11 @@ class OtfHandler : public CefClient,
   std::map<int, PendingPopup> pending_popups_;
   int next_pending_popup_id_ = 1;
   int pending_external_popups_ = 0;
+
+  // URLs that are being opened in a new tab via middle-click or ctrl+click.
+  // Populated in OnBeforePopup, consumed (and erased) in OnBeforeBrowse so
+  // the source tab does not navigate to the same URL.
+  std::set<std::string> pending_new_tab_urls_;
 
   // Transient allow-once set for downloads. Populated by the
   // allow-download cefQuery handler, consumed (and erased) by CanDownload so
