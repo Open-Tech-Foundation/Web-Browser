@@ -51,7 +51,7 @@ bool ExtractBrowserPageName(const std::string& url, std::string* page_name) {
   if (page == "newtab" || page == "settings" || page == "findbar" ||
       page == "history" || page == "bookmarks" || page == "downloads" ||
       page == "security" || page == "insecure-blocked" ||
-      page == "fingerprints" || page == "linkpreview") {
+      page == "linkpreview") {
     if (page_name) {
       *page_name = page;
     }
@@ -782,7 +782,7 @@ const char* const kInternalUiPages[] = {
     "/settings.html",      "/findbar.html",        "/downloads.html",
     "/downloadsbar.html",  "/zoombar.html",        "/history.html",
     "/bookmarks.html",     "/bookmarkbar.html",    "/security.html",
-    "/fingerprints.html",  "/insecure-blocked.html",
+    "/insecure-blocked.html",
     "/pdfviewer.html",     "/certificate.html",    "/imagepreview.html",
     "/cleardata.html",     "/sitedata.html",       "/workspace.html",
     "/qr.html",            "/linkpreview.html",   "/console.html"};

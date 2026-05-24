@@ -72,7 +72,7 @@ const engines = [
 ];
 
 const explicitSchemePattern = /^https?:\/\//i;
-const browserPagePattern = /^browser:\/\/(?:newtab|settings|findbar|history|bookmarks|downloads|security|insecure-blocked|fingerprints)(?:[/?#].*)?$/i;
+const browserPagePattern = /^browser:\/\/(?:newtab|settings|findbar|history|bookmarks|downloads|security|insecure-blocked)(?:[/?#].*)?$/i;
 const localhostPattern = /^localhost(?::\d{1,5})?(?:[/?#]|$)/i;
 const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:[/?#]|$)/;
 
