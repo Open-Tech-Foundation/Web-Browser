@@ -4,7 +4,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 import {
   addressBarSelector,
-  allowDownloadOnce,
+  clickByText,
+  clickSelector,
   connectToReadyTarget,
   launchDevBrowser,
   navigateFromAddressBar,
@@ -12,11 +13,21 @@ import {
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
+import { setSitePermissionFromUi } from './helpers/e2eUtils.js';
 
 const FIXTURE_SVG = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
   <rect width="16" height="16" fill="#ff0000"/>
 </svg>`);
+
+let serial = Promise.resolve();
+function serialTest(name, options, fn) {
+  test(name, options, () => {
+    const run = serial.then(fn);
+    serial = run.catch(() => {});
+    return run;
+  });
+}
 
 const AVIF_CACHE_PATH = '/tmp/otf-browser-avif-cs-gray-7f7f7f.avif';
 const AVIF_REMOTE_URL = 'https://raw.githubusercontent.com/PixarAnimationStudios/OpenUSD/dev/pxr/imaging/plugin/hioAvif/testenv/testHioAvif/cs-gray-7f7f7f.avif';
@@ -96,6 +107,23 @@ const previewStateExpression = `(() => {
 
 const fixtureLinkId = (fixture) => `#dl-${fixture.name.replace(/[^a-z0-9]+/gi, '-')}`;
 
+async function clickFixtureDownload(pageCdp, fixture) {
+  const selector = fixtureLinkId(fixture);
+  await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(selector)})`, Boolean, 15000);
+  await clickSelector(pageCdp, selector);
+}
+
+async function openDownloadedPreview(downloadsCdp) {
+  await waitFor(
+    downloadsCdp,
+    `(() => [...document.querySelectorAll('button')]
+      .some((button) => (button.textContent || '').trim() === 'Open'))()`,
+    Boolean,
+    30000,
+  );
+  await clickByText(downloadsCdp, 'button', 'Open');
+}
+
 async function connectFixturePage(browser, server) {
   const originWithoutScheme = server.origin.replace(/^https?:\/\//, '');
   await waitFor(
@@ -105,6 +133,12 @@ async function connectFixturePage(browser, server) {
     15000,
   );
   return browser.connectToTarget((t) => (t.url || '').startsWith(server.origin), 15000);
+}
+
+async function openFixturePage(browser, server) {
+  await setSitePermissionFromUi(browser, server.origin, 'downloads', 'allow');
+  await navigateFromAddressBar(browser.cdp, server.origin);
+  return connectFixturePage(browser, server);
 }
 
 async function connectRenderedPreview(browser, format, deadlineMs = 20000) {
@@ -150,7 +184,7 @@ function imageFixtureServer(fixtures) {
   };
 }
 
-test('image preview opens PNG from downloads',
+serialTest('image preview opens PNG from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-png.png');
@@ -160,19 +194,14 @@ test('image preview opens PNG from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -189,7 +218,7 @@ test('image preview opens PNG from downloads',
     }
   });
 
-test('image preview opens JPG from downloads',
+serialTest('image preview opens JPG from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-jpg.jpg');
@@ -199,19 +228,14 @@ test('image preview opens JPG from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -228,7 +252,7 @@ test('image preview opens JPG from downloads',
     }
   });
 
-test('image preview opens GIF from downloads',
+serialTest('image preview opens GIF from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-gif.gif');
@@ -238,19 +262,14 @@ test('image preview opens GIF from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -267,7 +286,7 @@ test('image preview opens GIF from downloads',
     }
   });
 
-test('image preview opens WEBP from downloads',
+serialTest('image preview opens WEBP from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-webp.webp');
@@ -277,19 +296,14 @@ test('image preview opens WEBP from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -306,7 +320,7 @@ test('image preview opens WEBP from downloads',
     }
   });
 
-test('image preview opens BMP from downloads',
+serialTest('image preview opens BMP from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-bmp.bmp');
@@ -316,19 +330,14 @@ test('image preview opens BMP from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -345,7 +354,7 @@ test('image preview opens BMP from downloads',
     }
   });
 
-test('image preview opens ICO from downloads',
+serialTest('image preview opens ICO from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-ico.ico');
@@ -355,19 +364,14 @@ test('image preview opens ICO from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -384,7 +388,7 @@ test('image preview opens ICO from downloads',
     }
   });
 
-test('image preview opens SVG from downloads',
+serialTest('image preview opens SVG from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-svg.svg');
@@ -394,19 +398,14 @@ test('image preview opens SVG from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -423,7 +422,7 @@ test('image preview opens SVG from downloads',
     }
   });
 
-test('image preview opens AVIF from downloads',
+serialTest('image preview opens AVIF from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     let avifBody;
@@ -442,19 +441,14 @@ test('image preview opens AVIF from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -471,7 +465,7 @@ test('image preview opens AVIF from downloads',
     }
   });
 
-test('image preview opens single-page TIFF from downloads',
+serialTest('image preview opens single-page TIFF from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-tiff-single.tif');
@@ -481,19 +475,14 @@ test('image preview opens single-page TIFF from downloads',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
@@ -510,7 +499,7 @@ test('image preview opens single-page TIFF from downloads',
     }
   });
 
-test('image preview opens multi-page TIFF and navigates pages',
+serialTest('image preview opens multi-page TIFF and navigates pages',
   { timeout: timeoutMs + 35000 },
   async () => {
     const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-tiff-multi.tiff');
@@ -520,19 +509,14 @@ test('image preview opens multi-page TIFF and navigates pages',
     let downloadsCdp = null;
     let previewCdp = null;
     try {
-      await navigateFromAddressBar(browser.cdp, server.origin);
-      pageCdp = await connectFixturePage(browser, server);
-      await waitFor(pageCdp, `!!document.querySelector(${JSON.stringify(fixtureLinkId(fixture))})`, Boolean, 15000);
-      await pageCdp.evaluate(`document.querySelector(${JSON.stringify(fixtureLinkId(fixture))}).click()`);
-      await allowDownloadOnce(browser, server.origin);
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
       await navigateFromAddressBar(browser.cdp, 'browser://downloads');
       downloadsCdp = await browser.connectToTarget((t) =>
         (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
       );
       await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
-      await waitFor(downloadsCdp, `new Promise(r => window.cefQuery?.({ request: 'get-downloads', onSuccess: j => { try { r(JSON.parse(j).some(i => String(i.suggestedName||'').toLowerCase().includes(${JSON.stringify(fixture.name.toLowerCase())}) && i.fullPath && !i.isInProgress)) } catch { r(false) } }, onFailure: () => r(false) }))`, Boolean, 30000);
-      const clicked = await downloadsCdp.evaluate(`(() => { const btn = [...document.querySelectorAll('button')].find(b => (b.textContent||'').trim() === 'Open'); if (!btn) return false; setTimeout(() => btn.click(), 0); return true; })()`);
-      assert.equal(clicked, true);
+      await openDownloadedPreview(downloadsCdp);
       previewCdp = await connectRenderedPreview(browser, fixture.format);
       await waitFor(
         previewCdp,
