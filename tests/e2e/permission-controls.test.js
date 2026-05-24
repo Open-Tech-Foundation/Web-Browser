@@ -91,7 +91,9 @@ test('download site permission block denies downloads and allow permits them',
       await waitFor(
         browser.cdp,
         `document.querySelector('input[placeholder="Search or enter address..."]')?.value || ''`,
-        (value) => value.includes(server.origin),
+        // AddressBar strips the http:// prefix for display when unfocused, so
+        // match against the host[:port] portion only.
+        (value) => value.includes(server.origin.replace(/^https?:\/\//, '')),
         15000,
       );
       pageCdp = await browser.connectToTarget((target) =>
@@ -183,7 +185,9 @@ test('popup site permission prompts once, blocks, and allows by site setting',
       await waitFor(
         browser.cdp,
         `document.querySelector('input[placeholder="Search or enter address..."]')?.value || ''`,
-        (value) => value.includes(server.origin),
+        // AddressBar strips the http:// prefix for display when unfocused, so
+        // match against the host[:port] portion only.
+        (value) => value.includes(server.origin.replace(/^https?:\/\//, '')),
         15000,
       );
       pageCdp = await browser.connectToTarget((target) =>

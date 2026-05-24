@@ -48,10 +48,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
 
   const handleFocus = (e) => {
     setIsFocused(true);
-    // Use setTimeout to ensure selection happens after browser's default focus behavior
-    setTimeout(() => {
-      e.target.select();
-    }, 0);
+    e.target.select();
   };
 
   const handleBlur = () => {
