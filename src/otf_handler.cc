@@ -164,6 +164,7 @@ const int MENU_ID_TAB_CLOSE_OTHERS = 10005;
 const int MENU_ID_TAB_NEW = 10006;
 const int MENU_ID_TAB_MUTE = 10007;
 const int MENU_ID_TAB_UNMUTE = 10008;
+const int MENU_ID_COPY_EMAIL = 10009;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -2873,6 +2874,12 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           handler->tab_manager_->SetSchemeUrl(tab_id, url);
         }
         b->GetMainFrame()->LoadURL(url);
+        // Move input focus to the page content after an address-bar
+        // navigation, so keyboard/scroll work immediately without a manual
+        // click — matching the other navigation/tab-switch paths.
+        if (OtfApp* app = OtfApp::GetInstance()) {
+          app->FocusCurrentTabContent();
+        }
       }
       callback->Success("");
     } else if (msg == "new-tab:") {
@@ -4947,14 +4954,20 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   }
 
   if (!params->GetLinkUrl().empty()) {
-    // Insert our custom background-tab opener at the top
-    model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
+    std::string link_url = params->GetLinkUrl().ToString();
 
-    // CEF Alloy does not add IDC_CONTENT_CONTEXT_COPYLINKLOCATION to the
-    // default link context menu. Add it only if it isn't already present
-    // (safe: we never remove then re-insert it, so routing stays intact).
-    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_COPYLINKLOCATION) < 0) {
-      model->InsertItemAt(1, IDC_CONTENT_CONTEXT_COPYLINKLOCATION, "Copy link address");
+    if (link_url.rfind("mailto:", 0) == 0) {
+      model->InsertItemAt(0, MENU_ID_COPY_EMAIL, "Copy Email ID");
+    } else {
+      // Insert our custom background-tab opener at the top
+      model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
+
+      // CEF Alloy does not add IDC_CONTENT_CONTEXT_COPYLINKLOCATION to the
+      // default link context menu. Add it only if it isn't already present
+      // (safe: we never remove then re-insert it, so routing stays intact).
+      if (model->GetIndexOf(IDC_CONTENT_CONTEXT_COPYLINKLOCATION) < 0) {
+        model->InsertItemAt(1, IDC_CONTENT_CONTEXT_COPYLINKLOCATION, "Copy link address");
+      }
     }
   }
 
@@ -5157,6 +5170,20 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     // CEF Alloy does not route this command to a native handler, so we
     // handle it ourselves using the platform clipboard API.
     WriteToClipboard(params->GetLinkUrl().ToString());
+    return true;
+  }
+
+  if (command_id == MENU_ID_COPY_EMAIL) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    // Extract email from mailto:user@example.com or mailto:user@example.com?subject=...
+    if (link_url.rfind("mailto:", 0) == 0) {
+      std::string email = link_url.substr(7);
+      size_t qpos = email.find('?');
+      if (qpos != std::string::npos) {
+        email = email.substr(0, qpos);
+      }
+      WriteToClipboard(email);
+    }
     return true;
   }
 
