@@ -9,17 +9,18 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <libgen.h>
-#include <limits.h>
-#include <pwd.h>
 #include <mutex>
 #include <sstream>
-#include <sys/types.h>
-#include <unistd.h>
 
 #if defined(_WIN32)
 #include <windows.h>
 #include <shlobj.h>
+#else
+#include <libgen.h>
+#include <limits.h>
+#include <pwd.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 #include "include/cef_parser.h"
@@ -131,6 +132,23 @@ bool IsAllowedStartupBehavior(const std::string& startup_behavior) {
 bool IsAllowedAppearanceMode(const std::string& mode) {
   return mode == "auto" || mode == "light" || mode == "dark";
 }
+
+#if defined(_WIN32)
+std::string WideToUtf8(const std::wstring& wide_value) {
+  if (wide_value.empty()) {
+    return "";
+  }
+  int len = WideCharToMultiByte(CP_UTF8, 0, wide_value.c_str(), -1, nullptr, 0, nullptr, nullptr);
+  if (len <= 0) {
+    return "";
+  }
+  std::string utf8(static_cast<size_t>(len - 1), '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, wide_value.c_str(), -1, utf8.data(), len, nullptr, nullptr) <= 0) {
+    return "";
+  }
+  return utf8;
+}
+#endif
 
 }  // namespace
 
@@ -278,6 +296,15 @@ std::string JsonObjectBuilder::Build() const {
 }
 
 std::string GetExecutableDir() {
+#if defined(_WIN32)
+  wchar_t module_path[MAX_PATH];
+  const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) {
+    return "";
+  }
+  std::filesystem::path exe_path(module_path);
+  return WideToUtf8(exe_path.parent_path().wstring());
+#else
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
   if (count > 0 && count < PATH_MAX) {
@@ -285,9 +312,22 @@ std::string GetExecutableDir() {
     return std::string(dirname(result));
   }
   return "";
+#endif
 }
 
 std::string GetExecutablePath() {
+#if defined(_WIN32)
+  wchar_t module_path[MAX_PATH];
+  const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) {
+    const std::string dir = GetExecutableDir();
+    if (!dir.empty()) {
+      return dir + "\\otf-browser.exe";
+    }
+    return "";
+  }
+  return WideToUtf8(std::wstring(module_path, module_path + len));
+#else
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
   if (count != -1) {
@@ -298,9 +338,26 @@ std::string GetExecutablePath() {
     return dir + "/otf-browser";
   }
   return "";
+#endif
 }
 
 std::string GetHomeDir() {
+#if defined(_WIN32)
+  PWSTR wide_profile = nullptr;
+  std::string home_dir;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &wide_profile))) {
+    home_dir = WideToUtf8(wide_profile);
+    CoTaskMemFree(wide_profile);
+    if (!home_dir.empty()) {
+      return home_dir;
+    }
+  }
+  const char* user_profile = std::getenv("USERPROFILE");
+  if (user_profile && user_profile[0] != '\0') {
+    return std::string(user_profile);
+  }
+  return "";
+#else
   const char* home_dir = getenv("HOME");
   if (home_dir) {
     return std::string(home_dir);
@@ -312,6 +369,7 @@ std::string GetHomeDir() {
   }
   
   return "";
+#endif
 }
 
 std::string GetUserDataDirName() {

@@ -8,7 +8,6 @@
 #else
 #include <unistd.h>
 #endif
-#include <libgen.h>
 
 #include "include/cef_browser.h"
 #include "include/cef_image.h"
