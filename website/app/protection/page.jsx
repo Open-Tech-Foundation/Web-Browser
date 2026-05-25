@@ -216,7 +216,7 @@ export default function ProtectionPage() {
 
         <div className="row-list">
           {rowIds.value.filter((id) => isRowVisible(id, filter.value)).map((id) => (
-            <div className="row" key={id}>
+            <div className="row" id={id} key={id}>
               <div className="row-head" onClick={() => onExpandClick(id)}>
                 <span className={`row-icon ${rowsState.value[id].status}`}>
                   {statusGlyph(rowsState.value[id].status)}

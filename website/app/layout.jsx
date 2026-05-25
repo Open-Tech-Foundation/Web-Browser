@@ -42,8 +42,23 @@ export default function RootLayout({ children }) {
           </Link>
 
           <div className="flex items-center gap-6">
+            {/* Clean standard Protection Tests menu link */}
             <div className="hidden md:flex items-center gap-8 text-sm font-medium" style="color: var(--muted);">
-              <Link href="/protection" className="hover:text-[var(--foreground)] transition-colors">Protection Tests</Link>
+              <a 
+                href="/protection" 
+                className="flex items-center gap-1.5 px-3 py-1 rounded border border-[var(--accent)] font-bold text-[var(--foreground)] hover:bg-orange-500/5 transition-colors"
+              >
+                <svg 
+                  className="w-4 h-4 text-emerald-500" 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                <span>Protection Tests</span>
+              </a>
             </div>
 
             <button 
