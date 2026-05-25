@@ -660,7 +660,7 @@ void OtfApp::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) {
   registrar->AddCustomScheme("browser", CEF_SCHEME_OPTION_STANDARD | CEF_SCHEME_OPTION_SECURE | CEF_SCHEME_OPTION_CORS_ENABLED);
 }
 
-int OtfApp::CreateTab(const std::string& url, int parent_id) {
+int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private) {
   CEF_REQUIRE_UI_THREAD();
 
   CefBrowserSettings browser_settings;
@@ -676,7 +676,9 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
     }
   }
   CefRefPtr<CefRequestContext> request_context =
-      handler ? handler->GetActiveWorkspaceRequestContext() : nullptr;
+      handler ? (is_private ? handler->GetPrivateRequestContext()
+                            : handler->GetActiveWorkspaceRequestContext())
+              : nullptr;
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
       OtfHandler::GetInstance(), url, browser_settings, MakeBrowserExtraInfo(), request_context,
       new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
@@ -684,6 +686,9 @@ int OtfApp::CreateTab(const std::string& url, int parent_id) {
 
   int tab_id = tab_manager_.AddTab(content_view, parent_id);
   content_view->SetID(tab_id);
+  if (is_private) {
+    tab_manager_.SetPrivate(tab_id, true);
+  }
   if (js_disabled && handler) {
     handler->MarkTabJsDisabled(tab_id);
   }
@@ -957,6 +962,7 @@ int OtfApp::CloseTab(int tab_id) {
     handler->tab_image_preview_subscriptions_.erase(tab_id);
     handler->SetImagePreviewUrlForTab(tab_id, "");
     handler->UnmarkTabJsDisabled(tab_id);
+    handler->MaybeReleasePrivateContext();
   }
   if (current_tab_id_ == tab_id) {
     current_tab_id_ = -1;

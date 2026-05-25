@@ -90,7 +90,8 @@ class OtfApp : public CefApp,
   // matching view id. Returns true if handled.
   bool DispatchPopupBrowserCreated(int view_id, CefRefPtr<CefBrowser> browser);
 
-  int CreateTab(const std::string& url, int parent_id = -1);
+  int CreateTab(const std::string& url, int parent_id = -1,
+                bool is_private = false);
   int CreateRestoredTab(const WorkspaceTab& tab, int parent_id = -1);
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);

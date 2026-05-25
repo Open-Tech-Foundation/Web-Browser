@@ -1,9 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+const PrivateBadge = () => (
+  <svg className="w-3.5 h-3.5 mr-1.5 shrink-0 text-violet-500 dark:text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Private tab">
+    <path d="M2 13h20" /><path d="M5 13l1.5-5.5A2 2 0 0 1 8.4 6h7.2a2 2 0 0 1 1.9 1.5L19 13" /><circle cx="7" cy="16" r="2.5" /><circle cx="17" cy="16" r="2.5" /><path d="M9.5 16h5" />
+  </svg>
+);
+
 const getTabIcon = (tab) => {
   const url = tab.url || '';
   const title = (tab.title || '').toLowerCase();
-  
+
   if (url.startsWith('browser://settings') || title === 'settings') {
     return (
       <svg className="w-3.5 h-3.5 mr-2 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -168,8 +174,9 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             }}
             className={`
               group relative flex items-center h-[29px] px-3 min-w-[140px] max-w-[220px] rounded-t-lg text-[12px] cursor-pointer transition-all duration-150 shrink-0 select-none no-underline
-              ${tab.active 
-                ? 'bg-bar-light dark:bg-bar-dark text-slate-900 dark:text-slate-100 shadow-[0_-1px_3px_rgba(0,0,0,0.1)]' 
+              ${tab.private ? 'ring-1 ring-inset ring-violet-500/40' : ''}
+              ${tab.active
+                ? 'bg-bar-light dark:bg-bar-dark text-slate-900 dark:text-slate-100 shadow-[0_-1px_3px_rgba(0,0,0,0.1)]'
                 : 'text-slate-500 hover:bg-white/50 dark:hover:bg-white/5'}
             `}
           >
@@ -177,6 +184,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
               <div className="absolute top-0 left-0 right-0 h-0.5 bg-brand-orange rounded-t-lg" />
             )}
             <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
+              {tab.private && <PrivateBadge />}
               {getTabIcon(tab)}
               {tab.muted && (
                 <button

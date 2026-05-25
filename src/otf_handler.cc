@@ -284,7 +284,11 @@ class DeferredTabRedirectTask : public CefTask {
     OtfApp* app = OtfApp::GetInstance();
     OtfHandler* handler = OtfHandler::GetInstance();
     if (!app || !handler) return;
-    int new_id = app->CreateTab(url_, -1);
+    // Preserve the redirected tab's private flag so the JS-permission
+    // re-open of a private tab stays in the ephemeral context.
+    const bool was_private =
+        handler->tab_manager_ && handler->tab_manager_->IsPrivate(old_tab_id_);
+    int new_id = app->CreateTab(url_, -1, was_private);
     if (new_id < 0) return;
     handler->NotifyNewTab(new_id, -1);
     app->SwitchTab(new_id);
@@ -671,6 +675,7 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
     builder.AddInt("zoomPercent", tab_manager->GetZoomPercent(tab_id));
     builder.AddBool("sslError", tab_manager->HasSslError(tab_id));
     builder.AddBool("muted", tab_manager->GetMuted(tab_id));
+    builder.AddBool("private", tab_manager->IsPrivate(tab_id));
   }
   builder.AddBool("bookmarked",
                   store && IsPersistableWebUrl(url) &&
@@ -2912,6 +2917,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       app->SwitchTab(id);
       handler->PersistWorkspaceForTab(id);
       callback->Success(std::to_string(id));
+    } else if (msg == "new-private-tab:") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app) { callback->Failure(1, "App not ready"); return true; }
+      int id = app->CreateTab("browser://newtab", -1, /*is_private=*/true);
+      handler->NotifyNewTab(id, -1);
+      app->SwitchTab(id);
+      // Private tabs are never persisted to the workspace session.
+      callback->Success(std::to_string(id));
     } else if (msg.find("close-tab:") == 0) {
       const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
@@ -3189,7 +3202,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             encoded += buf;
           }
         }
-        int id = app->CreateTab("browser://sitedata?origin=" + encoded);
+        // Open the inspector in the same context as the tab being inspected,
+        // so a private tab's site-data page sees its own ephemeral session
+        // rather than the global profile.
+        const int active_id = app->GetCurrentTabId();
+        const bool from_private =
+            active_id >= 0 && handler->tab_manager_ &&
+            handler->tab_manager_->IsPrivate(active_id);
+        int id = app->CreateTab("browser://sitedata?origin=" + encoded, -1,
+                                from_private);
         handler->NotifyNewTab(id, handler->tab_manager_->GetId(browser));
         app->SwitchTab(id);
       }
@@ -3201,6 +3222,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Failure(1, "devtools bridge not attached");
         return true;
       }
+      // Storage usage is browser-context-scoped, so run it against a browser
+      // in the inspected tab's context (private tabs report their own
+      // ephemeral storage instead of the global profile).
+      handler->devtools_bridge_->Attach(handler->ResolveSiteDataBrowser(browser));
       CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
       params->SetString("origin", origin);
       // Storage.getUsageAndQuota returns {usage, quota, usageBreakdown:[]}
@@ -3249,8 +3274,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         IMPLEMENT_REFCOUNTING(CookieListVisitor);
       };
       CefRefPtr<CookieListVisitor> visitor = new CookieListVisitor(callback);
+      CefRefPtr<CefBrowser> ctx_browser = handler->ResolveSiteDataBrowser(browser);
       CefRefPtr<CefCookieManager> mgr =
-          CefCookieManager::GetGlobalManager(nullptr);
+          ctx_browser ? ctx_browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr)
+                      : CefCookieManager::GetGlobalManager(nullptr);
       if (mgr) {
         mgr->VisitUrlCookies(origin, false, visitor);
       }
@@ -3302,8 +3329,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         IMPLEMENT_REFCOUNTING(FallbackTask);
       };
       CefRefPtr<CookiePurgeVisitor> visitor = new CookiePurgeVisitor(callback);
+      CefRefPtr<CefBrowser> ctx_browser = handler->ResolveSiteDataBrowser(browser);
       CefRefPtr<CefCookieManager> mgr =
-          CefCookieManager::GetGlobalManager(nullptr);
+          ctx_browser ? ctx_browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr)
+                      : CefCookieManager::GetGlobalManager(nullptr);
       if (mgr) {
         mgr->VisitUrlCookies(origin, true, visitor);
       } else {
@@ -3315,14 +3344,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     } else if (msg.rfind("clear-storage-for-site:", 0) == 0) {
       const std::string origin = msg.substr(23);
-      if (browser) {
+      CefRefPtr<CefBrowser> ctx_browser = handler->ResolveSiteDataBrowser(browser);
+      if (ctx_browser) {
         CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
         params->SetString("origin", origin);
         params->SetString(
             "storageTypes",
             "appcache,file_systems,indexeddb,local_storage,"
             "shader_cache,websql,service_workers,cache_storage");
-        browser->GetHost()->ExecuteDevToolsMethod(
+        ctx_browser->GetHost()->ExecuteDevToolsMethod(
             0, "Storage.clearDataForOrigin", params);
       }
       callback->Success("ok");
@@ -3332,10 +3362,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (handler->store_) {
         handler->store_->ClearSitePermissions(origin);
       }
-      if (browser) {
+      CefRefPtr<CefBrowser> ctx_browser = handler->ResolveSiteDataBrowser(browser);
+      if (ctx_browser) {
         CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
         params->SetString("origin", origin);
-        browser->GetHost()->ExecuteDevToolsMethod(
+        ctx_browser->GetHost()->ExecuteDevToolsMethod(
             0, "Browser.resetPermissions", params);
       }
       callback->Success("ok");
@@ -3504,18 +3535,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       // Fire storage + permissions clears (CDP, fire-and-forget). Then do
       // a per-cookie visitor purge so domain cookies are caught — see
       // clear-cookies-for-site for the why.
-      if (browser) {
+      CefRefPtr<CefBrowser> cdp_browser = handler->ResolveSiteDataBrowser(browser);
+      if (cdp_browser) {
         CefRefPtr<CefDictionaryValue> storage_params =
             CefDictionaryValue::Create();
         storage_params->SetString("origin", origin);
         storage_params->SetString("storageTypes", "all");
-        browser->GetHost()->ExecuteDevToolsMethod(
+        cdp_browser->GetHost()->ExecuteDevToolsMethod(
             0, "Storage.clearDataForOrigin", storage_params);
 
         CefRefPtr<CefDictionaryValue> perm_params =
             CefDictionaryValue::Create();
         perm_params->SetString("origin", origin);
-        browser->GetHost()->ExecuteDevToolsMethod(
+        cdp_browser->GetHost()->ExecuteDevToolsMethod(
             0, "Browser.resetPermissions", perm_params);
       }
       class CookiePurgeVisitor : public CefCookieVisitor {
@@ -3548,8 +3580,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         IMPLEMENT_REFCOUNTING(FallbackTask);
       };
       CefRefPtr<CookiePurgeVisitor> visitor = new CookiePurgeVisitor(callback);
+      CefRefPtr<CefBrowser> ctx_browser = handler->ResolveSiteDataBrowser(browser);
       CefRefPtr<CefCookieManager> mgr =
-          CefCookieManager::GetGlobalManager(nullptr);
+          ctx_browser ? ctx_browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr)
+                      : CefCookieManager::GetGlobalManager(nullptr);
       if (mgr) {
         mgr->VisitUrlCookies(origin, true, visitor);
       } else {
@@ -3973,6 +4007,8 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
   OtfApp* app = OtfApp::GetInstance();
   const int active_tab = app ? app->GetCurrentTabId() : -1;
   for (int tab_id : tab_ids) {
+    // Private tabs are ephemeral and must never be written to the session DB.
+    if (tab_manager_->IsPrivate(tab_id)) continue;
     WorkspaceTab t;
     t.workspace_id = workspace_id;
     t.is_image_preview =
@@ -4038,6 +4074,45 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
   ApplyAlwaysOnPrivacyPreferences(ctx);
   workspace_contexts_[workspace_id] = ctx;
   return ctx;
+}
+
+CefRefPtr<CefRequestContext> OtfHandler::GetPrivateRequestContext() {
+  CEF_REQUIRE_UI_THREAD();
+  if (private_context_) {
+    return private_context_;
+  }
+  // Empty cache_path => in-memory only. Nothing is written to disk and the
+  // session is destroyed when the context is released.
+  CefRequestContextSettings settings;
+  CefRefPtr<CefRequestContext> ctx =
+      CefRequestContext::CreateContext(settings, nullptr);
+  OtfApp* app = OtfApp::GetInstance();
+  if (app) app->RegisterBrowserSchemeForContext(ctx);
+  ApplyAlwaysOnPrivacyPreferences(ctx);
+  private_context_ = ctx;
+  return ctx;
+}
+
+void OtfHandler::MaybeReleasePrivateContext() {
+  CEF_REQUIRE_UI_THREAD();
+  if (private_context_ && tab_manager_ && !tab_manager_->HasPrivateTabs()) {
+    private_context_ = nullptr;
+  }
+}
+
+CefRefPtr<CefBrowser> OtfHandler::ResolveSiteDataBrowser(
+    CefRefPtr<CefBrowser> requester) {
+  CEF_REQUIRE_UI_THREAD();
+  int id = tab_manager_ ? tab_manager_->GetId(requester) : -1;
+  if (id < 0) {
+    // The requester isn't a tracked content tab (e.g. the cleardata popup
+    // overlay). Use the active content tab it's overlaying instead.
+    OtfApp* app = OtfApp::GetInstance();
+    id = app ? app->GetCurrentTabId() : -1;
+  }
+  CefRefPtr<CefBrowser> resolved =
+      (id >= 0 && tab_manager_) ? tab_manager_->GetBrowser(id) : nullptr;
+  return resolved ? resolved : requester;
 }
 
 void OtfHandler::ApplyAlwaysOnPrivacyPreferences(
@@ -4453,7 +4528,8 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
     const std::string current = tab_manager_->GetUrl(tab_id);
     const std::string suppressed_url =
         tab_manager_->GetHistorySuppressedUrl(tab_id);
-    if (otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
+    if (otf::IsHistoryEnabled() && !tab_manager_->IsPrivate(tab_id) &&
+        IsPersistableWebUrl(url) &&
         !IsInternalUiUrl(url) && (current.empty() ||
         current.rfind("browser://", 0) != 0) &&
         (suppressed_url.empty() || suppressed_url != url)) {
@@ -4674,12 +4750,16 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   //    open inside the existing window's tab strip; everything else opens a
   //    standalone OS popup window.
   if (setting == "allow") {
+    // Links opened from a private tab must stay private — inherit the opener's
+    // private flag for both new tabs and standalone popup windows.
+    const bool opener_private =
+        tab_manager_ && tab_manager_->IsPrivate(tab_manager_->GetId(browser));
     if (is_new_tab_disposition) {
       pending_new_tab_urls_.insert(raw_target);
       OtfApp* app = OtfApp::GetInstance();
       if (app && tab_manager_) {
         int parent_id = tab_manager_->GetId(browser);
-        int new_id = app->CreateTab(raw_target, parent_id);
+        int new_id = app->CreateTab(raw_target, parent_id, opener_private);
         if (raw_target.rfind("browser://", 0) == 0) {
           tab_manager_->SetSchemeUrl(new_id, raw_target);
         }
@@ -4697,7 +4777,9 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
     popup_info.bounds = CefRect(100, 100, 800, 600);
     popup_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserSettings popup_settings;
-    CefRefPtr<CefRequestContext> rc = GetActiveWorkspaceRequestContext();
+    CefRefPtr<CefRequestContext> rc =
+        opener_private ? GetPrivateRequestContext()
+                       : GetActiveWorkspaceRequestContext();
     CefRefPtr<CefDictionaryValue> extra;
     if (OtfApp* a = OtfApp::GetInstance()) extra = a->MakeBrowserExtraInfo();
     ++pending_external_popups_;
@@ -5119,7 +5201,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     OtfApp* app = OtfApp::GetInstance();
     if (!app || !tab_manager_) return false;
     int parent_id = tab_manager_->GetId(browser);
-    int new_id = app->CreateTab(url, parent_id);
+    int new_id = app->CreateTab(url, parent_id, tab_manager_->IsPrivate(parent_id));
     if (url.rfind("browser://", 0) == 0) {
       tab_manager_->SetSchemeUrl(new_id, url);
     }
@@ -5171,7 +5253,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     }
 
     int parent_id = tab_manager_->GetId(browser);
-    int new_id = app->CreateTab(search_url, parent_id);
+    int new_id = app->CreateTab(search_url, parent_id, tab_manager_->IsPrivate(parent_id));
     if (OtfHandler* ui_handler = OtfHandler::GetInstance()) {
       ui_handler->NotifyNewTab(new_id, parent_id);
     }
@@ -5645,6 +5727,12 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     app->SwitchTab(id);
     return true;
   }
+  if (M(Mod::kCtrl|Mod::kShift, Key::kN)) {
+    int id = app->CreateTab("browser://newtab", -1, /*is_private=*/true);
+    if (OtfHandler* ui_handler = OtfHandler::GetInstance()) { ui_handler->NotifyNewTab(id, -1); }
+    app->SwitchTab(id);
+    return true;
+  }
   if (M(Mod::kCtrl, Key::kW)) {
     CloseTabAndNotify(cur);
     return true;
@@ -5855,7 +5943,10 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
     std::string url = tab_manager_->GetUrl(tab_id);
     const bool is_image_preview =
         tab_manager_->GetImagePreviewMode(tab_id) == ImagePreviewMode::kDedicated;
-    if (otf::IsPersistableWebUrl(url) || is_image_preview) {
+    // Private tabs must never be resurrectable via reopen-closed-tab — their
+    // URL/session is ephemeral and recording it would leak private browsing.
+    if (!tab_manager_->IsPrivate(tab_id) &&
+        (otf::IsPersistableWebUrl(url) || is_image_preview)) {
       ClosedTabInfo info;
       info.url = std::move(url);
       info.title = tab_manager_->GetTitle(tab_id);

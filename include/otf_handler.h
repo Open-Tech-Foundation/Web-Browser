@@ -366,6 +366,21 @@ class OtfHandler : public CefClient,
   // expects to mean "use the global context".
   CefRefPtr<CefRequestContext> GetActiveWorkspaceRequestContext();
   CefRefPtr<CefRequestContext> GetWorkspaceRequestContext(int workspace_id);
+  // Shared in-memory (incognito) request context for private tabs. Created
+  // lazily with an empty cache_path so nothing is persisted to disk, and
+  // released once the last private tab closes so the ephemeral session is
+  // wiped. All private tabs across workspaces share this single context.
+  CefRefPtr<CefRequestContext> GetPrivateRequestContext();
+  void MaybeReleasePrivateContext();
+  CefRefPtr<CefRequestContext> private_context_;
+  // Site-data inspection/clearing must act on the request context of the tab
+  // whose data is being viewed — never blindly on the global profile.
+  // Resolves which browser to run cookie/storage operations against: if the
+  // requester is itself a content tab (the browser://sitedata page) use it;
+  // otherwise (a popup overlay) fall back to the active content tab, which the
+  // popup is overlaying. Lets a private tab inspect/clear only its ephemeral
+  // session and keeps the global profile untouched.
+  CefRefPtr<CefBrowser> ResolveSiteDataBrowser(CefRefPtr<CefBrowser> requester);
   // Snapshot the live state of every tab in a workspace and replace the
   // persisted workspace_tabs rows for it. Called from per-tab change hooks
   // (address/title/favicon) and lifecycle events (new/close/switch) so a

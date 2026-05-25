@@ -20,6 +20,7 @@ const normalizeTab = (tab) => ({
   zoomPercent: Number(tab.zoomPercent ?? 100),
   sslError: Boolean(tab.sslError),
   bookmarked: Boolean(tab.bookmarked),
+  private: Boolean(tab.private),
 });
 
 const tabReducer = (state, action) => {

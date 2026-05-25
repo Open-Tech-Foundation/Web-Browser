@@ -94,6 +94,7 @@ class TabManager {
     image_preview_info_visible_map_.erase(tab_id);
     image_preview_mode_map_.erase(tab_id);
     muted_map_.erase(tab_id);
+    private_map_.erase(tab_id);
     console_visible_map_.erase(tab_id);
     console_log_map_.erase(tab_id);
     
@@ -137,6 +138,23 @@ class TabManager {
     auto it = muted_map_.find(tab_id);
     if (it != muted_map_.end()) return it->second;
     return false;
+  }
+
+  void SetPrivate(int tab_id, bool is_private) {
+    if (is_private) {
+      private_map_[tab_id] = true;
+    } else {
+      private_map_.erase(tab_id);
+    }
+  }
+
+  bool IsPrivate(int tab_id) const {
+    auto it = private_map_.find(tab_id);
+    return it != private_map_.end() ? it->second : false;
+  }
+
+  bool HasPrivateTabs() const {
+    return !private_map_.empty();
   }
 
   void SetConsoleVisible(int tab_id, bool visible) {
@@ -409,6 +427,7 @@ class TabManager {
   std::map<int, bool> image_preview_info_visible_map_;
   std::map<int, ImagePreviewMode> image_preview_mode_map_;
   std::map<int, bool> muted_map_;
+  std::map<int, bool> private_map_;
   std::map<int, bool> console_visible_map_;
   std::map<int, std::deque<ConsoleEntry>> console_log_map_;
   std::vector<int> tab_order_;

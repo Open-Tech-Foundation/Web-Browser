@@ -34,6 +34,7 @@ namespace Key {
   constexpr int kH = 0x48;
   constexpr int kJ = 0x4A;
   constexpr int kL = 0x4C;
+  constexpr int kN = 0x4E;
   constexpr int kP = 0x50;
   constexpr int kR = 0x52;
   constexpr int kT = 0x54;

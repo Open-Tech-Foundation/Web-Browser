@@ -104,6 +104,30 @@ void TestWorkspaceOrdering() {
   assert((tabs.GetAllTabIds() == std::vector<int>{c, a, b, other}));
 }
 
+void TestPrivateFlag() {
+  otf::TabManager tabs;
+  const int normal = tabs.AddTab(nullptr);
+  const int priv = tabs.AddTab(nullptr);
+
+  assert(!tabs.IsPrivate(normal));
+  assert(!tabs.IsPrivate(priv));
+  assert(!tabs.HasPrivateTabs());
+
+  tabs.SetPrivate(priv, true);
+  assert(tabs.IsPrivate(priv));
+  assert(!tabs.IsPrivate(normal));
+  assert(tabs.HasPrivateTabs());
+
+  tabs.SetPrivate(priv, false);
+  assert(!tabs.IsPrivate(priv));
+  assert(!tabs.HasPrivateTabs());
+
+  tabs.SetPrivate(priv, true);
+  tabs.RemoveTab(priv);
+  assert(!tabs.IsPrivate(priv));
+  assert(!tabs.HasPrivateTabs());
+}
+
 }  // namespace
 
 int main() {
@@ -111,5 +135,6 @@ int main() {
   TestStateDefaultsAndMutation();
   TestRemoveTabClearsState();
   TestWorkspaceOrdering();
+  TestPrivateFlag();
   return 0;
 }
