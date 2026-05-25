@@ -2038,11 +2038,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         CefRefPtr<CefRequestContext> request_context =
             browser ? browser->GetHost()->GetRequestContext()
                     : CefRequestContext::GetGlobalContext();
-        CefRefPtr<CefRequest> request = CefRequest::Create();
-        request->SetURL(img_url);
-        request->SetMethod("HEAD");
+        CefRefPtr<CefRequest> head_request = CefRequest::Create();
+        head_request->SetURL(img_url);
+        head_request->SetMethod("HEAD");
         CefRefPtr<OtfSizeRequestClient> client = new OtfSizeRequestClient(callback);
-        CefURLRequest::Create(request, client, request_context);
+        CefURLRequest::Create(head_request, client, request_context);
         return true;
       }
       callback->Failure(0, "Unsupported scheme");
@@ -2193,13 +2193,13 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           CefRefPtr<CefRequestContext> request_context =
               browser ? browser->GetHost()->GetRequestContext()
                       : CefRequestContext::GetGlobalContext();
-          CefRefPtr<CefRequest> request = CefRequest::Create();
-          request->SetURL(source_url);
-          request->SetMethod("GET");
-          request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_NO_RETRY_ON_5XX);
+          CefRefPtr<CefRequest> decode_request = CefRequest::Create();
+          decode_request->SetURL(source_url);
+          decode_request->SetMethod("GET");
+          decode_request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_NO_RETRY_ON_5XX);
           CefRefPtr<OtfTiffDecodeClient> client =
               new OtfTiffDecodeClient(source_url, page_index, preview_tab_id, decode_nonce, callback);
-          CefURLRequest::Create(request, client, request_context);
+          CefURLRequest::Create(decode_request, client, request_context);
           return true;
         }
       }
@@ -2516,8 +2516,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("reset-browser-data:") == 0) {
-      ResetRequest request;
-      if (!ParseResetRequest(msg.substr(19), &request)) {
+      ResetRequest reset_request;
+      if (!ParseResetRequest(msg.substr(19), &reset_request)) {
         callback->Failure(1, "Invalid reset payload");
         return true;
       }
@@ -2538,7 +2538,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         state->MarkFailed("settings");
       }
 
-      if (request.history) {
+      if (reset_request.history) {
         if (handler->store_ && handler->store_->ClearHistory()) {
           state->MarkCompleted("history");
           if (handler->tab_manager_) {
@@ -2554,7 +2554,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
 
-      if (request.bookmarks) {
+      if (reset_request.bookmarks) {
         if (handler->store_ && handler->store_->ClearBookmarks()) {
           state->MarkCompleted("bookmarks");
           if (handler->tab_manager_) {
@@ -2572,7 +2572,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
 
-      if (request.downloads) {
+      if (reset_request.downloads) {
         if (handler->store_ && handler->store_->ClearDownloads()) {
           for (const auto& entry : handler->download_callbacks_) {
             if (entry.second) {
@@ -2590,7 +2590,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
 
-      if (request.cookies) {
+      if (reset_request.cookies) {
         CefRefPtr<CefCookieManager> cookie_manager =
             CefCookieManager::GetGlobalManager(nullptr);
         if (cookie_manager) {
@@ -2603,18 +2603,18 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
       CefRefPtr<CefRequestContext> request_context =
           CefRequestContext::GetGlobalContext();
-      if (request.cache && request_context) {
+      if (reset_request.cache && request_context) {
 #if CEF_API_ADDED(14400)
         state->AddPending("cache");
         request_context->ClearHttpCache(new ResetAsyncCallback(state, "cache"));
 #else
         state->MarkUnsupported("cache");
 #endif
-      } else if (request.cache) {
+      } else if (reset_request.cache) {
         state->MarkFailed("cache");
       }
 
-      if (request.ssl && request_context) {
+      if (reset_request.ssl && request_context) {
         state->AddPending("ssl-exceptions");
         request_context->ClearCertificateExceptions(
             new ResetAsyncCallback(state, "ssl-exceptions"));
@@ -2624,14 +2624,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         state->AddPending("connections");
         request_context->CloseAllConnections(
             new ResetAsyncCallback(state, "connections"));
-      } else if (request.ssl) {
+      } else if (reset_request.ssl) {
         state->MarkFailed("ssl");
       }
 
-      if (request.service_workers) {
+      if (reset_request.service_workers) {
         state->MarkUnsupported("serviceWorkers");
       }
-      if (request.permissions) {
+      if (reset_request.permissions) {
         if (handler->store_) {
           handler->store_->ClearAllSitePermissions();
           state->MarkCompleted("permissions");
@@ -2639,10 +2639,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           state->MarkFailed("permissions");
         }
       }
-      if (request.storage) {
+      if (reset_request.storage) {
         state->MarkUnsupported("storage");
       }
-      if (request.passwords) {
+      if (reset_request.passwords) {
         state->MarkUnsupported("passwords");
       }
 
@@ -3686,8 +3686,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (b) b->GetHost()->StopFinding(true);
       callback->Success("");
     } else if (msg.find("findbar-find:") == 0) {
-      FindbarFindRequest request;
-      if (!ParseFindbarFindRequest(msg.substr(13), &request)) {
+      FindbarFindRequest findbar_request;
+      if (!ParseFindbarFindRequest(msg.substr(13), &findbar_request)) {
         callback->Success("");
         return true;
       }
@@ -3695,16 +3695,16 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!app || !handler->tab_manager_) { callback->Success(""); return true; }
       int tab_id = app->GetCurrentTabId();
       if (tab_id < 0) { callback->Success(""); return true; }
-      if (request.tab_id != tab_id) { callback->Success(""); return true; }
+      if (findbar_request.tab_id != tab_id) { callback->Success(""); return true; }
 
       handler->tab_manager_->SetFindVisible(tab_id, true);
-      handler->tab_manager_->SetFindText(tab_id, request.text);
-      handler->tab_manager_->SetFindCase(tab_id, request.match_case);
+      handler->tab_manager_->SetFindText(tab_id, findbar_request.text);
+      handler->tab_manager_->SetFindCase(tab_id, findbar_request.match_case);
 
       auto b = handler->tab_manager_->GetBrowser(tab_id);
       if (!b) { callback->Success(""); return true; }
 
-      if (request.text.empty()) {
+      if (findbar_request.text.empty()) {
         b->GetHost()->StopFinding(true);
         // Clear counters in UI
         if (handler->findbar_subscription_) {
@@ -3714,8 +3714,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       } else {
         // Track pending so async OnFindResult can correlate and filter
         handler->pending_find_tab_  = tab_id;
-        handler->pending_find_text_ = request.text;
-        b->GetHost()->Find(request.text, request.forward, request.match_case, request.find_next);
+        handler->pending_find_text_ = findbar_request.text;
+        b->GetHost()->Find(findbar_request.text, findbar_request.forward, findbar_request.match_case, findbar_request.find_next);
       }
       callback->Success("");
     } else if (msg == "findbar-stop:") {
