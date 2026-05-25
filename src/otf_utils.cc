@@ -142,10 +142,11 @@ std::string WideToUtf8(const std::wstring& wide_value) {
   if (len <= 0) {
     return "";
   }
-  std::string utf8(static_cast<size_t>(len - 1), '\0');
+  std::string utf8(static_cast<size_t>(len), '\0');
   if (WideCharToMultiByte(CP_UTF8, 0, wide_value.c_str(), -1, utf8.data(), len, nullptr, nullptr) <= 0) {
     return "";
   }
+  utf8.resize(static_cast<size_t>(len - 1));
   return utf8;
 }
 #endif
@@ -320,10 +321,6 @@ std::string GetExecutablePath() {
   wchar_t module_path[MAX_PATH];
   const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (len == 0 || len >= MAX_PATH) {
-    const std::string dir = GetExecutableDir();
-    if (!dir.empty()) {
-      return dir + "\\otf-browser.exe";
-    }
     return "";
   }
   return WideToUtf8(std::wstring(module_path, module_path + len));
@@ -346,10 +343,11 @@ std::string GetHomeDir() {
   PWSTR wide_profile = nullptr;
   std::string home_dir;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &wide_profile))) {
-    home_dir = WideToUtf8(wide_profile);
+    std::string converted = WideToUtf8(wide_profile);
     CoTaskMemFree(wide_profile);
-    if (!home_dir.empty()) {
-      return home_dir;
+    wide_profile = nullptr;
+    if (!converted.empty()) {
+      return converted;
     }
   }
   const char* user_profile = std::getenv("USERPROFILE");
@@ -407,17 +405,11 @@ std::string GetDownloadsDir() {
 #if defined(_WIN32)
   PWSTR path = nullptr;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &path))) {
-    std::wstring wide_path(path);
+    std::string result = WideToUtf8(path ? std::wstring(path) : std::wstring{});
     CoTaskMemFree(path);
-    if (!wide_path.empty()) {
-      int len = WideCharToMultiByte(CP_UTF8, 0, wide_path.c_str(), -1, nullptr, 0,
-                                    nullptr, nullptr);
-      if (len > 0) {
-        std::string utf8_path(static_cast<size_t>(len - 1), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, wide_path.c_str(), -1, utf8_path.data(),
-                            len, nullptr, nullptr);
-        return utf8_path;
-      }
+    path = nullptr;
+    if (!result.empty()) {
+      return result;
     }
   }
 #endif

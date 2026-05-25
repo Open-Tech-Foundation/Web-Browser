@@ -524,7 +524,9 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     }
 
     // Production: serve from ui/. "shell" is the toolbar (ui/index.html).
-    const std::string ui_dir = otf::GetExecutableDir() + "/ui";
+    const std::string exe_dir = otf::GetExecutableDir();
+    if (exe_dir.empty()) return MakeNotFound();
+    const std::string ui_dir = exe_dir + "/ui";
     std::string disk_path;
     if (is_image_preview_asset) {
       if (!IsSafeUiRelativePath(path)) return MakeNotFound();
