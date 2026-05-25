@@ -295,6 +295,11 @@ jobs:
         with:
           bun-version: "1.3.12"
 
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1.13.0
+        with:
+          arch: x64
+
       - name: Install Node dependencies
         run: bun install --frozen-lockfile
 
@@ -346,6 +351,7 @@ jobs:
         env:
           OTF_VERSION: ${{ github.ref_name != '' && (startsWith(github.ref_name, 'v') && github.ref_name || '') || '' }}
         run: |
+          Remove-Item Env:CC, Env:CXX -ErrorAction SilentlyContinue
           $version = "$env:OTF_VERSION"
           if ($version -and $version.StartsWith("v")) {
             $version = $version.Substring(1)
@@ -355,14 +361,15 @@ jobs:
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
           mkdir build -Force
           cd build
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
           ninja otf-browser
 
       - name: Run C++ Tests
         run: |
+          Remove-Item Env:CC, Env:CXX -ErrorAction SilentlyContinue
           cd build
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
           ninja `
             otf-browser-native-tests `
             otf-browser-extra-tests `
