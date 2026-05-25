@@ -383,13 +383,9 @@ std::string GetUserDataDirName() {
   return ".otf-browser";
 }
 
-std::string GetSettingsFilePath() {
-  std::string home = GetHomeDir();
-  if (home.empty()) return "";
-
-  std::filesystem::path settings_dir =
-      std::filesystem::path(home) / GetUserDataDirName();
-
+// Returns the data directory as a filesystem::path, using the native wide path
+// on Windows (avoids ANSI/UTF-8 mismatch for non-ASCII usernames).
+static std::filesystem::path GetSettingsDir() {
   // Use the non-throwing error_code overloads. This helper is reached from
   // multiple processes — the chrome-sandbox-confined renderer in particular
   // gets EPERM on stat() against the user-data dir, and the throwing
@@ -398,12 +394,43 @@ std::string GetSettingsFilePath() {
   // make the dir; if we can't, return the path anyway. Callers that try
   // to actually read or write will get an empty file or a failed write,
   // which they're already prepared to handle.
-  std::error_code ec;
-  if (!std::filesystem::exists(settings_dir, ec)) {
-    std::filesystem::create_directories(settings_dir, ec);
+#if defined(_WIN32)
+  // OTF_TEST_HOME is always UTF-8 bytes that are also ASCII — safe to use via
+  // std::filesystem::u8path (C++17) which interprets the char* as UTF-8.
+  const char* test_home = std::getenv("OTF_TEST_HOME");
+  std::filesystem::path base;
+  if (test_home && test_home[0] != '\0') {
+    base = std::filesystem::path(std::string(test_home));
+  } else {
+    PWSTR wide_profile = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &wide_profile)) &&
+        wide_profile) {
+      base = std::filesystem::path(std::wstring(wide_profile));
+      CoTaskMemFree(wide_profile);
+    } else {
+      if (wide_profile) CoTaskMemFree(wide_profile);
+      const char* up = std::getenv("USERPROFILE");
+      if (!up || up[0] == '\0') return {};
+      base = std::filesystem::path(std::string(up));
+    }
   }
+#else
+  std::string home = GetHomeDir();
+  if (home.empty()) return {};
+  std::filesystem::path base(home);
+#endif
+  std::filesystem::path dir = base / GetUserDataDirName();
+  std::error_code ec;
+  if (!std::filesystem::exists(dir, ec)) {
+    std::filesystem::create_directories(dir, ec);
+  }
+  return dir;
+}
 
-  return (settings_dir / "settings.json").string();
+std::string GetSettingsFilePath() {
+  std::filesystem::path dir = GetSettingsDir();
+  if (dir.empty()) return "";
+  return (dir / "settings.json").string();
 }
 
 std::string GetDownloadsDir() {
@@ -698,12 +725,12 @@ bool NormalizeSettingsJson(const std::string& raw_json,
 }
 
 std::string LoadSettingsJson() {
-  const std::string path = GetSettingsFilePath();
-  if (path.empty()) {
+  const std::filesystem::path fspath = GetSettingsDir() / "settings.json";
+  if (fspath.empty()) {
     return GetDefaultSettingsJson();
   }
 
-  std::ifstream input(path);
+  std::ifstream input(fspath);
   std::string normalized = GetDefaultSettingsJson();
   if (!input.is_open()) {
     return normalized;
@@ -712,7 +739,7 @@ std::string LoadSettingsJson() {
   std::ostringstream buffer;
   buffer << input.rdbuf();
   if (!NormalizeSettingsJson(buffer.str(), &normalized)) {
-    std::ofstream rewrite(path);
+    std::ofstream rewrite(fspath);
     if (rewrite.is_open()) {
       rewrite << normalized;
     }
@@ -726,12 +753,12 @@ bool SaveSettingsJson(const std::string& raw_json, std::string* normalized_json)
     return false;
   }
 
-  const std::string path = GetSettingsFilePath();
-  if (path.empty()) {
+  const std::filesystem::path fspath = GetSettingsDir() / "settings.json";
+  if (fspath.empty()) {
     return false;
   }
 
-  std::ofstream output(path);
+  std::ofstream output(fspath);
   if (!output.is_open()) {
     return false;
   }
