@@ -4,5 +4,6 @@
   "dependencies": [
     "libvips",
     "sqlite3"
-  ]
+  ],
+  "builtin-baseline": "dc8d75cfc3281b8e2a4ed8ee4163c891190df932"
 }

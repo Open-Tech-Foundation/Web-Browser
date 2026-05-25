@@ -298,11 +298,26 @@ jobs:
       - name: Install Node dependencies
         run: bun install --frozen-lockfile
 
-      - name: Restore / Install vcpkg dependencies
+      # Pin vcpkg to a tagged release instead of relying on the copy baked
+      # into the windows-2025 image, whose ports tree can be months stale
+      # (which is what caused "vips/libvips does not exist"). The ref here
+      # must match builtin-baseline in vcpkg.json so ports and versions
+      # resolve reproducibly.
+      - name: Checkout vcpkg
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: microsoft/vcpkg
+          ref: 2026.04.27
+          path: vcpkg
+
+      - name: Install vcpkg dependencies
         env:
+          # x-gha caches the compiled binaries in the GitHub Actions cache so
+          # the heavy libvips dependency tree only builds from source once.
           VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
-          vcpkg install --triplet x64-windows
+          .\vcpkg\bootstrap-vcpkg.bat
+          .\vcpkg\vcpkg.exe install --triplet x64-windows
 
       - name: Cache CEF SDK
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -326,7 +341,7 @@ jobs:
             Write-Host "Embedding OTF_VERSION=$version"
           }
           $env:OTF_VERSION = $version
-          $toolchain_file = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
           mkdir build -Force
           cd build
           cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
@@ -335,7 +350,7 @@ jobs:
       - name: Run C++ Tests
         run: |
           cd build
-          $toolchain_file = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
           cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
           ninja `
             otf-browser-native-tests `
