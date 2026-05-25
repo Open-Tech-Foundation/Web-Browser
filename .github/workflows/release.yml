@@ -319,6 +319,16 @@ jobs:
           .\vcpkg\bootstrap-vcpkg.bat
           .\vcpkg\vcpkg.exe install --triplet x64-windows
 
+      - name: Download libvips
+        shell: powershell
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://github.com/libvips/build-win64-mxe/releases/download/v8.17.2/vips-dev-w64-web-8.17.2-static.zip" `
+            -OutFile "vips.zip"
+
+          Expand-Archive vips.zip -DestinationPath C:\vips
+          echo "C:\vips\vips-dev-8.17\bin" >> $env:GITHUB_PATH
+
       - name: Cache CEF SDK
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -342,16 +352,18 @@ jobs:
           }
           $env:OTF_VERSION = $version
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
+          $vips_prefix = "C:/vips/vips-dev-8.17"
           mkdir build -Force
           cd build
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_PREFIX_PATH=$vips_prefix" ..
           ninja otf-browser
 
       - name: Run C++ Tests
         run: |
           cd build
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
+          $vips_prefix = "C:/vips/vips-dev-8.17"
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_PREFIX_PATH=$vips_prefix" ..
           ninja `
             otf-browser-native-tests `
             otf-browser-extra-tests `
