@@ -99,7 +99,9 @@ ADD_LOGICAL_TARGET("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
 SET_CEF_TARGET_OUT_DIR()
 
 # Create the executable
-add_executable(otf-browser ${OTF_BROWSER_SRCS} ${OTF_BROWSER_HEADERS})
+# WIN32 sets /SUBSYSTEM:WINDOWS on MSVC so the linker looks for wWinMain
+# rather than main(). Ignored on non-Windows platforms.
+add_executable(otf-browser WIN32 ${OTF_BROWSER_SRCS} ${OTF_BROWSER_HEADERS})
 
 # Apply CEF standard compiler/linker properties
 SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser)

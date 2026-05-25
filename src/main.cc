@@ -27,11 +27,11 @@ std::string OtfVersionBase() {
 }
 
 std::string GetOtfUserAgent() {
-#if defined(OS_WIN)
+#if defined(_WIN32)
   return std::string("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                      "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
          OtfVersionBase() + " Chromium/" CHROMIUM_VERSION_STRING " Safari/537.36";
-#elif defined(OS_MAC)
+#elif defined(__APPLE__)
   return std::string("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                      "AppleWebKit/537.36 (KHTML, like Gecko) OTFBrowser/") +
          OtfVersionBase() + " Chromium/" CHROMIUM_VERSION_STRING " Safari/537.36";

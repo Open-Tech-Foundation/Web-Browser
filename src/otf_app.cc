@@ -630,6 +630,7 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   // which is registered as STANDARD|SECURE|CORS_ENABLED and behaves like
   // a proper HTTP origin.)
 
+#if defined(__linux__)
   // Force X11 Ozone. CEF's Alloy runtime (which we use for the embedded UI
   // surface) does not support Wayland — only the Chrome runtime does. On a
   // Wayland session, XWayland transparently bridges X11 clients, so this is
@@ -637,8 +638,6 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   // Do not "fix" this to auto/wayland without first switching to
   // CEF_RUNTIME_STYLE_CHROME everywhere.
   command_line->AppendSwitchWithValue("ozone-platform", "x11");
-
-#if defined(__linux__)
   // Set the window class and desktop name so that X11/Wayland task monitors
   // map the process to our .desktop file instead of falling back to Chromium.
   command_line->AppendSwitchWithValue("class", "otf-browser");
