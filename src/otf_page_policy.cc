@@ -342,6 +342,47 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     });
   })();
 
+  // Speech synthesis: suppress OS voice list to avoid leaking platform identity.
+  (() => {
+    'use strict';
+
+    // Workers don't expose speechSynthesis; guard before accessing.
+    if (typeof globalThis.speechSynthesis === 'undefined') return;
+
+    const ss = globalThis.speechSynthesis;
+    const proto = Object.getPrototypeOf(ss);
+    if (!proto) return;
+
+    const getVoicesDesc = Object.getOwnPropertyDescriptor(proto, 'getVoices');
+    if (getVoicesDesc && typeof getVoicesDesc.value === 'function') {
+      Object.defineProperty(proto, 'getVoices', {
+        value: makeNative(
+          function getVoices() { return []; },
+          'function getVoices() { [native code] }'
+        ),
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    }
+
+    // Suppress voiceschanged events so sites can't poll for changes.
+    const addEventListenerDesc = Object.getOwnPropertyDescriptor(proto, 'addEventListener');
+    if (!addEventListenerDesc) {
+      const origAddEvent = globalThis.EventTarget.prototype.addEventListener;
+      const patchedAddEvent = makeNative(function addEventListener(type, ...args) {
+        if (type === 'voiceschanged') return;
+        return origAddEvent.call(this, type, ...args);
+      }, 'function addEventListener() { [native code] }');
+      Object.defineProperty(ss, 'addEventListener', {
+        value: patchedAddEvent,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+  })();
+
   // Storage estimate: spoof ~180 GiB quota with 50 MiB usage.
   (() => {
     'use strict';
