@@ -45,7 +45,11 @@ if(WIN32)
         message(FATAL_ERROR "VIPS_ROOT environment variable must be set on Windows")
     endif()
     set(VIPS_ROOT "$ENV{VIPS_ROOT}")
-    include_directories("${VIPS_ROOT}/include")
+    include_directories(
+        "${VIPS_ROOT}/include"
+        "${VIPS_ROOT}/include/glib-2.0"
+        "${VIPS_ROOT}/lib/glib-2.0/include"
+    )
     link_directories("${VIPS_ROOT}/lib")
     set(VIPS_LIBS vips)
 else()

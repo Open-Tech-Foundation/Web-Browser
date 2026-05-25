@@ -1217,7 +1217,8 @@ R"JS(
         configurable: false
       });
     }
-
+)JS"
+R"JS(
     const OffscreenCanvasCtor = globalThis.OffscreenCanvas;
     if (OffscreenCanvasCtor && OffscreenCanvasCtor.prototype &&
         !OffscreenCanvasCtor.prototype.__otfCanvasPolicy) {
@@ -1633,7 +1634,8 @@ R"JS(
         isThirdParty = true;
       }
       if (!isThirdParty) return;
-
+)JS"
+R"JS(
       const docProto = globalThis.Document && globalThis.Document.prototype
           ? globalThis.Document.prototype
           : Object.getPrototypeOf(document);
