@@ -151,6 +151,17 @@ add_custom_command(
     COMMENT "Copying UI static assets (icons, logos)..."
 )
 
+# Copy Windows runtime DLLs (vips and its dependencies) next to the executable.
+# SQLite3 is statically linked via vcpkg so no DLL is needed for it.
+if(WIN32)
+    file(GLOB VIPS_DLLS "${VIPS_ROOT}/bin/*.dll")
+    foreach(DLL ${VIPS_DLLS})
+        add_custom_command(TARGET otf-browser POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DLL}" "${CEF_TARGET_OUT_DIR}"
+        )
+    endforeach()
+endif()
+
 # Linux SUID Permission Helper
 if(OS_LINUX)
     SET_LINUX_SUID_PERMISSIONS("otf-browser" "${CEF_TARGET_OUT_DIR}/chrome-sandbox")
