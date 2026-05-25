@@ -36,6 +36,8 @@ std::string GetFingerprintProfileFilePath() {
   if (settings_path.empty()) {
     return "";
   }
+  // Use the parent-path of the settings file (already computed via
+  // GetSettingsDir) so the fingerprint profile sits in the same data dir.
   return (std::filesystem::path(settings_path).parent_path() /
           "fingerprint_profile").string();
 }
@@ -313,11 +315,15 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   (() => {
     'use strict';
 
-    if (typeof Navigator === 'undefined') return;
-
     const SPOOFED_PLATFORM = 'Linux x86_64';
 
-    const proto = Navigator.prototype;
+    // Worker realms have no Navigator global; fall back to WorkerNavigator.prototype.
+    const NavigatorCtor = globalThis.Navigator;
+    const proto = NavigatorCtor
+      ? NavigatorCtor.prototype
+      : Object.getPrototypeOf(navigator);
+    if (!proto) return;
+
     const original = Object.getOwnPropertyDescriptor(proto, 'platform');
     if (!original || typeof original.get !== 'function') return;
 
@@ -328,7 +334,6 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
       'function get platform() { [native code] }'
     );
 
-    // Install the getter, mirroring the original descriptor flags
     Object.defineProperty(proto, 'platform', {
       get: getter,
       set: original.set,
