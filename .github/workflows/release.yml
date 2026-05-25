@@ -324,16 +324,17 @@ jobs:
             Write-Host "Embedding OTF_VERSION=$version"
           }
           $env:OTF_VERSION = $version
-          $env:CMAKE_TOOLCHAIN_FILE = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          $toolchain_file = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
           mkdir build -Force
           cd build
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" ..
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
           ninja otf-browser
 
       - name: Run C++ Tests
         run: |
           cd build
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" ..
+          $toolchain_file = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" ..
           ninja `
             otf-browser-native-tests `
             otf-browser-extra-tests `
