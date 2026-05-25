@@ -299,6 +299,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Restore / Install vcpkg dependencies
+        env:
+          VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           vcpkg install --triplet x64-windows
 

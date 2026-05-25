@@ -2,7 +2,7 @@
   "name": "otf-browser",
   "version": "0.1.0",
   "dependencies": [
-    "vips",
+    "libvips",
     "sqlite3"
   ]
 }
