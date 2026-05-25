@@ -26,6 +26,24 @@
 #include <sys/stat.h>
 #include "otf_utils.h"
 
+#ifdef _WIN32
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#endif
+
+#ifndef S_IXUSR
+#define S_IXUSR 0
+#endif
+
+#ifndef S_IXGRP
+#define S_IXGRP 0
+#endif
+
+#ifndef S_IXOTH
+#define S_IXOTH 0
+#endif
+#endif
+
 #if defined(_WIN32)
 #include <windows.h>
 #include <shellapi.h>
