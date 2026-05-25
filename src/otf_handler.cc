@@ -73,24 +73,19 @@
 #include "include/cef_command_ids.h"
 #include "include/cef_urlrequest.h"
 
+#if !defined(_WIN32) && !defined(__APPLE__)
 static bool HasCommand(const char* command) {
   if (!command || command[0] == '\0') {
     return false;
   }
 
-  // Check if command contains path separators (absolute or relative path)
-  if (strchr(command, '/') != nullptr ||
-#if defined(_WIN32)
-      strchr(command, '\\') != nullptr ||
-#endif
-      false) {
+  if (strchr(command, '/') != nullptr) {
     struct stat buffer;
     return (stat(command, &buffer) == 0) &&
            S_ISREG(buffer.st_mode) &&
            (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH));
   }
 
-  // For simple command names, search in PATH
   const char* path_env = getenv("PATH");
   if (!path_env) {
     return false;
@@ -99,7 +94,7 @@ static bool HasCommand(const char* command) {
   std::string path_str(path_env);
   size_t start = 0;
   size_t end = path_str.find(':');
-  
+
   while (end != std::string::npos) {
     std::string dir = path_str.substr(start, end - start);
     if (!dir.empty()) {
@@ -115,7 +110,6 @@ static bool HasCommand(const char* command) {
     end = path_str.find(':', start);
   }
 
-  // Check last PATH element
   std::string dir = path_str.substr(start);
   if (!dir.empty()) {
     std::string full_path = dir + "/" + command;
@@ -126,9 +120,10 @@ static bool HasCommand(const char* command) {
       return true;
     }
   }
-  
+
   return false;
 }
+#endif
 
 // Cross-platform clipboard write — CEF Alloy provides no clipboard API,
 // so we use platform-native calls.

@@ -46,13 +46,13 @@ std::string GetOtfUserAgent() {
 
 }  // namespace
 
-#if defined(OS_WIN)
+#if defined(_WIN32)
 #include <windows.h>
 #include "include/cef_sandbox_win.h"
 #endif
 
 // Unified entry point for OTF Browser
-#if defined(OS_WIN)
+#if defined(_WIN32)
 int APIENTRY WinMain(HINSTANCE hInstance,
                      HINSTANCE hPrevInstance,
                      LPTSTR lpCmdLine,

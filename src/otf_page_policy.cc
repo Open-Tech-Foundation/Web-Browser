@@ -642,6 +642,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     }
     return Math.max(0, Math.round(Number(value || 0) + noise));
   };
+)JS"
+R"JS(
   const defineLayoutMetricGetter = (target, name) => {
     try {
       const descriptor = Object.getOwnPropertyDescriptor(target, name);
@@ -995,7 +997,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     } catch (_) {}
   };
   installFontPolicy();
-
+)JS"
+R"JS(
   // WebGPU: block compute pipelines while leaving graphics pipelines intact.
   // Chain-wrap from whichever layer of the GPU → GPUAdapter → GPUDevice
   // prototype chain is actually exposed at policy-injection time. Each wrap
@@ -1441,6 +1444,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
       width: 1280, height: 720, frameRate: 30, aspectRatio: 1280 / 720,
       facingMode: 'user', resizeMode: 'none',
     };
+)JS"
+R"JS(
     const STD_AUDIO_CAPS = {
       sampleRate: { min: 48000, max: 48000 }, channelCount: { min: 1, max: 1 },
       echoCancellation: [true, false], autoGainControl: [true, false], noiseSuppression: [true, false],
