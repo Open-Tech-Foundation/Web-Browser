@@ -375,60 +375,129 @@ std::string GetHomeDir() {
 #endif
 }
 
-std::string GetUserDataDirName() {
-  const char* dev_mode = std::getenv("OTF_DEV_MODE");
-  if (dev_mode && dev_mode[0] != '\0' && dev_mode[0] != '0') {
-    return ".otf-browser-dev";
-  }
-  return ".otf-browser";
+static bool IsDevMode() {
+  const char* v = std::getenv("OTF_DEV_MODE");
+  return v && v[0] != '\0' && v[0] != '0';
 }
 
-// Returns the data directory as a filesystem::path, using the native wide path
-// on Windows (avoids ANSI/UTF-8 mismatch for non-ASCII usernames).
-static std::filesystem::path GetSettingsDir() {
-  // Use the non-throwing error_code overloads. This helper is reached from
-  // multiple processes — the chrome-sandbox-confined renderer in particular
-  // gets EPERM on stat() against the user-data dir, and the throwing
-  // overloads would propagate up through GetStableScreenProfile (called
-  // from OnContextCreated) and crash the renderer. Best effort: try to
-  // make the dir; if we can't, return the path anyway. Callers that try
-  // to actually read or write will get an empty file or a failed write,
-  // which they're already prepared to handle.
-#if defined(_WIN32)
-  // OTF_TEST_HOME is always UTF-8 bytes that are also ASCII — safe to use via
-  // std::filesystem::u8path (C++17) which interprets the char* as UTF-8.
-  const char* test_home = std::getenv("OTF_TEST_HOME");
-  std::filesystem::path base;
-  if (test_home && test_home[0] != '\0') {
-    base = std::filesystem::path(std::string(test_home));
-  } else {
-    PWSTR wide_profile = nullptr;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &wide_profile)) &&
-        wide_profile) {
-      base = std::filesystem::path(std::wstring(wide_profile));
-      CoTaskMemFree(wide_profile);
-    } else {
-      if (wide_profile) CoTaskMemFree(wide_profile);
-      const char* up = std::getenv("USERPROFILE");
-      if (!up || up[0] == '\0') return {};
-      base = std::filesystem::path(std::string(up));
-    }
-  }
-#else
-  std::string home = GetHomeDir();
-  if (home.empty()) return {};
-  std::filesystem::path base(home);
-#endif
-  std::filesystem::path dir = base / GetUserDataDirName();
+// Ensures the directory exists using non-throwing error_code overloads.
+// Multiple processes (including the sandboxed renderer) may call this
+// concurrently; exceptions from EPERM in confined processes would crash them.
+static std::filesystem::path EnsureDir(std::filesystem::path dir) {
   std::error_code ec;
-  if (!std::filesystem::exists(dir, ec)) {
-    std::filesystem::create_directories(dir, ec);
-  }
+  std::filesystem::create_directories(dir, ec);
   return dir;
 }
 
+std::filesystem::path GetAppDataDir() {
+  const bool dev = IsDevMode();
+
+  // Test redirect: everything lands under OTF_TEST_HOME so production
+  // platform paths are never touched and test runs are fully isolated.
+  const char* test_home = std::getenv("OTF_TEST_HOME");
+  if (test_home && test_home[0] != '\0') {
+    return EnsureDir(std::filesystem::path(test_home) /
+                     (dev ? "otf-browser-dev" : "otf-browser"));
+  }
+
+#if defined(_WIN32)
+  // %APPDATA% (roaming) is the canonical location for persistent per-user app
+  // data on Windows. Wide API avoids ANSI/UTF-8 mismatch on non-ASCII usernames.
+  PWSTR wide = nullptr;
+  std::filesystem::path base;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &wide)) && wide) {
+    base = std::filesystem::path(std::wstring(wide));
+    CoTaskMemFree(wide);
+  } else {
+    if (wide) CoTaskMemFree(wide);
+    const char* appdata = std::getenv("APPDATA");
+    if (!appdata || !appdata[0]) return {};
+    base = std::filesystem::path(std::string(appdata));
+  }
+  return EnsureDir(base / (dev ? L"OTF Browser Dev" : L"OTF Browser"));
+#elif defined(__APPLE__)
+  const char* home = std::getenv("HOME");
+  if (!home || !home[0]) {
+    struct passwd* pw = getpwuid(getuid());
+    if (!pw || !pw->pw_dir) return {};
+    home = pw->pw_dir;
+  }
+  return EnsureDir(std::filesystem::path(home) / "Library" / "Application Support" /
+                   (dev ? "OTF Browser Dev" : "OTF Browser"));
+#else
+  // Linux: $XDG_DATA_HOME/otf-browser[-dev]/ (fallback: ~/.local/share/)
+  const char* xdg = std::getenv("XDG_DATA_HOME");
+  std::filesystem::path base;
+  if (xdg && xdg[0]) {
+    base = std::filesystem::path(xdg);
+  } else {
+    const char* home = std::getenv("HOME");
+    if (!home || !home[0]) {
+      struct passwd* pw = getpwuid(getuid());
+      if (!pw || !pw->pw_dir) return {};
+      home = pw->pw_dir;
+    }
+    base = std::filesystem::path(home) / ".local" / "share";
+  }
+  return EnsureDir(base / (dev ? "otf-browser-dev" : "otf-browser"));
+#endif
+}
+
+std::filesystem::path GetAppCacheDir() {
+  const bool dev = IsDevMode();
+
+  // Test redirect: cache lands under OTF_TEST_HOME/otf-browser[-dev]/cache/
+  const char* test_home = std::getenv("OTF_TEST_HOME");
+  if (test_home && test_home[0] != '\0') {
+    return EnsureDir(std::filesystem::path(test_home) /
+                     (dev ? "otf-browser-dev" : "otf-browser") / "cache");
+  }
+
+#if defined(_WIN32)
+  // %LOCALAPPDATA% (non-roaming) is the canonical location for caches on
+  // Windows — not synced across machines, suitable for large/regenerable data.
+  PWSTR wide = nullptr;
+  std::filesystem::path base;
+  if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &wide)) && wide) {
+    base = std::filesystem::path(std::wstring(wide));
+    CoTaskMemFree(wide);
+  } else {
+    if (wide) CoTaskMemFree(wide);
+    const char* localappdata = std::getenv("LOCALAPPDATA");
+    if (!localappdata || !localappdata[0]) return {};
+    base = std::filesystem::path(std::string(localappdata));
+  }
+  return EnsureDir(base / (dev ? L"OTF Browser Dev" : L"OTF Browser") / L"Cache");
+#elif defined(__APPLE__)
+  const char* home = std::getenv("HOME");
+  if (!home || !home[0]) {
+    struct passwd* pw = getpwuid(getuid());
+    if (!pw || !pw->pw_dir) return {};
+    home = pw->pw_dir;
+  }
+  return EnsureDir(std::filesystem::path(home) / "Library" / "Caches" /
+                   (dev ? "OTF Browser Dev" : "OTF Browser"));
+#else
+  // Linux: $XDG_CACHE_HOME/otf-browser[-dev]/ (fallback: ~/.cache/)
+  const char* xdg = std::getenv("XDG_CACHE_HOME");
+  std::filesystem::path base;
+  if (xdg && xdg[0]) {
+    base = std::filesystem::path(xdg);
+  } else {
+    const char* home = std::getenv("HOME");
+    if (!home || !home[0]) {
+      struct passwd* pw = getpwuid(getuid());
+      if (!pw || !pw->pw_dir) return {};
+      home = pw->pw_dir;
+    }
+    base = std::filesystem::path(home) / ".cache";
+  }
+  return EnsureDir(base / (dev ? "otf-browser-dev" : "otf-browser"));
+#endif
+}
+
 std::string GetSettingsFilePath() {
-  std::filesystem::path dir = GetSettingsDir();
+  const std::filesystem::path dir = GetAppDataDir();
   if (dir.empty()) return "";
   return (dir / "settings.json").string();
 }
@@ -725,7 +794,7 @@ bool NormalizeSettingsJson(const std::string& raw_json,
 }
 
 std::string LoadSettingsJson() {
-  const std::filesystem::path fspath = GetSettingsDir() / "settings.json";
+  const std::filesystem::path fspath = GetAppDataDir() / "settings.json";
   if (fspath.empty()) {
     return GetDefaultSettingsJson();
   }
@@ -753,7 +822,7 @@ bool SaveSettingsJson(const std::string& raw_json, std::string* normalized_json)
     return false;
   }
 
-  const std::filesystem::path fspath = GetSettingsDir() / "settings.json";
+  const std::filesystem::path fspath = GetAppDataDir() / "settings.json";
   if (fspath.empty()) {
     return false;
   }

@@ -1,6 +1,7 @@
 #include "include/cef_app.h"
 #include "include/cef_version.h"
 #include "otf_app.h"
+#include "otf_utils.h"
 
 #include <cstdio>
 #include <cstring>
@@ -71,6 +72,19 @@ static int RunApp(int argc, char* argv[]) {
 
   CefSettings settings;
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
+
+  // Point CEF at the platform-correct cache directory so cookies, HTTP cache,
+  // and localStorage survive across restarts in a predictable location.
+  // workspace-specific request contexts each get a sub-directory under this.
+  const std::filesystem::path cef_cache = otf::GetAppCacheDir() / "cef";
+  if (!cef_cache.empty()) {
+#if defined(_WIN32)
+    CefString(&settings.root_cache_path) = cef_cache.wstring();
+#else
+    CefString(&settings.root_cache_path).FromString(cef_cache.string());
+#endif
+  }
+
   CefInitialize(main_args, settings, app.get(), nullptr);
   CefRunMessageLoop();
   CefShutdown();

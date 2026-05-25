@@ -2330,12 +2330,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       // workspace (see GetWorkspaceRequestContext). Errors are silently
       // ignored — a leftover directory is a disk leak, not a correctness bug.
       {
-        const std::string home = otf::GetHomeDir();
-        if (!home.empty()) {
+        {
           std::error_code ec;
           std::filesystem::remove_all(
-              std::filesystem::path(home) / otf::GetUserDataDirName() /
-                  "workspaces" / std::to_string(target),
+              otf::GetAppCacheDir() / "workspaces" / std::to_string(target),
               ec);
         }
       }
@@ -4053,20 +4051,20 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
   if (it != workspace_contexts_.end() && it->second) {
     return it->second;
   }
-  std::filesystem::path base;
-  const std::string home = GetHomeDir();
-  if (!home.empty()) {
-    base = std::filesystem::path(home) / GetUserDataDirName();
-  } else {
-    base = std::filesystem::temp_directory_path() / "otf-browser";
+  std::filesystem::path cache_dir = GetAppCacheDir();
+  if (cache_dir.empty()) {
+    cache_dir = std::filesystem::temp_directory_path() / "otf-browser" / "cache";
   }
-  base /= "workspaces";
-  base /= std::to_string(workspace_id);
+  const std::filesystem::path base = cache_dir / "workspaces" / std::to_string(workspace_id);
   std::error_code ec;
   std::filesystem::create_directories(base, ec);
 
   CefRequestContextSettings settings;
+#if defined(_WIN32)
+  CefString(&settings.cache_path) = base.wstring();
+#else
   CefString(&settings.cache_path).FromString(base.string());
+#endif
   CefRefPtr<CefRequestContext> ctx =
       CefRequestContext::CreateContext(settings, nullptr);
   OtfApp* app = OtfApp::GetInstance();

@@ -32,14 +32,9 @@ const ScreenProfile kScreenProfiles[] = {
 };
 
 std::string GetFingerprintProfileFilePath() {
-  const std::string settings_path = GetSettingsFilePath();
-  if (settings_path.empty()) {
-    return "";
-  }
-  // Use the parent-path of the settings file (already computed via
-  // GetSettingsDir) so the fingerprint profile sits in the same data dir.
-  return (std::filesystem::path(settings_path).parent_path() /
-          "fingerprint_profile").string();
+  const std::filesystem::path dir = GetAppDataDir();
+  if (dir.empty()) return "";
+  return (dir / "fingerprint_profile").string();
 }
 
 const ScreenProfile* FindScreenProfileById(const std::string& id) {

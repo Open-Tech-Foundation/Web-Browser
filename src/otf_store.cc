@@ -11,22 +11,14 @@ namespace otf {
 namespace {
 
 std::string GetDatabasePath() {
-  std::filesystem::path base;
-  const std::string home = GetHomeDir();
-  if (!home.empty()) {
-    // Match the dev/prod split used by GetSettingsFilePath. The OTF_DEV_MODE
-    // env var (set by main.cc when --dev-ui-url is present) makes both the
-    // settings file and the sqlite db land under ~/.otf-browser-dev/ during
-    // local development.
-    base = std::filesystem::path(home) / GetUserDataDirName();
-  } else {
+  std::filesystem::path base = GetAppDataDir();
+  if (base.empty()) {
+    // GetAppDataDir already tried create_directories; fall back to a temp dir
+    // so the store can at least open in degraded environments.
     base = std::filesystem::temp_directory_path() / "otf-browser";
+    std::error_code ec;
+    std::filesystem::create_directories(base, ec);
   }
-  // Non-throwing overload — see GetSettingsFilePath for context. The
-  // sandboxed renderer hits this transitively too and would crash on the
-  // throwing overload's EPERM.
-  std::error_code ec;
-  std::filesystem::create_directories(base, ec);
   return (base / "browser.db").string();
 }
 

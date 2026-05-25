@@ -2,6 +2,7 @@
 #define OTF_BROWSER_UTILS_H_
 
 #include <cstdint>
+#include <filesystem>
 #include <initializer_list>
 #include <optional>
 #include <string>
@@ -49,12 +50,19 @@ std::string GetExecutableDir();
 std::string GetExecutablePath();
 std::string GetHomeDir();
 
-// Name of the user-data directory under $HOME. Returns ".otf-browser-dev"
-// when the OTF_DEV_MODE env var is set (package.json's `dev:browser` script
-// exports it), so a developer running 'bun run dev' on the same machine as
-// a packaged install gets isolated settings and SQLite data. Production
-// runs always get ".otf-browser".
-std::string GetUserDataDirName();
+// Platform-correct app data directory (settings, DB, fingerprint profile).
+// Windows: %APPDATA%\OTF Browser[\Dev]\
+// macOS:   ~/Library/Application Support/OTF Browser[\Dev]/
+// Linux:   $XDG_DATA_HOME/otf-browser[-dev]/ (~/.local/share/ fallback)
+// Tests:   $OTF_TEST_HOME/otf-browser[-dev]/
+std::filesystem::path GetAppDataDir();
+
+// Platform-correct cache directory (CEF HTTP cache, workspace contexts).
+// Windows: %LOCALAPPDATA%\OTF Browser[\Dev]\Cache\
+// macOS:   ~/Library/Caches/OTF Browser[\Dev]/
+// Linux:   $XDG_CACHE_HOME/otf-browser[-dev]/ (~/.cache/ fallback)
+// Tests:   $OTF_TEST_HOME/otf-browser[-dev]/cache/
+std::filesystem::path GetAppCacheDir();
 
 std::string GetSettingsFilePath();
 std::string GetDownloadsDir();
