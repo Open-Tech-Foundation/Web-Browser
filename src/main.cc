@@ -6,8 +6,6 @@
 #include <cstring>
 #include <string>
 
-// Defined by CMake via -DOTF_VERSION="…". Provide a fallback so the source
-// still compiles if someone builds bypassing CMake.
 #ifndef OTF_VERSION
 #define OTF_VERSION "0.0.0-unknown"
 #endif
@@ -44,23 +42,12 @@ std::string GetOtfUserAgent() {
 #endif
 }
 
-}  // namespace
-
+static int RunApp(int argc, char* argv[]) {
 #if defined(_WIN32)
-#include <windows.h>
-#include "include/cef_sandbox_win.h"
-#endif
-
-// Unified entry point for OTF Browser
-#if defined(_WIN32)
-int APIENTRY WinMain(HINSTANCE hInstance,
-                     HINSTANCE hPrevInstance,
-                     LPTSTR lpCmdLine,
-                     int nCmdShow) {
-  CefMainArgs main_args(hInstance);
+  // GUI subsystem — no console, so --version is not useful here.
+  // CefMainArgs on Windows takes HINSTANCE; obtain it from the module handle.
+  CefMainArgs main_args(GetModuleHandle(nullptr));
 #else
-int main(int argc, char* argv[]) {
-
   // Handle --version / -v before initializing CEF so users can identify a
   // packaged binary without launching a window. CEF sub-processes (renderer,
   // gpu, etc.) are spawned with a --type=… flag and never pass --version,
@@ -77,26 +64,33 @@ int main(int argc, char* argv[]) {
 
   CefRefPtr<otf::OtfApp> app(new otf::OtfApp());
 
-  // Execute the secondary process (renderer, plugin, etc) if needed.
   int exit_code = CefExecuteProcess(main_args, app.get(), nullptr);
   if (exit_code >= 0) {
     return exit_code;
   }
 
-  // Initialize CEF.
   CefSettings settings;
-  
-  // Use a professional cache path
-  // CefString(&settings.cache_path).FromASCII("./cache");
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
-
   CefInitialize(main_args, settings, app.get(), nullptr);
-
-  // Run the CEF message loop. This will block until the window is closed.
   CefRunMessageLoop();
-
-  // Shut down CEF.
   CefShutdown();
-
   return 0;
 }
+
+}  // namespace
+
+#if defined(_WIN32)
+#include <windows.h>
+#include "include/cef_sandbox_win.h"
+
+int APIENTRY wWinMain(HINSTANCE hInstance,
+                      HINSTANCE hPrevInstance,
+                      LPWSTR lpCmdLine,
+                      int nCmdShow) {
+  return RunApp(__argc, __argv);
+}
+#else
+int main(int argc, char* argv[]) {
+  return RunApp(argc, argv);
+}
+#endif
