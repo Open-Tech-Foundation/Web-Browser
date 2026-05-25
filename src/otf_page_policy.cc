@@ -263,8 +263,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
         ? NavigatorCtor.prototype
         : Object.getPrototypeOf(navigator);
       if (proto && !proto.__otfHardwarePolicy) {
-        defineGetter(proto, 'hardwareConcurrency', 4);
-        defineGetter(proto, 'deviceMemory', 4);
+        defineGetter(proto, 'hardwareConcurrency', 6);
+        defineGetter(proto, 'deviceMemory', 16);
         Object.defineProperty(proto, '__otfHardwarePolicy', {
           value: true,
           configurable: false,
@@ -273,8 +273,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
       }
       Object.defineProperty(globalThis, '__otfHardwareProfile', {
         value: Object.freeze({
-          hardwareConcurrency: 4,
-          deviceMemory: 4
+          hardwareConcurrency: 6,
+          deviceMemory: 16
         }),
         configurable: false,
         enumerable: false,
