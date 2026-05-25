@@ -339,6 +339,11 @@ std::string GetExecutablePath() {
 }
 
 std::string GetHomeDir() {
+  // Tests set OTF_TEST_HOME to redirect storage without touching platform APIs.
+  const char* test_home = std::getenv("OTF_TEST_HOME");
+  if (test_home && test_home[0] != '\0') {
+    return std::string(test_home);
+  }
 #if defined(_WIN32)
   PWSTR wide_profile = nullptr;
   std::string home_dir;

@@ -19,6 +19,14 @@ namespace fs = std::filesystem;
 
 namespace {
 
+static void SetTestHome(const fs::path& path) {
+#if defined(_WIN32)
+  _putenv_s("OTF_TEST_HOME", path.string().c_str());
+#else
+  setenv("OTF_TEST_HOME", path.c_str(), 1);
+#endif
+}
+
 void TestJsonEscape() {
   const std::string input = std::string("quote\" slash\\ line\n tab\t ctrl") +
                             static_cast<char>(0x01);
@@ -96,7 +104,7 @@ void TestStorePersistence() {
   fs::path temp_home = fs::temp_directory_path() / "otf-browser-store-tests-home";
   fs::remove_all(temp_home);
   fs::create_directories(temp_home);
-  setenv("HOME", temp_home.c_str(), 1);
+  SetTestHome(temp_home);
 
   otf::OtfStore store;
   assert(store.IsReady());
@@ -206,7 +214,7 @@ void TestSecureDeletePragma() {
   fs::path temp_home = fs::temp_directory_path() / "otf-browser-pragma-tests-home";
   fs::remove_all(temp_home);
   fs::create_directories(temp_home);
-  setenv("HOME", temp_home.c_str(), 1);
+  SetTestHome(temp_home);
 
   otf::OtfStore store;
   assert(store.IsReady());
@@ -219,7 +227,7 @@ void TestBookmarkRoundTrip() {
   fs::path temp_home = fs::temp_directory_path() / "otf-browser-bookmark-tests-home";
   fs::remove_all(temp_home);
   fs::create_directories(temp_home);
-  setenv("HOME", temp_home.c_str(), 1);
+  SetTestHome(temp_home);
 
   otf::OtfStore store;
   assert(store.IsReady());

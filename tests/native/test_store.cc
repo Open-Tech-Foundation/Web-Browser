@@ -8,6 +8,23 @@
 #include <string>
 #include <vector>
 
+namespace {
+static void SetEnv(const char* name, const char* value) {
+#if defined(_WIN32)
+  _putenv_s(name, value);
+#else
+  setenv(name, value, 1);
+#endif
+}
+static void UnsetEnv(const char* name) {
+#if defined(_WIN32)
+  _putenv_s(name, "");
+#else
+  unsetenv(name);
+#endif
+}
+} // namespace
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -16,8 +33,8 @@ void ResetTempHome(const std::string& name) {
   const fs::path temp_home = fs::temp_directory_path() / name;
   fs::remove_all(temp_home);
   fs::create_directories(temp_home);
-  setenv("HOME", temp_home.c_str(), 1);
-  unsetenv("OTF_DEV_MODE");
+  SetEnv("OTF_TEST_HOME", temp_home.string().c_str());
+  UnsetEnv("OTF_DEV_MODE");
 }
 
 void TestHistoryPersistenceAndFiltering() {
