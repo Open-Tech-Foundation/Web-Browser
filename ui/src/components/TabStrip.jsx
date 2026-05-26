@@ -67,6 +67,7 @@ const getTabIcon = (tab) => {
 };
 
 const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
+  if (tabs.length === 0) return null;
   const sortedTabs = useMemo(() => {
     const pinned = [];
     const unpinned = [];
@@ -154,13 +155,12 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
 
   return (
     <div className="flex items-end h-[29px] bg-slate-300/50 dark:bg-[#020617] overflow-hidden">
-      {isOverflowing && (
+      {isOverflowing && canScrollLeft && (
         <button
           onClick={() => scrollTabs(-1)}
-          disabled={!canScrollLeft}
           aria-label="Scroll tabs left"
           title="Scroll left"
-          className="h-[29px] min-w-[32px] px-1 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all disabled:opacity-30"
+          className="h-[29px] min-w-[32px] px-1 flex items-center justify-center shrink-0 border-r border-slate-400/20 dark:border-white/5 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all"
         >
           <div className="flex items-center gap-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -256,13 +256,12 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           </svg>
         </button>
       </div>
-      {isOverflowing && (
+      {isOverflowing && canScrollRight && (
         <button
           onClick={() => scrollTabs(1)}
-          disabled={!canScrollRight}
           aria-label="Scroll tabs right"
           title="Scroll right"
-          className="h-[29px] min-w-[32px] px-1 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all disabled:opacity-30"
+          className="h-[29px] min-w-[32px] px-1 flex items-center justify-center shrink-0 border-l border-slate-300/70 dark:border-white/10 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all"
         >
           <div className="flex items-center gap-0.5">
             {hiddenRight > 0 && <span key={`right-${hiddenRight}`} className="text-[11px] font-black leading-none animate-tab-count">{hiddenRight}</span>}
