@@ -179,6 +179,7 @@ const int MENU_ID_TAB_NEW = 10006;
 const int MENU_ID_TAB_MUTE = 10007;
 const int MENU_ID_TAB_UNMUTE = 10008;
 const int MENU_ID_COPY_EMAIL = 10009;
+const int MENU_ID_TAB_NEW_PRIVATE = 10010;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -5079,6 +5080,7 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
 
       model->Clear();
       model->AddItem(MENU_ID_TAB_NEW, "New Tab");
+      model->AddItem(MENU_ID_TAB_NEW_PRIVATE, "New Private Tab");
       model->AddSeparator();
       if (is_muted) {
         model->AddItem(MENU_ID_TAB_UNMUTE, "Unmute Tab");
@@ -5236,6 +5238,16 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
       NotifyNewTab(new_id, -1);
       app->SwitchTab(new_id);
       PersistWorkspaceForTab(new_id);
+      return true;
+    }
+  }
+
+  if (command_id == MENU_ID_TAB_NEW_PRIVATE) {
+    OtfApp* app = OtfApp::GetInstance();
+    if (app) {
+      int new_id = app->CreateTab("browser://newtab", -1, true);
+      NotifyNewTab(new_id, -1);
+      app->SwitchTab(new_id);
       return true;
     }
   }
