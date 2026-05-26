@@ -1102,7 +1102,7 @@ void OtfApp::HideToastOverlay() {
 void OtfApp::PositionToastOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (!window_ || !toast_overlay_ || !content_panel_ || !content_area_panel_) return;
-  constexpr int kOverlayWidth = 240;
+  constexpr int kOverlayWidth = 150;
   constexpr int kOverlayHeight = 32;
   CefRect area = content_area_panel_->GetBounds();
   CefRect panel = content_panel_->GetBounds();
