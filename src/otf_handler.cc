@@ -3934,7 +3934,8 @@ bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
   if (tab.is_image_preview) {
     return otf::IsPersistableWebUrl(tab.url);
   }
-  return otf::IsPersistableWebUrl(tab.url);
+  return otf::IsPersistableWebUrl(tab.url) &&
+         tab.url.rfind("browser://", 0) != 0;
 }
 
 }  // namespace
@@ -4034,6 +4035,8 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
       t.preview_local_path = local_path;
       t.preview_page = GetImagePreviewPageForTab(tab_id);
     } else {
+      const std::string scheme_url = tab_manager_->GetSchemeUrl(tab_id);
+      if (scheme_url.rfind("browser://", 0) == 0) continue;
       t.url = tab_manager_->GetUrl(tab_id);
     }
     if (!IsRestorableWorkspaceTab(t)) continue;

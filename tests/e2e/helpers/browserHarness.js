@@ -417,7 +417,7 @@ export async function navigateFromAddressBar(cdp, url) {
   await waitFor(cdp, `!!document.querySelector(${JSON.stringify(addressBarSelector)})`, Boolean);
   await clickSelector(cdp, addressBarSelector);
   await selectAll(cdp);
-  await typeTextWithKeys(cdp, url);
+  await typeText(cdp, url);
   await pressKey(cdp, 'Enter');
 }
 
@@ -463,7 +463,7 @@ export async function launchDevBrowser(options = {}) {
 
   try {
     if (options.settings) {
-      const settingsDir = path.join(tempHome, '.otf-browser-dev');
+      const settingsDir = path.join(tempHome, '.local', 'share', 'otf-browser-dev');
       await mkdir(settingsDir, { recursive: true });
       await writeFile(
         path.join(settingsDir, 'settings.json'),

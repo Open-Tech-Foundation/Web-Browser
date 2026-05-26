@@ -115,7 +115,8 @@ bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
   if (tab.is_image_preview) {
     return otf::IsPersistableWebUrl(tab.url);
   }
-  return otf::IsPersistableWebUrl(tab.url);
+  return otf::IsPersistableWebUrl(tab.url) &&
+         !StartsWith(tab.url, "browser://");
 }
 
 // Lazily load the OTF window icon from the PNG files shipped alongside the
