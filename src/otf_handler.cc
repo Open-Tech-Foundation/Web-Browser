@@ -67,6 +67,7 @@
 #include "include/cef_values.h"
 #include "include/internal/cef_time.h"
 #include "include/views/cef_browser_view.h"
+#include "include/views/cef_display.h"
 #include "include/views/cef_window.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
@@ -208,8 +209,59 @@ using ::otf::ParseUint32Strict;
 using ::otf::ParseUint64Strict;
 
 constexpr size_t kMaxTiffInputBytes = 64 * 1024 * 1024;
+constexpr int kPopupMinWidth = 320;
+constexpr int kPopupMinHeight = 240;
+constexpr int kPopupDefaultWidth = 600;
+constexpr int kPopupDefaultHeight = 700;
 
 std::string GetDataURI(const std::string& data, const std::string& mime_type);
+
+struct PopupPolicyDecision {
+  bool open_as_popup = false;
+  bool block = false;
+  int width = kPopupDefaultWidth;
+  int height = kPopupDefaultHeight;
+};
+
+std::pair<int, int> GetPopupMaxSize() {
+  int screen_width = 1920;
+  int screen_height = 1080;
+  CefRefPtr<CefDisplay> display = CefDisplay::GetPrimaryDisplay();
+  if (display) {
+    const CefRect bounds = display->GetBounds();
+    if (bounds.width > 0) screen_width = bounds.width;
+    if (bounds.height > 0) screen_height = bounds.height;
+  }
+  return {std::max(kPopupMinWidth, static_cast<int>(screen_width * 0.9)),
+          std::max(kPopupMinHeight, static_cast<int>(screen_height * 0.9))};
+}
+
+PopupPolicyDecision ClassifyPopupRequest(const CefPopupFeatures& features) {
+  PopupPolicyDecision decision;
+  const bool has_width = features.widthSet != 0;
+  const bool has_height = features.heightSet != 0;
+  decision.open_as_popup =
+      features.isPopup != 0 || has_width || has_height;
+  if (!decision.open_as_popup) {
+    return decision;
+  }
+
+  const auto [max_width, max_height] = GetPopupMaxSize();
+  decision.width = has_width ? features.width : kPopupDefaultWidth;
+  decision.height = has_height ? features.height : kPopupDefaultHeight;
+
+  if ((has_width &&
+       (decision.width < kPopupMinWidth || decision.width > max_width)) ||
+      (has_height &&
+       (decision.height < kPopupMinHeight || decision.height > max_height))) {
+    decision.block = true;
+    return decision;
+  }
+
+  decision.width = std::clamp(decision.width, kPopupMinWidth, max_width);
+  decision.height = std::clamp(decision.height, kPopupMinHeight, max_height);
+  return decision;
+}
 
 bool IsNonTabBrowserViewId(int view_id) {
   return view_id == kUiBrowserViewId ||
@@ -3425,24 +3477,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                          : -1;
       auto it = handler->pending_popups_.find(popup_id);
       if (it != handler->pending_popups_.end()) {
-        CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
-        if (!self) {
-          callback->Failure(1, "no handler");
-          return true;
-        }
-        CefRefPtr<CefRequestContext> rc;
-        if (handler->store_) rc = handler->GetActiveWorkspaceRequestContext();
-        CefRefPtr<CefDictionaryValue> extra;
         OtfApp* app = OtfApp::GetInstance();
-        if (app) extra = app->MakeBrowserExtraInfo();
-        CefWindowInfo wi;
-        wi.bounds = CefRect(100, 100, 800, 600);
-        wi.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-        ++handler->pending_external_popups_;
-        CefBrowserSettings bs;
-        ApplyJsPermission(bs, handler->store_.get(), it->second.url);
-        CefBrowserHost::CreateBrowser(wi, self, it->second.url,
-                                      bs, extra, rc);
+        handler->OpenAcceptedPopup(it->second);
         if (app) {
           if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
         }
@@ -3469,24 +3505,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
         auto it = handler->pending_popups_.find(popup_id);
         if (it != handler->pending_popups_.end()) {
-          CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
-          if (!self) {
-            callback->Failure(1, "no handler");
-            return true;
-          }
-          CefRefPtr<CefRequestContext> rc;
-          if (handler->store_) rc = handler->GetActiveWorkspaceRequestContext();
-          CefRefPtr<CefDictionaryValue> extra;
           OtfApp* app = OtfApp::GetInstance();
-          if (app) extra = app->MakeBrowserExtraInfo();
-          CefWindowInfo wi;
-          wi.bounds = CefRect(100, 100, 800, 600);
-          wi.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-          ++handler->pending_external_popups_;
-          CefBrowserSettings bs;
-          ApplyJsPermission(bs, handler->store_.get(), it->second.url);
-          CefBrowserHost::CreateBrowser(wi, self, it->second.url,
-                                        bs, extra, rc);
+          handler->OpenAcceptedPopup(it->second);
           if (app) {
             if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
           }
@@ -4242,6 +4262,41 @@ void OtfHandler::NotifyNewTab(int new_tab_id, int parent_tab_id) {
                 .Build());
 }
 
+void OtfHandler::OpenAcceptedPopup(const PendingPopup& popup) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (popup.open_as_popup) {
+    CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
+    if (!self) {
+      return;
+    }
+    CefWindowInfo wi;
+    wi.bounds = CefRect(100, 100, popup.popup_width, popup.popup_height);
+    wi.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
+    CefBrowserSettings bs;
+    ApplyJsPermission(bs, store_.get(), popup.url);
+    CefRefPtr<CefDictionaryValue> extra;
+    if (app) extra = app->MakeBrowserExtraInfo();
+    CefRefPtr<CefRequestContext> rc =
+        popup.opener_private ? GetPrivateRequestContext()
+                             : GetActiveWorkspaceRequestContext();
+    ++pending_external_popups_;
+    CefBrowserHost::CreateBrowser(wi, self, popup.url, bs, extra, rc);
+    return;
+  }
+
+  if (!app || !tab_manager_) {
+    return;
+  }
+  pending_new_tab_urls_.insert(popup.url);
+  const int new_id =
+      app->CreateTab(popup.url, popup.parent_tab_id, popup.opener_private);
+  if (popup.url.rfind("browser://", 0) == 0) {
+    tab_manager_->SetSchemeUrl(new_id, popup.url);
+  }
+  NotifyNewTab(new_id, popup.parent_tab_id);
+  app->SwitchTab(new_id);
+}
+
 void OtfHandler::NotifyBookmarkStateForTab(int tab_id) {
   if (tab_id < 0 || !store_ || !tab_manager_) {
     return;
@@ -4700,95 +4755,77 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
   CEF_REQUIRE_UI_THREAD();
   (void)browser;
   (void)popup_id;
-  (void)target_frame_name;
-  (void)user_gesture;
-  (void)popupFeatures;
   (void)windowInfo;
   (void)client;
   (void)settings;
   (void)extra_info;
   (void)no_javascript_access;
 
-  // Popup gate. Returning true cancels the popup; returning false lets CEF
-  // create it. The policy is intentionally simple: deny by default, only the
-  // explicit-allow branch creates a window. Do not add fall-through paths
-  // that call CreateBrowser — every new condition must end in an explicit
-  // allow or block decision.
-
   const std::string raw_target = target_url.ToString();
-  const bool is_new_tab_disposition =
-      target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
-      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB;
 
-  // 1. Dangerous schemes are never allowed via window.open.
-  //    An empty target_url is treated as dangerous too: Chromium strips
-  //    javascript:/data: down to empty before delivering OnBeforePopup, so
-  //    "empty" is the fingerprint of a stripped dangerous scheme — not a
-  //    legitimate navigation. Plain window.open() with no URL is rare enough
-  //    that denying it is the right default.
+  // Empty or dangerous targets are denied. Chromium may strip dangerous
+  // javascript:/data: targets down to empty before delivering this callback.
   if (raw_target.empty() || IsDangerousSchemeUrl(raw_target)) {
     return true;
   }
 
-  // 2. Resolve the popup permission for the opener origin.
-  //    No store, or no parseable origin → deny. We cannot ask the user for
-  //    permission on behalf of an origin we cannot identify.
-  //    The permission gate covers every popup variant — window.open popups,
-  //    target=_blank links, middle-click and ctrl-click new tabs — so a site
-  //    can never spawn a new window/tab without an explicit "allow" setting.
   const std::string origin =
       frame ? ExtractOrigin(frame->GetURL().ToString()) : std::string();
   if (!store_ || origin.empty()) {
     return true;
   }
 
-  const std::string setting = store_->GetSitePermission(origin, "popup");
-
-  // 3. Explicit allow → create. Dispatch by disposition: new-tab dispositions
-  //    open inside the existing window's tab strip; everything else opens a
-  //    standalone OS popup window.
-  if (setting == "allow") {
-    // Links opened from a private tab must stay private — inherit the opener's
-    // private flag for both new tabs and standalone popup windows.
-    const bool opener_private =
-        tab_manager_ && tab_manager_->IsPrivate(tab_manager_->GetId(browser));
-    if (is_new_tab_disposition) {
-      pending_new_tab_urls_.insert(raw_target);
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && tab_manager_) {
-        int parent_id = tab_manager_->GetId(browser);
-        int new_id = app->CreateTab(raw_target, parent_id, opener_private);
-        if (raw_target.rfind("browser://", 0) == 0) {
-          tab_manager_->SetSchemeUrl(new_id, raw_target);
-        }
-        NotifyNewTab(new_id, parent_id);
-        if (target_disposition == CEF_WOD_NEW_FOREGROUND_TAB) {
-          app->SwitchTab(new_id);
-        }
-      }
-      return true;
-    }
-
-    CefRefPtr<OtfHandler> self = OtfHandler::GetInstance();
-    if (!self) return true;
-    CefWindowInfo popup_info;
-    popup_info.bounds = CefRect(100, 100, 800, 600);
-    popup_info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
-    CefBrowserSettings popup_settings;
-    CefRefPtr<CefRequestContext> rc =
-        opener_private ? GetPrivateRequestContext()
-                       : GetActiveWorkspaceRequestContext();
-    CefRefPtr<CefDictionaryValue> extra;
-    if (OtfApp* a = OtfApp::GetInstance()) extra = a->MakeBrowserExtraInfo();
-    ++pending_external_popups_;
-    ApplyJsPermission(popup_settings, store_.get(), raw_target);
-    CefBrowserHost::CreateBrowser(popup_info, self, raw_target,
-                                  popup_settings, extra, rc);
+  const PopupPolicyDecision decision = ClassifyPopupRequest(popupFeatures);
+  if (decision.block) {
     return true;
   }
 
-  // Block: record the pending popup, surface the prompt if needed, notify UI.
+  // User activation is required for any popup/tab creation from this hook.
+  // Middle/ctrl/cmd-clicks are handled separately by OnOpenURLFromTab().
+  if (!user_gesture) {
+    return true;
+  }
+
   const int parent_tab_id = tab_manager_ ? tab_manager_->GetId(browser) : 0;
+  const bool opener_private =
+      tab_manager_ && tab_manager_->IsPrivate(parent_tab_id);
+  const std::string target_name = target_frame_name.ToString();
+  const bool tab_disposition =
+      target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_WINDOW;
+
+  if ((target_name == "_blank" || tab_disposition) && !decision.open_as_popup) {
+    PendingPopup tab_request;
+    tab_request.url = raw_target;
+    tab_request.origin = origin;
+    tab_request.parent_tab_id = parent_tab_id;
+    tab_request.open_as_popup = false;
+    tab_request.opener_private = opener_private;
+    OpenAcceptedPopup(tab_request);
+    return true;
+  }
+
+  const std::string setting = store_->GetSitePermission(origin, "popup");
+
+  if (setting == "allow") {
+    PendingPopup allowed;
+    allowed.url = raw_target;
+    allowed.origin = origin;
+    allowed.parent_tab_id = parent_tab_id;
+    allowed.open_as_popup = decision.open_as_popup;
+    allowed.popup_width = decision.width;
+    allowed.popup_height = decision.height;
+    allowed.opener_private = opener_private;
+    OpenAcceptedPopup(allowed);
+    return true;
+  }
+
+  if (setting == "block") {
+    return true;
+  }
+
+  // Ask mode: block now, remember the exact policy decision for Allow once.
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
   for (auto pit = pending_popups_.begin(); pit != pending_popups_.end();) {
     if (pit->second.expires_at > 0 && pit->second.expires_at < now)
@@ -4797,7 +4834,16 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
       ++pit;
   }
   const int pending_id = next_pending_popup_id_++;
-  pending_popups_[pending_id] = {raw_target, origin, parent_tab_id, now + 30};
+  PendingPopup pending;
+  pending.url = raw_target;
+  pending.origin = origin;
+  pending.parent_tab_id = parent_tab_id;
+  pending.expires_at = now + 30;
+  pending.open_as_popup = decision.open_as_popup;
+  pending.popup_width = decision.width;
+  pending.popup_height = decision.height;
+  pending.opener_private = opener_private;
+  pending_popups_[pending_id] = pending;
   popup_ask_pending_id_ = pending_id;
   popup_ask_pending_url_ = raw_target;
   popup_ask_pending_origin_ = origin;
@@ -4814,7 +4860,7 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
             .AddString("origin", *porigin)
             .Build();
       });
-      if (setting != "block") ov->Show();
+      ov->Show();
     }
   }
   SendEvent(JsonObjectBuilder()
@@ -5490,6 +5536,50 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
   }
 
   return false;
+}
+
+bool OtfHandler::OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,
+                                  CefRefPtr<CefFrame> frame,
+                                  const CefString& target_url,
+                                  cef_window_open_disposition_t target_disposition,
+                                  bool user_gesture) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)frame;
+
+  const std::string raw_target = target_url.ToString();
+  const bool is_new_context_disposition =
+      target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_WINDOW;
+  if (!is_new_context_disposition) {
+    return false;
+  }
+  if (!user_gesture) {
+    return true;
+  }
+  if (raw_target.empty() || IsDangerousSchemeUrl(raw_target)) {
+    return true;
+  }
+
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !tab_manager_) {
+    return true;
+  }
+
+  const bool opener_private =
+      tab_manager_->IsPrivate(tab_manager_->GetId(browser));
+  pending_new_tab_urls_.insert(raw_target);
+  const int parent_id = tab_manager_->GetId(browser);
+  const int new_id = app->CreateTab(raw_target, parent_id, opener_private);
+  if (raw_target.rfind("browser://", 0) == 0) {
+    tab_manager_->SetSchemeUrl(new_id, raw_target);
+  }
+  NotifyNewTab(new_id, parent_id);
+  if (target_disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
+      target_disposition == CEF_WOD_NEW_WINDOW) {
+    app->SwitchTab(new_id);
+  }
+  return true;
 }
 
 bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,

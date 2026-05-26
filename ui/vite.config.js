@@ -39,6 +39,8 @@ export default defineConfig({
         blockedpopup: resolve(__dirname, 'blockedpopup.html'),
         downloadrequest: resolve(__dirname, 'downloadrequest.html'),
         linkpreview: resolve(__dirname, 'linkpreview.html'),
+        'popup-intent': resolve(__dirname, 'popup-intent.html'),
+        'popup-intent-target': resolve(__dirname, 'popup-intent-target.html'),
         console: resolve(__dirname, 'console.html')
       }
     }

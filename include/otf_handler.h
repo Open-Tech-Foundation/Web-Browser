@@ -178,6 +178,11 @@ class OtfHandler : public CefClient,
                       CefRefPtr<CefRequest> request,
                       bool user_gesture,
                       bool is_redirect) override;
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,
+                         CefRefPtr<CefFrame> frame,
+                         const CefString& target_url,
+                         cef_window_open_disposition_t target_disposition,
+                         bool user_gesture) override;
   bool OnCertificateError(CefRefPtr<CefBrowser> browser,
                           ErrorCode cert_error,
                           const CefString& request_url,
@@ -331,13 +336,17 @@ class OtfHandler : public CefClient,
     std::string origin;
     int parent_tab_id = 0;
     int64_t expires_at = 0;
+    bool open_as_popup = true;
+    int popup_width = 600;
+    int popup_height = 700;
+    bool opener_private = false;
   };
   std::map<int, PendingPopup> pending_popups_;
   int next_pending_popup_id_ = 1;
   int pending_external_popups_ = 0;
 
   // URLs that are being opened in a new tab via middle-click or ctrl+click.
-  // Populated in OnBeforePopup, consumed (and erased) in OnBeforeBrowse so
+  // Populated in OnOpenURLFromTab, consumed (and erased) in OnBeforeBrowse so
   // the source tab does not navigate to the same URL.
   std::set<std::string> pending_new_tab_urls_;
 
@@ -372,6 +381,7 @@ class OtfHandler : public CefClient,
   // wiped. All private tabs across workspaces share this single context.
   CefRefPtr<CefRequestContext> GetPrivateRequestContext();
   void MaybeReleasePrivateContext();
+  void OpenAcceptedPopup(const PendingPopup& popup);
   CefRefPtr<CefRequestContext> private_context_;
   // Site-data inspection/clearing must act on the request context of the tab
   // whose data is being viewed — never blindly on the global profile.

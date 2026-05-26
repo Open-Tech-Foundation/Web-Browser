@@ -49,7 +49,8 @@
         "permission-controls.test.js",
         "javascript-permission.test.js",
         "image-permission.test.js",
-        "popup-scheme.test.js"
+        "popup-scheme.test.js",
+        "popup-intent.test.js"
       ]
     }
   ]

@@ -152,9 +152,11 @@ test('popup site permission prompts once, blocks, and allows by site setting',
         <html>
           <head><title>Popup Permission E2E</title></head>
           <body>
-            <button id="ask-popup" onclick="window.open('/popup?case=ask')">ask</button>
-            <button id="blocked-popup" onclick="window.open('/popup?case=blocked')">blocked</button>
-            <button id="allowed-popup" onclick="window.open('/popup?case=allowed')">allowed</button>
+            <button id="ask-popup" onclick="window.open('/popup?case=ask', '_blank', 'popup=yes')">ask</button>
+            <button id="blocked-popup" onclick="window.open('/popup?case=blocked', '_blank', 'popup=yes')">blocked</button>
+            <button id="expired-popup" onclick="setTimeout(() => window.open('/popup?case=expired', '_blank', 'popup=yes'), 5500)">expired</button>
+            <button id="small-popup" onclick="window.open('/popup?case=small', '_blank', 'popup=yes,width=100,height=100')">small</button>
+            <button id="allowed-popup" onclick="window.open('/popup?case=allowed', '_blank', 'popup=yes')">allowed</button>
           </body>
         </html>`);
     });
@@ -164,6 +166,13 @@ test('popup site permission prompts once, blocks, and allows by site setting',
     let blockedPopupCdp = null;
     let popupCdp = null;
     try {
+      const isPermissionPageTarget = (target) => {
+        const targetUrl = target.url || '';
+        return targetUrl === server.origin ||
+          targetUrl === `${server.origin}/` ||
+          /Popup Permission E2E/i.test(target.title || '');
+      };
+
       await navigateFromAddressBar(browser.cdp, server.origin);
       await waitFor(
         browser.cdp,
@@ -173,19 +182,13 @@ test('popup site permission prompts once, blocks, and allows by site setting',
         (value) => value.includes(server.origin.replace(/^https?:\/\//, '')),
         15000,
       );
-      pageCdp = await browser.connectToTarget((target) =>
-        (target.url || '').startsWith(server.origin) ||
-        /Popup Permission E2E/i.test(target.title || ''),
-      );
+      pageCdp = await browser.connectToTarget(isPermissionPageTarget);
       await waitFor(pageCdp, `!!document.querySelector('#ask-popup')`, Boolean, 15000);
 
       await setSitePermissionFromUi(browser, server.origin, 'popup', 'ask');
       await navigateFromAddressBar(browser.cdp, server.origin);
       if (pageCdp) pageCdp.close();
-      pageCdp = await browser.connectToTarget((target) =>
-        (target.url || '').startsWith(server.origin) ||
-        /Popup Permission E2E/i.test(target.title || ''),
-      );
+      pageCdp = await browser.connectToTarget(isPermissionPageTarget);
       await waitFor(pageCdp, `!!document.querySelector('#ask-popup')`, Boolean, 15000);
       await clickSelector(pageCdp, '#ask-popup');
       await waitFor(browser.cdp, `!!document.querySelector('button[title="Pop-up blocked"]')`, Boolean, 15000);
@@ -216,10 +219,7 @@ test('popup site permission prompts once, blocks, and allows by site setting',
       await setSitePermissionFromUi(browser, server.origin, 'popup', 'block');
       await navigateFromAddressBar(browser.cdp, server.origin);
       if (pageCdp) pageCdp.close();
-      pageCdp = await browser.connectToTarget((target) =>
-        (target.url || '').startsWith(server.origin) ||
-        /Popup Permission E2E/i.test(target.title || ''),
-      );
+      pageCdp = await browser.connectToTarget(isPermissionPageTarget);
       await waitFor(pageCdp, `!!document.querySelector('#blocked-popup')`, Boolean, 15000);
       const beforeBlocked = popupRequestCount;
       await clickSelector(pageCdp, '#blocked-popup');
@@ -229,11 +229,23 @@ test('popup site permission prompts once, blocks, and allows by site setting',
       await setSitePermissionFromUi(browser, server.origin, 'popup', 'allow');
       await navigateFromAddressBar(browser.cdp, server.origin);
       if (pageCdp) pageCdp.close();
-      pageCdp = await browser.connectToTarget((target) =>
-        (target.url || '').startsWith(server.origin) ||
-        /Popup Permission E2E/i.test(target.title || ''),
+      pageCdp = await browser.connectToTarget(isPermissionPageTarget);
+      await waitFor(
+        pageCdp,
+        `!!document.querySelector('#expired-popup') && !!document.querySelector('#small-popup') && !!document.querySelector('#allowed-popup')`,
+        Boolean,
+        15000,
       );
-      await waitFor(pageCdp, `!!document.querySelector('#allowed-popup')`, Boolean, 15000);
+      const beforeExpired = popupRequestCount;
+      await clickSelector(pageCdp, '#expired-popup');
+      await sleep(6500);
+      assert.equal(popupRequestCount, beforeExpired, 'expired activation popup should not reach the test server');
+
+      const beforeSmall = popupRequestCount;
+      await clickSelector(pageCdp, '#small-popup');
+      await sleep(1000);
+      assert.equal(popupRequestCount, beforeSmall, 'too-small popup should not reach the test server');
+
       await clickSelector(pageCdp, '#allowed-popup');
       popupCdp = await browser.connectToTarget((target) =>
         (target.url || '').startsWith(`${server.origin}/popup?case=allowed`) ||
