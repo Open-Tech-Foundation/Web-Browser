@@ -93,7 +93,7 @@ test('popup gating blocks window.open but allows user-intended new tabs',
       );
       await waitFor(
         pageCdp,
-        `!!document.querySelector('#js-open') && !!document.querySelector('#plain-link') && !!document.querySelector('#middle-link') && !!document.querySelector('#ctrl-link')`,
+        `!!document.querySelector('#js-open') && !!document.querySelector('#plain-link') && !!document.querySelector('#self-link') && !!document.querySelector('#parent-link') && !!document.querySelector('#top-link') && !!document.querySelector('#middle-link') && !!document.querySelector('#ctrl-link')`,
         Boolean,
         15000,
       );
@@ -127,6 +127,51 @@ test('popup gating blocks window.open but allows user-intended new tabs',
       );
       blankTabCdp.close();
       blankTabCdp = null;
+
+      await clickSelectorWithMouse(pageCdp, '#self-link');
+      await waitFor(
+        pageCdp,
+        `location.href`,
+        (href) => href.startsWith(`${targetBaseUrl}?mode=self`),
+        15000,
+      );
+      await navigateFromAddressBar(browser.cdp, popupUrl);
+      pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(popupUrl) ||
+        /Popup Intent E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#parent-link')`, Boolean, 15000);
+
+      await clickSelectorWithMouse(pageCdp, '#parent-link');
+      await waitFor(
+        pageCdp,
+        `location.href`,
+        (href) => href.startsWith(`${targetBaseUrl}?mode=parent`),
+        15000,
+      );
+      await navigateFromAddressBar(browser.cdp, popupUrl);
+      pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(popupUrl) ||
+        /Popup Intent E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#top-link')`, Boolean, 15000);
+
+      await clickSelectorWithMouse(pageCdp, '#top-link');
+      await waitFor(
+        pageCdp,
+        `location.href`,
+        (href) => href.startsWith(`${targetBaseUrl}?mode=top`),
+        15000,
+      );
+      await navigateFromAddressBar(browser.cdp, popupUrl);
+      pageCdp.close();
+      pageCdp = await browser.connectToTarget((target) =>
+        (target.url || '').startsWith(popupUrl) ||
+        /Popup Intent E2E/i.test(target.title || ''),
+      );
+      await waitFor(pageCdp, `!!document.querySelector('#middle-link')`, Boolean, 15000);
 
       await clickSelectorWithMouse(pageCdp, '#middle-link', { button: 'middle' });
       middleTabCdp = await browser.connectToTarget((target) =>
