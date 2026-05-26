@@ -207,40 +207,6 @@ const privacySecurityRows = [
   },
 ];
 
-const featureRows = [
-  { feature: "Tabs", status: "Complete", notes: "Native tab strip, tab lifecycle, and active-tab state." },
-  { feature: "New tab page", status: "Complete", notes: "Browser-owned new tab experience with search entry." },
-  { feature: "Keyboard shortcuts", status: "Complete", notes: "Browser shortcuts and page shortcuts are wired." },
-  { feature: "Find in page", status: "Complete", notes: "Browser-owned find UI with per-tab behavior." },
-  { feature: "Search engine selection", status: "Complete", notes: "User-selectable search engine support." },
-  { feature: "Address-bar URL resolution", status: "Complete", notes: "DNS-backed URL/search resolver with clean query encoding." },
-  { feature: "Selected-text search", status: "Complete", notes: "Context menu search uses the current search engine and selected text." },
-  { feature: "Native image preview", status: "Complete", notes: "Tab-unique interactive preview overlay with full zoom, rotation, panning, copying, and download integration." },
-  { feature: "Bookmarks", status: "Complete", notes: "Bookmark storage, state, and UI integration." },
-  { feature: "History", status: "Complete", notes: "History page and persistence controls follow privacy settings." },
-  { feature: "Downloads", status: "Complete", notes: "Download tracking and downloads page." },
-  { feature: "On-startup pages", status: "Complete", notes: "User-configurable startup behavior with URL validation." },
-  { feature: "Security settings", status: "Complete", notes: "Security controls surfaced in settings." },
-  { feature: "Privacy settings", status: "Complete", notes: "History/download defaults and reset behavior." },
-  { feature: "Certificate viewer", status: "Complete", notes: "Current-tab SSL certificate API and viewer support." },
-  { feature: "Protection test center", status: "Complete", notes: "The website protection test center reports privacy and security policy coverage." },
-  { feature: "HTTP insecure blocking", status: "Complete", notes: "HTTP block page and red security state." },
-  { feature: "Reset browser data", status: "Complete", notes: ["Settings", "History", "Bookmarks", "SSL exceptions", "HTTP auth", "Connections", "Cache", "Cookies"] },
-  { feature: "Target blank handling", status: "Complete", notes: "Opens target=_blank navigations in a new tab." },
-  { feature: "Password manager", status: "Planned", notes: "No built-in password storage or sync manager yet." },
-  { feature: "Sync", status: "Planned", notes: "No account-based sync layer yet." },
-  { feature: "Extensions", status: "Not supported", notes: "Extension platform is intentionally not exposed yet." },
-  { feature: "Profiles", status: "Planned", notes: "Profile isolation is not fully implemented." },
-  { feature: "Workspaces", status: "Planned", notes: "Workspace behavior is planned/in progress." },
-  { feature: "Bookmarks bar", status: "Partial", notes: "Bookmark viewing exists; full bar parity is not complete." },
-  { feature: "Multi-window", status: "Partial", notes: "Core windows exist; workflow parity is still evolving." },
-  { feature: "QR code for page", status: "Planned", notes: "Generate QR codes for URLs to easily share pages to mobile devices." },
-  { feature: "Print", status: "Planned", notes: "Native PDF printing and printer dialog support." },
-  { feature: "Private tab", status: "Planned", notes: "Ephemeral browsing session per tab with automatic data isolation." },
-];
-
-
-
 function renderCellContent(value) {
   if (Array.isArray(value)) {
     return (
@@ -256,23 +222,6 @@ function renderCellContent(value) {
   }
 
   return value;
-}
-
-function StatusBadge({ status }) {
-  const color =
-    status === "Complete"
-      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-      : status === "Partial"
-        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-        : status === "Planned"
-          ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
-          : "bg-neutral-500/10 text-neutral-600 dark:text-neutral-400 border-neutral-500/20";
-
-  return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${color}`}>
-      {status}
-    </span>
-  );
 }
 
 export default function HomePage() {
@@ -407,39 +356,6 @@ export default function HomePage() {
           </table>
         </div>
       </section>
-
-      <section className="py-28 px-6 bg-white/[0.04]">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-12">
-            <h2 className="text-4xl font-bold mb-6" style="color: var(--foreground);">Feature Parity</h2>
-            <p className="max-w-3xl leading-relaxed" style="color: var(--muted);">
-              Current browser feature coverage, including completed browser fundamentals and areas still intentionally unsupported or in progress.
-            </p>
-          </div>
-
-          <div className="overflow-x-auto rounded-3xl border transition-colors" style="background-color: var(--bg-card); border-color: var(--border);">
-            <table className="w-full min-w-[900px] text-left border-collapse">
-              <thead>
-                <tr className="border-b" style="background-color: color-mix(in srgb, var(--foreground) 3%, transparent); border-color: var(--border);">
-                  <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Feature</th>
-                  <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Status</th>
-                  <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {featureRows.map((row) => (
-                  <tr key={row.feature} className="border-b transition-colors hover:bg-neutral-500/5" style="border-color: var(--border);">
-                    <td className="p-5 font-bold" style="color: var(--foreground);">{row.feature}</td>
-                    <td className="p-5"><StatusBadge status={row.status} /></td>
-                    <td className="p-5" style="color: var(--muted);">{renderCellContent(row.notes)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
 
     </div>
   );
