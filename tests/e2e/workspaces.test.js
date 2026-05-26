@@ -13,6 +13,44 @@ import {
   waitFor,
 } from './helpers/browserHarness.js';
 
+// Delete a workspace by name via the popup UI.
+// Clicks the (normally opacity-0) trash icon in the workspace row — pointer-events
+// are still active regardless of opacity — then confirms the deletion dialog.
+// Returns once the workspace name is gone from the popup list.
+async function deleteWorkspace(workspaceCdp, name) {
+  // Find the trash button inside the workspace row (it has no text — just an SVG icon).
+  const rect = await workspaceCdp.evaluate(`
+    (() => {
+      const nameBtn = [...document.querySelectorAll('button')]
+        .find((b) => (b.textContent || '').trim() === ${JSON.stringify(name)});
+      if (!nameBtn) return null;
+      const row = nameBtn.closest('[class*="group"]');
+      if (!row) return null;
+      const del = row.querySelector('button[title="Delete"]');
+      if (!del) return null;
+      del.scrollIntoView({ block: 'center', inline: 'center' });
+      const r = del.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, width: r.width, height: r.height };
+    })()
+  `);
+  assert.ok(rect, `delete button not found for workspace: ${name}`);
+  await workspaceCdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rect.x, y: rect.y, buttons: 0 });
+  await workspaceCdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: rect.x, y: rect.y, button: 'left', buttons: 1, clickCount: 1 });
+  await workspaceCdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: rect.x, y: rect.y, button: 'left', buttons: 0, clickCount: 1 });
+
+  // Wait for confirmation row, then click the text "Delete" button (the icon buttons have no text).
+  await waitFor(workspaceCdp, `document.body.innerText`, (t) => t.includes('Delete “'), 5000);
+  await clickByText(workspaceCdp, 'button', 'Delete');
+
+  // Wait until the workspace is gone from the list.
+  await waitFor(
+    workspaceCdp,
+    `!![...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === ${JSON.stringify(name)})`,
+    (found) => !found,
+    15000,
+  );
+}
+
 // Create a new workspace via the popup UI and switch to it.
 // Returns once the shell toolbar reflects the new workspace name.
 async function createAndSwitchWorkspace(browser, name) {
@@ -129,5 +167,53 @@ test('cookie and localStorage are isolated between workspaces',
     } finally {
       await browser.close();
       await server.close();
+    }
+  });
+
+test('deleting a workspace removes it from the list and restores the default workspace',
+  { timeout: timeoutMs + 45000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    try {
+      const ws2Name = `Delete-Me-${Date.now()}`;
+      await createAndSwitchWorkspace(browser, ws2Name);
+
+      // Confirm we are now in workspace 2.
+      const labelBefore = await browser.cdp.evaluate(
+        `document.querySelector('button[title="Workspaces"]')?.textContent || ''`
+      );
+      assert.ok(labelBefore.includes(ws2Name), `expected active workspace to be ${ws2Name}`);
+
+      // Open the popup and delete workspace 2.
+      await clickSelector(browser.cdp, 'button[title="Workspaces"]');
+      const workspaceCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Workspaces' ||
+        /workspace\.html/i.test(target.url || ''),
+        15000,
+      );
+      try {
+        await waitFor(
+          workspaceCdp,
+          `!![...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === ${JSON.stringify(ws2Name)})`,
+          Boolean,
+        );
+        await deleteWorkspace(workspaceCdp, ws2Name);
+      } finally {
+        workspaceCdp.close();
+      }
+
+      // Shell toolbar must revert to the default workspace (workspace 1).
+      await waitFor(
+        browser.cdp,
+        `document.querySelector('button[title="Workspaces"]')?.textContent || ''`,
+        (text) => !text.includes(ws2Name),
+        15000,
+      );
+      const labelAfter = await browser.cdp.evaluate(
+        `document.querySelector('button[title="Workspaces"]')?.textContent || ''`
+      );
+      assert.ok(!labelAfter.includes(ws2Name), `deleted workspace must not appear in toolbar, got: ${labelAfter}`);
+    } finally {
+      await browser.close();
     }
   });
