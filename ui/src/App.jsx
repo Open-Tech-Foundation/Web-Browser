@@ -87,6 +87,7 @@ const App = () => {
     activeWorkspaceId: null,
   });
   const [searchEngine, setSearchEngine] = React.useState('');
+  const [customEngines, setCustomEngines] = React.useState([]);
   const [downloadBadge, setDownloadBadge] = React.useState(0);
   const [hasDownloads, setHasDownloads] = React.useState(false);
   const [blockedPopupOrigin, setBlockedPopupOrigin] = React.useState('');
@@ -177,6 +178,7 @@ const App = () => {
           try {
             const settings = JSON.parse(response);
             setSearchEngine(settings.searchEngine || '');
+            setCustomEngines(settings.customSearchEngines || []);
             setAppearanceMode(settings.appearanceMode || 'auto');
           } catch (e) {}
         }
@@ -199,12 +201,15 @@ const App = () => {
             } else if (event.key === 'load-end') {
             } else if (event.key === 'settings-changed') {
               const nextSearchEngine = event.settings?.searchEngine || '';
+              const nextCustomEngines = event.settings?.customSearchEngines || [];
               setSearchEngine(nextSearchEngine);
+              setCustomEngines(nextCustomEngines);
               setAppearanceMode(event.settings?.appearanceMode || 'auto');
               window.dispatchEvent(
                 new CustomEvent('otf-settings-changed', {
                   detail: {
                     searchEngine: nextSearchEngine,
+                    customEngines: nextCustomEngines,
                   },
                 })
               );
@@ -310,6 +315,7 @@ const App = () => {
                 try {
                   const settings = JSON.parse(response);
                   setSearchEngine(settings.searchEngine || '');
+                  setCustomEngines(settings.customSearchEngines || []);
                 } catch (e) {}
               }
             });
@@ -320,7 +326,7 @@ const App = () => {
       window.cefQuery({
         request: `resolve-input-url:${input.length}:${input}`,
         onSuccess: navigateTo,
-        onFailure: () => navigateTo(resolveUrl(input, searchEngine))
+        onFailure: () => navigateTo(resolveUrl(input, searchEngine, customEngines))
       });
     }
   };

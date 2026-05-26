@@ -28,12 +28,14 @@ const SearchHero = ({ tabId }) => {
     if (cached && cached.engine) return cached.engine;
     return localStorage.getItem('otf_last_engine') || '';
   });
+  const [customEngines, setCustomEngines] = useState([]);
   const inputRef = useRef(null);
 
   useEffect(() => {
     const handleSettingsChanged = (event) => {
       const nextEngine = event.detail?.searchEngine || '';
       setEngine(nextEngine);
+      setCustomEngines(event.detail?.customEngines || []);
       try {
         if (nextEngine) {
           localStorage.setItem('otf_last_engine', nextEngine);
@@ -70,6 +72,7 @@ const SearchHero = ({ tabId }) => {
         onSuccess: (response) => {
           try {
             const s = JSON.parse(response);
+            setCustomEngines(s.customSearchEngines || []);
             if (s.searchEngine) {
                setEngine(s.searchEngine);
                localStorage.setItem('otf_last_engine', s.searchEngine);
@@ -82,6 +85,10 @@ const SearchHero = ({ tabId }) => {
       });
     }
   }, []);
+
+  const engineDisplayName = engine
+    ? (customEngines.find(e => e.id === engine)?.name || engine.charAt(0).toUpperCase() + engine.slice(1))
+    : '';
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && query.trim()) {
@@ -99,7 +106,7 @@ const SearchHero = ({ tabId }) => {
       window.cefQuery({
         request: `resolve-input-url:${input.length}:${input}`,
         onSuccess: navigateTo,
-        onFailure: () => navigateTo(resolveUrl(input, engine))
+        onFailure: () => navigateTo(resolveUrl(input, engine, customEngines))
       });
     }
   };
@@ -111,7 +118,7 @@ const SearchHero = ({ tabId }) => {
         <div className="relative flex items-center bg-card/80 backdrop-blur-xl border border-main rounded-2xl
                         group-focus-within:border-orange-500/40 group-focus-within:bg-card shadow-2xl transition-all duration-500">
           <div className="w-6 h-6 ml-5 shrink-0 flex items-center justify-center">
-            {engine ? <EngineLogo id={engine} name={engine} /> : <GenericIcon />}
+            {engine ? <EngineLogo id={engine} name={engineDisplayName} /> : <GenericIcon />}
           </div>
           <input
             ref={inputRef}
@@ -119,7 +126,7 @@ const SearchHero = ({ tabId }) => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={engine ? `Search with ${engine.charAt(0).toUpperCase() + engine.slice(1)} or enter address...` : "Search or enter address..."}
+            placeholder={engine ? `Search with ${engineDisplayName} or enter address...` : "Search or enter address..."}
             className="w-full bg-transparent border-none outline-none text-main text-lg
                        placeholder-muted py-5 px-5 font-medium"
             autoFocus

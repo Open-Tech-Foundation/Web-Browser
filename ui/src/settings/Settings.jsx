@@ -99,6 +99,11 @@ const searchStateByTab = {};
 
 const Settings = () => {
   const [selectedEngine, setSelectedEngine] = useState('');
+  const [customEngines, setCustomEngines] = useState([]);
+  const [showAddCustom, setShowAddCustom] = useState(false);
+  const [newCustomName, setNewCustomName] = useState('');
+  const [newCustomUrl, setNewCustomUrl] = useState('');
+  const [customError, setCustomError] = useState('');
   const [activeMenu, setActiveMenu] = useState('search');
   const [tabId, setTabId] = useState(null);
   const [historyEnabled, setHistoryEnabled] = useState(false);
@@ -207,6 +212,7 @@ const Settings = () => {
             const settings = JSON.parse(response);
             setSelectedEngine(settings.searchEngine || '');
             setSearchEngine(settings.searchEngine || '');
+            setCustomEngines(settings.customSearchEngines || []);
             setHistoryEnabled(settings.historyEnabled || false);
             setDownloadsEnabled(settings.downloadsEnabled || false);
             setStartupBehavior(settings.startupBehavior || 'newtab');
@@ -233,6 +239,39 @@ const Settings = () => {
     saveSettings({ searchEngine: id });
   };
 
+  const generateCustomId = () => '_custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+  const addCustomEngine = () => {
+    const name = newCustomName.trim();
+    let url = newCustomUrl.trim();
+    if (!name) { setCustomError('Enter a name.'); return; }
+    if (!url) { setCustomError('Enter a search URL.'); return; }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
+    }
+    const id = generateCustomId();
+    const updated = [...customEngines, { id, name, url }];
+    setCustomEngines(updated);
+    setCustomError('');
+    setNewCustomName('');
+    setNewCustomUrl('');
+    setShowAddCustom(false);
+    saveSettings({ customSearchEngines: updated });
+  };
+
+  const deleteCustomEngine = (id) => {
+    const updated = customEngines.filter(e => e.id !== id);
+    setCustomEngines(updated);
+    if (selectedEngine === id) {
+      setSelectedEngine('');
+      saveSettings({ searchEngine: null, customSearchEngines: updated });
+    } else {
+      saveSettings({ customSearchEngines: updated });
+    }
+  };
+
+  const allEngines = [...engines, ...customEngines.map(e => ({ id: e.id, name: e.name, custom: true }))];
+
   const saveSettings = (updates) => {
     if (window.cefQuery) {
       window.cefQuery({
@@ -245,6 +284,7 @@ const Settings = () => {
           httpsOnly,
           blockInsecure,
           appearanceMode,
+          customSearchEngines: customEngines,
           ...updates
         })}`,
         onSuccess: () => console.log('Settings saved')
@@ -407,7 +447,7 @@ const Settings = () => {
                   )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {engines.map(({ id, name }) => (
+                    {allEngines.map(({ id, name, custom }) => (
                       <button
                         key={id}
                         onClick={() => selectEngine(id)}
@@ -422,17 +462,93 @@ const Settings = () => {
                           </div>
                         )}
                         <div className={`w-16 h-12 shrink-0 p-1 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${selectedEngine === id ? 'bg-orange-500/20' : 'bg-card/50'}`}>
-                          <EngineLogo id={id} name={name} />
+                          {custom ? <GenericIcon /> : <EngineLogo id={id} name={name} />}
                         </div>
                         <div className="flex-grow overflow-hidden">
                           <span className={`block font-bold text-base truncate transition-colors duration-200 ${selectedEngine === id ? 'text-orange-500' : 'text-main group-hover:text-main'}`}>
                             {name}
                           </span>
-                          <span className="text-xs text-muted mt-0.5 block truncate">Default Provider</span>
+                          <span className="text-xs text-muted mt-0.5 block truncate">{custom ? 'Custom Engine' : 'Default Provider'}</span>
                         </div>
+                        {custom && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteCustomEngine(id); }}
+                            className="shrink-0 ml-2 w-7 h-7 rounded-lg bg-red-500/10 border border-red-500/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
+                            title="Delete custom engine"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-red-400">
+                              <path d="M18 6 6 18M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
                       </button>
                     ))}
                   </div>
+
+                  <section className="mt-12">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-semibold text-main">Custom Search Engines</h2>
+                      <button
+                        onClick={() => setShowAddCustom(!showAddCustom)}
+                        className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <path d="M12 5v14M5 12h14" />
+                        </svg>
+                        Add Custom Engine
+                      </button>
+                    </div>
+
+                    {showAddCustom && (
+                      <div className="mb-6 p-6 bg-card border border-main rounded-3xl animate-in slide-in-from-top-4 duration-500">
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-bold text-muted mb-1.5 uppercase tracking-wider">Name</label>
+                            <input
+                              type="text"
+                              placeholder="e.g., My Search"
+                              value={newCustomName}
+                              onChange={(e) => { setNewCustomName(e.target.value); setCustomError(''); }}
+                              className="w-full bg-main/5 border border-main rounded-xl px-4 py-3 text-sm text-main placeholder:text-muted focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20 transition-all"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-muted mb-1.5 uppercase tracking-wider">
+                              Search URL <span className="text-muted">(query appended to URL, or use %s to place it)</span>
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="https://example.com/search?q=%s"
+                              value={newCustomUrl}
+                              onChange={(e) => { setNewCustomUrl(e.target.value); setCustomError(''); }}
+                              className="w-full bg-main/5 border border-main rounded-xl px-4 py-3 text-sm text-main placeholder:text-muted focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20 transition-all"
+                            />
+                          </div>
+                          {customError && (
+                            <p className="text-xs text-red-400 font-medium">{customError}</p>
+                          )}
+                          <div className="flex gap-3 pt-2">
+                            <button
+                              onClick={addCustomEngine}
+                              className="px-6 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10"
+                            >
+                              Add Engine
+                            </button>
+                            <button
+                              onClick={() => { setShowAddCustom(false); setCustomError(''); setNewCustomName(''); setNewCustomUrl(''); }}
+                              className="px-6 py-2.5 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-xl text-sm font-bold transition-all"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {customEngines.length === 0 && !showAddCustom && (
+                      <p className="text-sm text-muted">No custom search engines added yet.</p>
+                    )}
+                  </section>
                 </section>
               </>
             )}

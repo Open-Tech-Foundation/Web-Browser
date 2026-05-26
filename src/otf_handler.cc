@@ -1357,6 +1357,7 @@ std::string BuildResetSettingsJson(const std::string& current_settings_json) {
   auto is_allowed_appearance_mode = [](const std::string& mode) {
     return mode == "auto" || mode == "light" || mode == "dark";
   };
+  std::vector<CustomSearchEngine> custom_engines;
 
   CefRefPtr<CefValue> root =
       CefParseJSON(current_settings_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
@@ -1386,6 +1387,23 @@ std::string BuildResetSettingsJson(const std::string& current_settings_json) {
           appearance_mode = "auto";
         }
       }
+      // Preserve custom search engines
+      if (dict->HasKey("customSearchEngines") &&
+          dict->GetType("customSearchEngines") == VTYPE_LIST) {
+        CefRefPtr<CefListValue> list = dict->GetList("customSearchEngines");
+        for (size_t i = 0; i < list->GetSize(); ++i) {
+          if (list->GetType(i) != VTYPE_DICTIONARY) continue;
+          CefRefPtr<CefDictionaryValue> entry = list->GetDictionary(i);
+          if (!entry->HasKey("id") || entry->GetType("id") != VTYPE_STRING) continue;
+          if (!entry->HasKey("name") || entry->GetType("name") != VTYPE_STRING) continue;
+          if (!entry->HasKey("url") || entry->GetType("url") != VTYPE_STRING) continue;
+          std::string id = entry->GetString("id");
+          std::string name = entry->GetString("name");
+          std::string url = entry->GetString("url");
+          if (id.empty() || name.empty() || url.empty()) continue;
+          custom_engines.push_back({std::move(id), std::move(name), std::move(url)});
+        }
+      }
     }
   }
 
@@ -1398,6 +1416,8 @@ std::string BuildResetSettingsJson(const std::string& current_settings_json) {
       .AddBool("httpsOnly", https_only)
       .AddBool("blockInsecure", block_insecure)
       .AddString("appearanceMode", appearance_mode)
+      .AddRaw("customSearchEngines",
+              otf::BuildCustomEnginesJson(custom_engines))
       .Build();
 }
 

@@ -38,3 +38,45 @@ test('looksLikeDirectUrl accepts host formats only', () => {
   assert.equal(looksLikeDirectUrl('localhost:3000'), true);
   assert.equal(looksLikeDirectUrl('search terms'), false);
 });
+
+test('resolveUrl uses custom search engine', () => {
+  const customEngines = [
+    { id: '_custom_test1', name: 'Test Engine', url: 'https://test.example/search?q=%s' }
+  ];
+  assert.equal(
+    resolveUrl('hello world', '_custom_test1', customEngines),
+    'https://test.example/search?q=hello+world'
+  );
+  assert.equal(
+    resolveUrl('a+b', '_custom_test1', customEngines),
+    'https://test.example/search?q=a%2Bb'
+  );
+});
+
+test('resolveUrl falls back to settings page for unknown custom engine', () => {
+  assert.equal(
+    resolveUrl('test query', 'nonexistent_engine', []),
+    'browser://settings'
+  );
+});
+
+test('resolveUrl uses built-in engine even when custom engines are present', () => {
+  const customEngines = [
+    { id: '_custom_test1', name: 'Test', url: 'https://test.example/search?q=%s' }
+  ];
+  assert.equal(
+    resolveUrl('test query', 'duckduckgo', customEngines),
+    'https://duckduckgo.com/?q=test+query'
+  );
+});
+
+test('resolveUrl handles custom engine url without %s placeholder', () => {
+  const customEngines = [
+    { id: '_custom_test2', name: 'No Placeholder', url: 'https://no-placeholder.example/search?query=' }
+  ];
+  // Without %s, query should be appended
+  assert.equal(
+    resolveUrl('test', '_custom_test2', customEngines),
+    'https://no-placeholder.example/search?query=test'
+  );
+});

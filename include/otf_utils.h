@@ -9,6 +9,12 @@
 #include <string_view>
 #include <vector>
 
+struct CustomSearchEngine {
+  std::string id;
+  std::string name;
+  std::string url;  // URL template with %s as the query placeholder
+};
+
 namespace otf {
 
 std::string ExtractOrigin(const std::string& url);
@@ -73,8 +79,15 @@ std::optional<std::string> GetCurrentSearchEngineId();
 bool IsHistoryEnabled();
 bool IsDownloadsEnabled();
 bool IsAllowedSearchEngineId(const std::string& search_engine_id);
+bool IsAllowedSearchEngineId(const std::string& search_engine_id,
+                             const std::vector<CustomSearchEngine>& custom_engines);
+std::vector<CustomSearchEngine> GetCustomSearchEngines();
+std::string BuildCustomEnginesJson(const std::vector<CustomSearchEngine>& engines);
 std::string BuildSearchUrl(const std::string& search_engine_id,
                            const std::string& query);
+std::string BuildSearchUrl(const std::string& search_engine_id,
+                           const std::string& query,
+                           const std::vector<CustomSearchEngine>& custom_engines);
 bool NormalizeSettingsJson(const std::string& raw_json, std::string* normalized_json);
 std::string LoadSettingsJson();
 bool SaveSettingsJson(const std::string& raw_json, std::string* normalized_json);

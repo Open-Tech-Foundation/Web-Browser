@@ -98,7 +98,7 @@ bool IsLoopbackHost(const std::string& host) {
          lower_host == "::1";
 }
 
-std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode) {
+std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode, const std::vector<CustomSearchEngine>& custom_engines) {
   std::string urls_json = "[";
   for (size_t i = 0; i < startup_urls.size(); ++i) {
     if (i > 0) urls_json += ",";
@@ -121,6 +121,7 @@ std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id
       .AddBool("httpsOnly", https_only)
       .AddBool("blockInsecure", block_insecure)
       .AddString("appearanceMode", appearance_mode)
+      .AddRaw("customSearchEngines", BuildCustomEnginesJson(custom_engines))
       .Build();
 }
 
@@ -152,6 +153,20 @@ std::string WideToUtf8(const std::wstring& wide_value) {
 #endif
 
 }  // namespace
+
+std::string BuildCustomEnginesJson(const std::vector<CustomSearchEngine>& engines) {
+  std::string json = "[";
+  for (size_t i = 0; i < engines.size(); ++i) {
+    if (i > 0) json += ",";
+    json += "{";
+    json += JsonString("id") + ":" + JsonString(engines[i].id) + ",";
+    json += JsonString("name") + ":" + JsonString(engines[i].name) + ",";
+    json += JsonString("url") + ":" + JsonString(engines[i].url);
+    json += "}";
+  }
+  json += "]";
+  return json;
+}
 
 std::string JsonEscape(const std::string& s) {
   std::string out;
@@ -563,7 +578,7 @@ std::string BuildDownloadPath(const std::string& suggested_name) {
 }
 
 std::string GetDefaultSettingsJson() {
-  return BuildSettingsJson(std::nullopt, false, false, "newtab", {}, false, true, "auto");
+  return BuildSettingsJson(std::nullopt, false, false, "newtab", {}, false, true, "auto", {});
 }
 
 std::optional<std::string> GetCurrentSearchEngineId() {
@@ -587,10 +602,21 @@ std::optional<std::string> GetCurrentSearchEngineId() {
   }
 
   const std::string value = dict->GetString("searchEngine");
-  if (value.empty() || !IsAllowedSearchEngineId(value)) {
+  if (value.empty()) {
     return std::nullopt;
   }
-  return value;
+  // Check built-in engines first
+  if (IsAllowedSearchEngineId(value)) {
+    return value;
+  }
+  // Check custom engines
+  auto custom = GetCustomSearchEngines();
+  for (const auto& engine : custom) {
+    if (engine.id == value) {
+      return value;
+    }
+  }
+  return std::nullopt;
 }
 
 bool IsHistoryEnabled() {
@@ -632,6 +658,15 @@ bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
   return false;
 }
 
+bool IsAllowedSearchEngineId(const std::string& search_engine_id,
+                             const std::vector<CustomSearchEngine>& custom_engines) {
+  if (IsAllowedSearchEngineId(search_engine_id)) return true;
+  for (const auto& engine : custom_engines) {
+    if (engine.id == search_engine_id) return true;
+  }
+  return false;
+}
+
 std::string EncodeSearchQuery(const std::string& query) {
   std::string encoded_query = CefURIEncode(query, false).ToString();
   size_t pos = 0;
@@ -642,8 +677,10 @@ std::string EncodeSearchQuery(const std::string& query) {
   return encoded_query;
 }
 
-std::string BuildSearchUrl(const std::string& search_engine_id,
-                           const std::string& query) {
+namespace {
+
+std::string BuildSearchUrlBuiltin(const std::string& search_engine_id,
+                                  const std::string& query) {
   std::string base_url;
   if (search_engine_id == "google") {
     base_url = "https://www.google.com/search?q=";
@@ -668,8 +705,68 @@ std::string BuildSearchUrl(const std::string& search_engine_id,
   if (base_url.empty()) {
     return "";
   }
-
   return base_url + EncodeSearchQuery(query);
+}
+
+}  // namespace
+
+std::string BuildSearchUrl(const std::string& search_engine_id,
+                           const std::string& query) {
+  std::string result = BuildSearchUrlBuiltin(search_engine_id, query);
+  if (!result.empty()) return result;
+
+  auto custom = GetCustomSearchEngines();
+  return BuildSearchUrl(search_engine_id, query, custom);
+}
+
+std::string BuildSearchUrl(const std::string& search_engine_id,
+                           const std::string& query,
+                           const std::vector<CustomSearchEngine>& custom_engines) {
+  std::string result = BuildSearchUrlBuiltin(search_engine_id, query);
+  if (!result.empty()) return result;
+
+  for (const auto& engine : custom_engines) {
+    if (engine.id == search_engine_id) {
+      std::string url = engine.url;
+      std::string encoded = EncodeSearchQuery(query);
+      size_t pos = url.find("%s");
+      if (pos != std::string::npos) {
+        url.replace(pos, 2, encoded);
+      } else {
+        url += encoded;
+      }
+      return url;
+    }
+  }
+  return "";
+}
+
+std::vector<CustomSearchEngine> GetCustomSearchEngines() {
+  std::vector<CustomSearchEngine> engines;
+  CefRefPtr<CefValue> root =
+      CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return engines;
+  }
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey("customSearchEngines") ||
+      dict->GetType("customSearchEngines") != VTYPE_LIST) {
+    return engines;
+  }
+  CefRefPtr<CefListValue> list = dict->GetList("customSearchEngines");
+  for (size_t i = 0; i < list->GetSize(); ++i) {
+    if (list->GetType(i) != VTYPE_DICTIONARY) continue;
+    CefRefPtr<CefDictionaryValue> entry = list->GetDictionary(i);
+    if (!entry->HasKey("id") || entry->GetType("id") != VTYPE_STRING) continue;
+    if (!entry->HasKey("name") || entry->GetType("name") != VTYPE_STRING) continue;
+    if (!entry->HasKey("url") || entry->GetType("url") != VTYPE_STRING) continue;
+    std::string id = entry->GetString("id");
+    std::string name = entry->GetString("name");
+    std::string url = entry->GetString("url");
+    if (id.empty() || name.empty() || url.empty()) continue;
+    engines.push_back({std::move(id), std::move(name), std::move(url)});
+  }
+  return engines;
 }
 
 bool NormalizeSettingsJson(const std::string& raw_json,
@@ -689,8 +786,32 @@ bool NormalizeSettingsJson(const std::string& raw_json,
   for (const auto& key : keys) {
     if (key != "searchEngine" && key != "historyEnabled" && key != "downloadsEnabled" && 
         key != "startupBehavior" && key != "startupUrls" && key != "httpsOnly" && 
-        key != "blockInsecure" && key != "appearanceMode") {
+        key != "blockInsecure" && key != "appearanceMode" &&
+        key != "customSearchEngines") {
       return false;
+    }
+  }
+
+  // Parse custom search engines first (needed for searchEngine validation)
+  std::vector<CustomSearchEngine> custom_engines;
+  if (dict->HasKey("customSearchEngines")) {
+    if (dict->GetType("customSearchEngines") != VTYPE_LIST) {
+      return false;
+    }
+    CefRefPtr<CefListValue> list = dict->GetList("customSearchEngines");
+    for (size_t i = 0; i < list->GetSize(); ++i) {
+      if (list->GetType(i) != VTYPE_DICTIONARY) return false;
+      CefRefPtr<CefDictionaryValue> entry = list->GetDictionary(i);
+      if (!entry->HasKey("id") || entry->GetType("id") != VTYPE_STRING) return false;
+      if (!entry->HasKey("name") || entry->GetType("name") != VTYPE_STRING) return false;
+      if (!entry->HasKey("url") || entry->GetType("url") != VTYPE_STRING) return false;
+      std::string id = entry->GetString("id");
+      std::string name = entry->GetString("name");
+      std::string url = entry->GetString("url");
+      if (id.empty() || name.empty() || url.empty()) return false;
+      // Custom engine IDs must not conflict with built-in engines
+      if (IsAllowedSearchEngineId(id)) return false;
+      custom_engines.push_back({std::move(id), std::move(name), std::move(url)});
     }
   }
 
@@ -704,7 +825,7 @@ bool NormalizeSettingsJson(const std::string& raw_json,
       if (value.empty()) {
         search_engine.reset();
       } else {
-        if (!IsAllowedSearchEngineId(value)) {
+        if (!IsAllowedSearchEngineId(value, custom_engines)) {
           return false;
         }
         search_engine = value;
@@ -788,7 +909,8 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     *normalized_json = BuildSettingsJson(search_engine, history_enabled,
                                         downloads_enabled, startup_behavior,
                                         startup_urls, https_only,
-                                        block_insecure, appearance_mode);
+                                        block_insecure, appearance_mode,
+                                        custom_engines);
   }
   return true;
 }
