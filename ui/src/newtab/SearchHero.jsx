@@ -3,15 +3,15 @@ import { resolveUrl } from '../shared/search';
 
 const stateByTab = {};
 
-const GenericIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-muted">
+const GenericIcon = ({ isPrivate }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`w-full h-full ${isPrivate ? 'text-violet-300' : 'text-muted'}`}>
     <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
   </svg>
 );
 
-const EngineLogo = ({ id, name }) => {
+const EngineLogo = ({ id, name, isPrivate }) => {
   const [error, setError] = useState(false);
-  return error ? <GenericIcon /> : (
+  return error ? <GenericIcon isPrivate={isPrivate} /> : (
     <img 
       src={`/assets/logos/${id}.svg`} 
       alt={name} 
@@ -114,14 +114,10 @@ const SearchHero = ({ tabId, isPrivate }) => {
   return (
     <div className="w-full max-w-2xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
       <div className="relative group">
-        {isPrivate ? (
-          <div className="absolute -inset-1 bg-gradient-to-r from-violet-600/20 to-violet-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
-        ) : (
-          <div className="absolute -inset-1 bg-gradient-to-r from-orange-600/20 to-amber-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
-        )}
-        <div className={`relative flex items-center bg-card/80 backdrop-blur-xl border border-main rounded-2xl shadow-2xl transition-all duration-500 ${isPrivate ? 'group-focus-within:border-violet-500/40' : 'group-focus-within:border-orange-500/40'} group-focus-within:bg-card`}>
+        <div className="absolute -inset-1 bg-gradient-to-r from-orange-600/20 to-amber-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
+        <div className={`relative flex items-center backdrop-blur-xl rounded-2xl shadow-2xl transition-all duration-500 group-focus-within:border-orange-500/40 ${isPrivate ? 'bg-violet-950/60 border border-violet-500/20 group-focus-within:bg-violet-950/80' : 'bg-card/80 border border-main group-focus-within:bg-card'}`}>
           <div className="w-6 h-6 ml-5 shrink-0 flex items-center justify-center">
-            {engine ? <EngineLogo id={engine} name={engineDisplayName} /> : <GenericIcon />}
+            {engine ? <EngineLogo id={engine} name={engineDisplayName} isPrivate={isPrivate} /> : <GenericIcon isPrivate={isPrivate} />}
           </div>
           <input
             ref={inputRef}
@@ -130,12 +126,12 @@ const SearchHero = ({ tabId, isPrivate }) => {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={engine ? `Search with ${engineDisplayName} or enter address...` : "Search or enter address..."}
-            className="w-full bg-transparent border-none outline-none text-main text-lg
-                       placeholder-muted py-5 px-5 font-medium"
+            className={`w-full bg-transparent border-none outline-none text-lg
+                       py-5 px-5 font-medium ${isPrivate ? 'text-white placeholder-violet-300' : 'text-main placeholder-muted'}`}
             autoFocus
           />
           <div className="mr-5 flex items-center gap-2">
-             <kbd className="hidden sm:inline-flex items-center justify-center px-2 py-1 bg-main/5 border border-main rounded-lg text-[10px] font-mono text-muted">
+             <kbd className={`hidden sm:inline-flex items-center justify-center px-2 py-1 border rounded-lg text-[10px] font-mono ${isPrivate ? 'bg-white/5 border-violet-500/30 text-violet-300' : 'bg-main/5 border-main text-muted'}`}>
                Enter
              </kbd>
           </div>

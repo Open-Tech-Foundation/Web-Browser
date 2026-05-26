@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 
-const GlobeIcon = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-muted">
+const GlobeIcon = ({ isPrivate }) => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${isPrivate ? 'text-violet-300' : 'text-muted'}`}>
     <circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>
   </svg>
 );
 
-const QuickLink = ({ name, url, faviconUrl, onRemove }) => {
+const QuickLink = ({ name, url, faviconUrl, onRemove, isPrivate }) => {
   const handleClick = () => {
     if (window.cefQuery) {
       window.cefQuery({ request: `navigate-current:${url}` });
     }
   };
+
+  const cardBg = isPrivate ? 'bg-violet-950/60 border-violet-500/20 group-hover:bg-violet-950/80' : 'bg-card border-main group-hover:bg-card';
+  const cardBorder = isPrivate ? 'border-violet-500/20 group-hover:border-violet-400/40' : 'border-main group-hover:border-orange-500/30';
 
   return (
     <div className="relative group">
@@ -19,20 +22,19 @@ const QuickLink = ({ name, url, faviconUrl, onRemove }) => {
         onClick={handleClick}
         className="flex flex-col items-center gap-3 transition-all duration-300 hover:-translate-y-1"
       >
-        <div className="w-16 h-16 bg-card border border-main rounded-2xl flex items-center justify-center transition-all duration-300 
-                      group-hover:bg-card group-hover:border-orange-500/30 group-hover:shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)] backdrop-blur-sm overflow-hidden">
+        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 backdrop-blur-sm overflow-hidden ${cardBg} border ${cardBorder} ${isPrivate ? 'group-hover:shadow-[0_0_20px_-5px_rgba(139,92,246,0.3)]' : 'group-hover:shadow-[0_0_20px_-5px_rgba(249,115,22,0.3)]'}`}>
           {faviconUrl
             ? <img src={faviconUrl} alt="" className="w-8 h-8 object-contain" />
-            : <GlobeIcon />
+            : <GlobeIcon isPrivate={isPrivate} />
           }
         </div>
-        <span className="text-xs font-medium text-muted group-hover:text-main transition-colors truncate w-20 text-center">{name}</span>
+        <span className={`text-xs font-medium transition-colors truncate w-20 text-center ${isPrivate ? 'text-violet-200 group-hover:text-white' : 'text-muted group-hover:text-main'}`}>{name}</span>
       </button>
       
       <button 
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
-        className="absolute -top-1 -right-1 w-5 h-5 bg-card border border-main rounded-full flex items-center justify-center 
-                   opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20 hover:border-red-500/50 text-muted hover:text-red-400 z-10"
+        className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center 
+                   opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20 hover:border-red-500/50 z-10 ${isPrivate ? 'bg-violet-950/60 border-violet-500/20 text-violet-300 hover:text-red-400' : 'bg-card border-main text-muted hover:text-red-400'}`}
       >
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
@@ -40,7 +42,7 @@ const QuickLink = ({ name, url, faviconUrl, onRemove }) => {
   );
 };
 
-const QuickLinks = () => {
+const QuickLinks = ({ isPrivate }) => {
   const [links, setLinks] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -112,7 +114,8 @@ const QuickLinks = () => {
             name={link.title || 'Link'} 
             url={link.url} 
             faviconUrl={link.faviconUrl}
-            onRemove={() => handleRemove(link.id)} 
+            onRemove={() => handleRemove(link.id)}
+            isPrivate={isPrivate}
           />
         ))}
         
@@ -120,10 +123,10 @@ const QuickLinks = () => {
           onClick={() => setIsModalOpen(true)}
           className="group flex flex-col items-center gap-3 transition-all duration-300 hover:-translate-y-1"
         >
-          <div className="w-16 h-16 bg-main/5 border border-main border-dashed rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:bg-main/10 group-hover:border-muted backdrop-blur-sm">
-            <svg className="w-6 h-6 text-muted group-hover:text-main" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <div className={`w-16 h-16 border border-dashed rounded-2xl flex items-center justify-center transition-all duration-300 backdrop-blur-sm ${isPrivate ? 'bg-white/5 border-violet-500/30 group-hover:bg-white/10 group-hover:border-violet-300' : 'bg-main/5 border-main group-hover:bg-main/10 group-hover:border-muted'}`}>
+            <svg className={`w-6 h-6 transition-colors ${isPrivate ? 'text-violet-300 group-hover:text-white' : 'text-muted group-hover:text-main'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           </div>
-          <span className="text-xs font-medium text-muted group-hover:text-main transition-colors">Add Site</span>
+          <span className={`text-xs font-medium transition-colors ${isPrivate ? 'text-violet-200 group-hover:text-white' : 'text-muted group-hover:text-main'}`}>Add Site</span>
         </button>
       </div>
 

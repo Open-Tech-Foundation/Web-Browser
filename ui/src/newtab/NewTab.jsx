@@ -3,12 +3,12 @@ import SearchHero from './SearchHero';
 import QuickLinks from './QuickLinks';
 
 const PrivateBadge = () => (
-  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/30 animate-in fade-in duration-500">
-    <svg className="w-4 h-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 dark:bg-violet-500/20 border border-violet-300 dark:border-violet-500/40 shadow-sm animate-in fade-in duration-500">
+    <svg className="w-4 h-4 text-violet-600 dark:text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M2 13h20" /><path d="M5 13l1.5-5.5A2 2 0 0 1 8.4 6h7.2a2 2 0 0 1 1.9 1.5L19 13" />
       <circle cx="7" cy="16" r="2.5" /><circle cx="17" cy="16" r="2.5" /><path d="M9.5 16h5" />
     </svg>
-    <span className="text-[11px] font-bold text-violet-400 uppercase tracking-[0.15em]">Private</span>
+    <span className="text-[11px] font-bold text-violet-700 dark:text-violet-200 uppercase tracking-[0.15em]">Private</span>
   </div>
 );
 
@@ -95,10 +95,10 @@ const NewTab = () => {
       <div className="absolute top-8 right-10 flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-1000">
         {isPrivate && <PrivateBadge />}
         <div className="text-right">
-        <p className="text-2xl font-bold text-main tracking-tight leading-none mb-1">
+        <p className={`text-2xl font-bold tracking-tight leading-none mb-1 ${isPrivate ? 'text-white' : 'text-main'}`}>
           {time.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
         </p>
-        <p className="text-[10px] font-bold text-muted uppercase tracking-[0.2em]">
+        <p className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isPrivate ? 'text-violet-200' : 'text-muted'}`}>
           {time.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
         </p>
       </div>
@@ -118,29 +118,24 @@ const NewTab = () => {
                 className="relative w-12 h-12 object-contain"
               />
             </div>
-            <h1 className="text-4xl font-extrabold tracking-tight text-main">
-              OTF <span className={isPrivate ? 'text-violet-500' : 'text-orange-500'}>Browser</span>
+            <h1 className={`text-4xl font-extrabold tracking-tight ${isPrivate ? 'text-white' : 'text-main'}`}>
+              OTF <span className="text-orange-500">Browser</span>
             </h1>
           </div>
           
-          <div className="flex items-center gap-3 mb-4">
-            <p className="text-sm font-bold text-muted uppercase tracking-[0.3em]">
+          <div className="mb-4">
+            <p className={`text-sm font-bold uppercase tracking-[0.3em] ${isPrivate ? 'text-violet-200' : 'text-muted'}`}>
               {getGreeting()}, Explorer
             </p>
-            {isPrivate && (
-              <span className="px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-[0.15em]">
-                Private
-              </span>
-            )}
           </div>
         </div>
 
         <SearchHero tabId={tabId} isPrivate={isPrivate} />
-        <QuickLinks />
+        <QuickLinks isPrivate={isPrivate} />
       </div>
       
       <footer className="mt-16 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500 text-center z-10 shrink-0">
-        <span className={isPrivate ? 'text-violet-500/40' : 'text-muted/30'}>
+        <span className={`${isPrivate ? 'text-violet-200/30' : 'text-muted/30'}`}>
           {isPrivate ? 'Private Browsing — No history is saved' : 'Engineered for Privacy & Security'}
         </span>
       </footer>
