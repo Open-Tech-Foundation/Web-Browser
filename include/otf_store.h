@@ -2,6 +2,7 @@
 #define OTF_BROWSER_STORE_H_
 
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -110,6 +111,10 @@ class OtfStore {
   int CreateWorkspace(const std::string& name, const std::string& color = "");
   bool RenameWorkspace(int id, const std::string& name);
   bool SetWorkspaceColor(int id, const std::string& color);
+  bool SetWorkspaceOriginZoom(int workspace_id,
+                              const std::string& origin,
+                              int zoom_percent);
+  std::map<std::string, int> GetWorkspaceOriginZooms(int workspace_id) const;
   bool DeleteWorkspace(int id);
   bool SetActiveWorkspace(int id);
   int GetActiveWorkspace() const;

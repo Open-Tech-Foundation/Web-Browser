@@ -810,6 +810,54 @@ void OtfApp::SwitchTab(int tab_id) {
 
     OtfHandler* handler = OtfHandler::GetInstance();
     if (handler) {
+      // Apply per-origin zoom for this workspace when activating a non-private
+      // tab; the browser may have a stale zoom from a different origin.
+      const std::string tab_url = tab_manager_.GetUrl(tab_id);
+      CefRefPtr<CefBrowser> tab_browser = tab_manager_.GetBrowser(tab_id);
+      if (tab_manager_.IsPrivate(tab_id)) {
+        int zoom = tab_manager_.GetZoomPercent(tab_id);
+        if (otf::IsPersistableWebUrl(tab_url) &&
+            !otf::IsInternalUiUrl(tab_url)) {
+          const int ws = tab_manager_.GetWorkspaceId(tab_id);
+          const std::string origin = otf::ExtractOrigin(tab_url);
+          if (ws > 0 && !origin.empty()) {
+            zoom = tab_manager_.GetPrivateOriginZoom(ws, origin);
+            tab_manager_.SetZoomPercent(tab_id, zoom);
+          }
+        }
+        if (tab_browser) {
+          tab_browser->GetHost()->SetZoomLevel(otf::PercentToZoomLevel(zoom));
+        }
+        if (handler->zoombar_subscription_) {
+          handler->zoombar_subscription_->Success(
+              JsonObjectBuilder()
+                  .AddString("key", "zoom-restore")
+                  .AddInt("tabId", tab_id)
+                  .AddInt("zoomPercent", zoom)
+                  .Build());
+        }
+      } else if (otf::IsPersistableWebUrl(tab_url) &&
+                 !otf::IsInternalUiUrl(tab_url)) {
+        const int ws = tab_manager_.GetWorkspaceId(tab_id);
+        if (ws > 0) {
+          if (tab_browser) {
+            std::string origin = otf::ExtractOrigin(tab_url);
+            if (!origin.empty()) {
+              int zoom = tab_manager_.GetOriginZoom(ws, origin);
+              tab_browser->GetHost()->SetZoomLevel(otf::PercentToZoomLevel(zoom));
+              tab_manager_.SetZoomPercent(tab_id, zoom);
+              if (handler->zoombar_subscription_) {
+                handler->zoombar_subscription_->Success(
+                    JsonObjectBuilder()
+                        .AddString("key", "zoom-restore")
+                        .AddInt("tabId", tab_id)
+                        .AddInt("zoomPercent", zoom)
+                        .Build());
+              }
+            }
+          }
+        }
+      }
       std::string tab_img_url = handler->GetImagePreviewUrlForTab(tab_id);
       const ImagePreviewMode preview_mode = tab_manager_.GetImagePreviewMode(tab_id);
       const bool is_dedicated_preview_tab =
@@ -1725,6 +1773,15 @@ void OtfApp::OnContextInitialized() {
 
   CefRefPtr<OtfHandler> handler(new OtfHandler(true));
   handler->tab_manager_ = &tab_manager_;
+
+  // Pre-populate per-origin zoom maps from the persisted store so tabs are
+  // created at the correct zoom for their workspace and origin.
+  if (handler->store_) {
+    for (const auto& w : handler->store_->GetWorkspaces()) {
+      auto zooms = handler->store_->GetWorkspaceOriginZooms(w.id);
+      if (!zooms.empty()) tab_manager_.LoadOriginZooms(w.id, zooms);
+    }
+  }
 
   CefBrowserSettings browser_settings;
 

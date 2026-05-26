@@ -877,6 +877,68 @@ std::string BuildZoomUpdateEvent(int tab_id, int zoom_percent) {
       .Build();
 }
 
+bool IsPersistableZoomUrl(const std::string& url) {
+  return IsPersistableWebUrl(url) && !IsInternalUiUrl(url);
+}
+
+bool SaveWorkspaceOriginZoom(TabManager* tab_manager,
+                             OtfStore* store,
+                             int tab_id,
+                             int zoom_percent) {
+  if (!tab_manager) return false;
+  const int workspace_id = tab_manager->GetWorkspaceId(tab_id);
+  const std::string url = tab_manager->GetUrl(tab_id);
+  if (workspace_id <= 0 || !IsPersistableZoomUrl(url)) return false;
+
+  const std::string origin = otf::ExtractOrigin(url);
+  if (origin.empty()) return false;
+  if (tab_manager->IsPrivate(tab_id)) {
+    tab_manager->SetPrivateOriginZoom(workspace_id, origin, zoom_percent);
+    return true;
+  }
+  if (!store) return false;
+  tab_manager->SetOriginZoom(workspace_id, origin, zoom_percent);
+  return store->SetWorkspaceOriginZoom(workspace_id, origin, zoom_percent);
+}
+
+bool ApplyWorkspaceOriginZoom(CefRefPtr<CefBrowser> browser,
+                              TabManager* tab_manager,
+                              int tab_id,
+                              int* applied_percent) {
+  if (!browser || !tab_manager || tab_manager->IsPrivate(tab_id)) return false;
+  const int workspace_id = tab_manager->GetWorkspaceId(tab_id);
+  const std::string url = tab_manager->GetUrl(tab_id);
+  if (workspace_id <= 0 || !IsPersistableZoomUrl(url)) return false;
+
+  const std::string origin = otf::ExtractOrigin(url);
+  if (origin.empty()) return false;
+  const int zoom_percent = tab_manager->GetOriginZoom(workspace_id, origin);
+  browser->GetHost()->SetZoomLevel(otf::PercentToZoomLevel(zoom_percent));
+  tab_manager->SetZoomPercent(tab_id, zoom_percent);
+  if (applied_percent) *applied_percent = zoom_percent;
+  return true;
+}
+
+bool ApplyPrivateTabZoom(CefRefPtr<CefBrowser> browser,
+                         TabManager* tab_manager,
+                         int tab_id,
+                         int* applied_percent) {
+  if (!browser || !tab_manager || !tab_manager->IsPrivate(tab_id)) return false;
+  int zoom_percent = tab_manager->GetZoomPercent(tab_id);
+  const int workspace_id = tab_manager->GetWorkspaceId(tab_id);
+  const std::string url = tab_manager->GetUrl(tab_id);
+  if (workspace_id > 0 && IsPersistableZoomUrl(url)) {
+    const std::string origin = otf::ExtractOrigin(url);
+    if (!origin.empty()) {
+      zoom_percent = tab_manager->GetPrivateOriginZoom(workspace_id, origin);
+    }
+  }
+  browser->GetHost()->SetZoomLevel(otf::PercentToZoomLevel(zoom_percent));
+  tab_manager->SetZoomPercent(tab_id, zoom_percent);
+  if (applied_percent) *applied_percent = zoom_percent;
+  return true;
+}
+
 std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
   return JsonObjectBuilder()
       .AddInt("id", item.id)
@@ -2384,6 +2446,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
       handler->store_->DeleteWorkspace(target);
       handler->workspace_contexts_.erase(target);
+      if (handler->tab_manager_) {
+        handler->tab_manager_->ClearWorkspaceOriginZooms(target);
+        handler->tab_manager_->ClearPrivateWorkspaceOriginZooms(target);
+      }
 
       // Remove the on-disk request-context cache that was created for this
       // workspace (see GetWorkspaceRequestContext). Errors are silently
@@ -3025,12 +3091,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         double zoom = b->GetHost()->GetZoomLevel();
         double next_zoom = otf::ZoomIn(zoom);
         b->GetHost()->SetZoomLevel(next_zoom);
-        handler->tab_manager_->SetZoomPercent(tab_id, ToRoundedZoomPercent(next_zoom));
+        const int pct = ToRoundedZoomPercent(next_zoom);
+        handler->tab_manager_->SetZoomPercent(tab_id, pct);
+        SaveWorkspaceOriginZoom(handler->tab_manager_, handler->store_.get(),
+                                tab_id, pct);
         handler->SendEvent(BuildTabPropertyEvent(
-            tab_id, "zoomPercent", std::to_string(handler->tab_manager_->GetZoomPercent(tab_id))));
+            tab_id, "zoomPercent", std::to_string(pct)));
         if (handler->zoombar_subscription_) {
           handler->zoombar_subscription_->Success(
-              BuildZoomUpdateEvent(tab_id, handler->tab_manager_->GetZoomPercent(tab_id)));
+              BuildZoomUpdateEvent(tab_id, pct));
         }
       }
       callback->Success("");
@@ -3043,12 +3112,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         double zoom = b->GetHost()->GetZoomLevel();
         double next_zoom = otf::ZoomOut(zoom);
         b->GetHost()->SetZoomLevel(next_zoom);
-        handler->tab_manager_->SetZoomPercent(tab_id, ToRoundedZoomPercent(next_zoom));
+        const int pct = ToRoundedZoomPercent(next_zoom);
+        handler->tab_manager_->SetZoomPercent(tab_id, pct);
+        SaveWorkspaceOriginZoom(handler->tab_manager_, handler->store_.get(),
+                                tab_id, pct);
         handler->SendEvent(BuildTabPropertyEvent(
-            tab_id, "zoomPercent", std::to_string(handler->tab_manager_->GetZoomPercent(tab_id))));
+            tab_id, "zoomPercent", std::to_string(pct)));
         if (handler->zoombar_subscription_) {
           handler->zoombar_subscription_->Success(
-              BuildZoomUpdateEvent(tab_id, handler->tab_manager_->GetZoomPercent(tab_id)));
+              BuildZoomUpdateEvent(tab_id, pct));
         }
       }
       callback->Success("");
@@ -3060,12 +3132,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (b) {
         double next_zoom = otf::ZoomReset();
         b->GetHost()->SetZoomLevel(next_zoom);
-        handler->tab_manager_->SetZoomPercent(tab_id, ToRoundedZoomPercent(next_zoom));
+        const int pct = ToRoundedZoomPercent(next_zoom);
+        handler->tab_manager_->SetZoomPercent(tab_id, pct);
+        SaveWorkspaceOriginZoom(handler->tab_manager_, handler->store_.get(),
+                                tab_id, pct);
         handler->SendEvent(BuildTabPropertyEvent(
-            tab_id, "zoomPercent", std::to_string(handler->tab_manager_->GetZoomPercent(tab_id))));
+            tab_id, "zoomPercent", std::to_string(pct)));
         if (handler->zoombar_subscription_) {
           handler->zoombar_subscription_->Success(
-              BuildZoomUpdateEvent(tab_id, handler->tab_manager_->GetZoomPercent(tab_id)));
+              BuildZoomUpdateEvent(tab_id, pct));
         }
       }
       callback->Success("");
@@ -4134,6 +4209,7 @@ void OtfHandler::MaybeReleasePrivateContext() {
   CEF_REQUIRE_UI_THREAD();
   if (private_context_ && tab_manager_ && !tab_manager_->HasPrivateTabs()) {
     private_context_ = nullptr;
+    tab_manager_->ClearPrivateOriginZooms();
   }
 }
 
@@ -4613,6 +4689,23 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
       store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link",
                           tab_manager_->GetWorkspaceId(tab_id));
     }
+    int zoom_percent = 100;
+    if (ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) ||
+        ApplyWorkspaceOriginZoom(browser, tab_manager_, tab_id, &zoom_percent)) {
+      SendEvent(BuildTabPropertyEvent(
+          tab_id, "zoomPercent", std::to_string(zoom_percent)));
+      if (zoombar_subscription_) {
+        zoombar_subscription_->Success(
+            BuildZoomUpdateEvent(tab_id, zoom_percent));
+      }
+    } else if (!tab_manager_->IsPrivate(tab_id) && !IsPersistableZoomUrl(url)) {
+      browser->GetHost()->SetZoomLevel(otf::ZoomReset());
+      tab_manager_->SetZoomPercent(tab_id, 100);
+      SendEvent(BuildTabPropertyEvent(tab_id, "zoomPercent", "100"));
+      if (zoombar_subscription_) {
+        zoombar_subscription_->Success(BuildZoomUpdateEvent(tab_id, 100));
+      }
+    }
     SendEvent(BuildBookmarkSyncEvent(
         tab_id, url, store_->IsBookmarked(NormalizeBookmarkUrl(url))));
   }
@@ -4678,8 +4771,13 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     } else if (tab_manager_) {
       int tab_id = browser_view->GetID();
       tab_manager_->SetBrowser(tab_id, browser);
-      tab_manager_->SetZoomPercent(
-          tab_id, ToRoundedZoomPercent(browser->GetHost()->GetZoomLevel()));
+      int zoom_percent = 100;
+      if (!ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) &&
+          !ApplyWorkspaceOriginZoom(browser, tab_manager_, tab_id,
+                                    &zoom_percent)) {
+        zoom_percent = ToRoundedZoomPercent(browser->GetHost()->GetZoomLevel());
+        tab_manager_->SetZoomPercent(tab_id, zoom_percent);
+      }
       std::string current = browser->GetMainFrame()->GetURL().ToString();
       if (current.empty() || current == "about:blank") {
         std::string stored = tab_manager_->GetUrl(tab_id);
@@ -5675,12 +5773,14 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
         next_zoom = otf::ZoomReset();
       }
       b->GetHost()->SetZoomLevel(next_zoom);
-      tab_manager_->SetZoomPercent(cur, ToRoundedZoomPercent(next_zoom));
+      const int pct = ToRoundedZoomPercent(next_zoom);
+      tab_manager_->SetZoomPercent(cur, pct);
+      SaveWorkspaceOriginZoom(tab_manager_, store_.get(), cur, pct);
       SendEvent(BuildTabPropertyEvent(
-          cur, "zoomPercent", std::to_string(tab_manager_->GetZoomPercent(cur))));
+          cur, "zoomPercent", std::to_string(pct)));
       if (zoombar_subscription_) {
         zoombar_subscription_->Success(
-            BuildZoomUpdateEvent(cur, tab_manager_->GetZoomPercent(cur)));
+            BuildZoomUpdateEvent(cur, pct));
       }
     }
   };

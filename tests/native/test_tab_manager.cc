@@ -36,6 +36,8 @@ void TestStateDefaultsAndMutation() {
   tabs.SetFindCount(id, 3);
   tabs.SetFindActive(id, 2);
   tabs.SetZoomPercent(id, 125);
+  tabs.SetOriginZoom(7, "https://example.com", 125);
+  tabs.SetPrivateOriginZoom(7, "https://example.com", 150);
   tabs.SetFaviconUrl(id, "https://example.com/favicon.ico");
   tabs.SetSslError(id, true);
   tabs.SetSslErrorUrl(id, "https://bad.example");
@@ -52,6 +54,8 @@ void TestStateDefaultsAndMutation() {
   assert(tabs.GetFindCount(id) == 3);
   assert(tabs.GetFindActive(id) == 2);
   assert(tabs.GetZoomPercent(id) == 125);
+  assert(tabs.GetOriginZoom(7, "https://example.com") == 125);
+  assert(tabs.GetPrivateOriginZoom(7, "https://example.com") == 150);
   assert(tabs.GetFaviconUrl(id) == "https://example.com/favicon.ico");
   assert(tabs.HasSslError(id));
   assert(tabs.GetSslErrorUrl(id) == "https://bad.example");
@@ -67,6 +71,18 @@ void TestStateDefaultsAndMutation() {
   assert(!tabs.IsFindVisible(id));
   assert(tabs.GetFindCount(id) == 0);
   assert(tabs.GetFindActive(id) == 0);
+
+  tabs.SetOriginZoom(7, "https://example.com", 100);
+  assert(tabs.GetOriginZoom(7, "https://example.com") == 100);
+  tabs.LoadOriginZooms(7, {{"https://example.com", 150},
+                           {"https://default.example", 100}});
+  assert(tabs.GetOriginZoom(7, "https://example.com") == 150);
+  assert(tabs.GetOriginZoom(7, "https://default.example") == 100);
+  tabs.ClearWorkspaceOriginZooms(7);
+  assert(tabs.GetOriginZoom(7, "https://example.com") == 100);
+  assert(tabs.GetPrivateOriginZoom(7, "https://example.com") == 150);
+  tabs.ClearPrivateOriginZooms();
+  assert(tabs.GetPrivateOriginZoom(7, "https://example.com") == 100);
 }
 
 void TestRemoveTabClearsState() {

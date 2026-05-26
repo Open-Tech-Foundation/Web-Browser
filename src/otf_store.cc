@@ -296,6 +296,19 @@ bool OtfStore::RunMigrations() {
   }
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (8);");
 
+  // Migration v9: per-origin zoom scoped to workspace.
+  bool oz_ok =
+      Exec(
+          "CREATE TABLE IF NOT EXISTS workspace_origin_zoom ("
+          "workspace_id INTEGER NOT NULL,"
+          "origin TEXT NOT NULL,"
+          "zoom_percent INTEGER NOT NULL DEFAULT 100,"
+          "PRIMARY KEY (workspace_id, origin),"
+          "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+          ");");
+  if (!oz_ok) return false;
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (9);");
+
   return true;
 }
 
@@ -926,6 +939,66 @@ bool OtfStore::SetWorkspaceColor(int id, const std::string& color) {
   const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
   sqlite3_finalize(stmt);
   return ok;
+}
+
+bool OtfStore::SetWorkspaceOriginZoom(int workspace_id,
+                                       const std::string& origin,
+                                       int zoom_percent) {
+  if (!db_ || workspace_id <= 0 || origin.empty()) return false;
+  if (zoom_percent == 100) {
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(
+            db_,
+            "DELETE FROM workspace_origin_zoom WHERE workspace_id = ? AND origin = ?;",
+            -1, &stmt, nullptr) != SQLITE_OK) {
+      return false;
+    }
+    sqlite3_bind_int(stmt, 1, workspace_id);
+    sqlite3_bind_text(stmt, 2, origin.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    sqlite3_finalize(stmt);
+    return ok;
+  }
+  if (zoom_percent < 25) zoom_percent = 25;
+  if (zoom_percent > 500) zoom_percent = 500;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "INSERT OR REPLACE INTO workspace_origin_zoom"
+          "(workspace_id, origin, zoom_percent) VALUES(?, ?, ?);",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_int(stmt, 1, workspace_id);
+  sqlite3_bind_text(stmt, 2, origin.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 3, zoom_percent);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+std::map<std::string, int> OtfStore::GetWorkspaceOriginZooms(
+    int workspace_id) const {
+  std::map<std::string, int> out;
+  if (!db_ || workspace_id <= 0) return out;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "SELECT origin, zoom_percent FROM workspace_origin_zoom "
+          "WHERE workspace_id = ?;",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return out;
+  }
+  sqlite3_bind_int(stmt, 1, workspace_id);
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char* origin =
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    if (origin) {
+      out[origin] = sqlite3_column_int(stmt, 1);
+    }
+  }
+  sqlite3_finalize(stmt);
+  return out;
 }
 
 bool OtfStore::DeleteWorkspace(int id) {

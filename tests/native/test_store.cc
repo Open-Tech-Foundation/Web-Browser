@@ -164,6 +164,15 @@ void TestWorkspaceLifecycleAndTabs() {
   assert(store.SetWorkspaceColor(work_id, "#abcdef"));
   assert(store.SetActiveWorkspace(work_id));
   assert(store.GetActiveWorkspace() == work_id);
+  assert(store.SetWorkspaceOriginZoom(work_id, "https://example.com", 125));
+  auto zooms = store.GetWorkspaceOriginZooms(work_id);
+  assert(zooms.size() == 1);
+  assert(zooms["https://example.com"] == 125);
+  assert(store.SetWorkspaceOriginZoom(work_id, "https://example.com", 100));
+  assert(store.GetWorkspaceOriginZooms(work_id).empty());
+  assert(store.SetWorkspaceOriginZoom(work_id, "https://example.com", 999));
+  zooms = store.GetWorkspaceOriginZooms(work_id);
+  assert(zooms["https://example.com"] == 500);
 
   workspaces = store.GetWorkspaces();
   assert(workspaces.size() == 2);

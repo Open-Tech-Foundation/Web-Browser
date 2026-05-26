@@ -282,6 +282,88 @@ class TabManager {
     return 100;
   }
 
+  // Per-origin zoom scoped to a workspace. Key: (workspace_id, origin).
+  void SetOriginZoom(int workspace_id, const std::string& origin, int zoom_percent) {
+    if (workspace_id > 0 && !origin.empty()) {
+      if (zoom_percent == 100) {
+        ClearOriginZoom(workspace_id, origin);
+        return;
+      }
+      if (zoom_percent < 25) zoom_percent = 25;
+      if (zoom_percent > 500) zoom_percent = 500;
+      origin_zoom_map_[workspace_id][origin] = zoom_percent;
+    }
+  }
+
+  void ClearOriginZoom(int workspace_id, const std::string& origin) {
+    if (workspace_id <= 0 || origin.empty()) return;
+    auto ws_it = origin_zoom_map_.find(workspace_id);
+    if (ws_it == origin_zoom_map_.end()) return;
+    ws_it->second.erase(origin);
+    if (ws_it->second.empty()) origin_zoom_map_.erase(ws_it);
+  }
+
+  int GetOriginZoom(int workspace_id, const std::string& origin) const {
+    if (workspace_id <= 0 || origin.empty()) return 100;
+    auto ws_it = origin_zoom_map_.find(workspace_id);
+    if (ws_it == origin_zoom_map_.end()) return 100;
+    auto org_it = ws_it->second.find(origin);
+    if (org_it == ws_it->second.end()) return 100;
+    return org_it->second;
+  }
+
+  void LoadOriginZooms(int workspace_id,
+                       const std::map<std::string, int>& zooms) {
+    if (workspace_id <= 0) return;
+    origin_zoom_map_.erase(workspace_id);
+    for (const auto& [origin, zoom] : zooms) {
+      SetOriginZoom(workspace_id, origin, zoom);
+    }
+  }
+
+  void ClearWorkspaceOriginZooms(int workspace_id) {
+    origin_zoom_map_.erase(workspace_id);
+  }
+
+  void SetPrivateOriginZoom(int workspace_id,
+                            const std::string& origin,
+                            int zoom_percent) {
+    if (workspace_id > 0 && !origin.empty()) {
+      if (zoom_percent == 100) {
+        ClearPrivateOriginZoom(workspace_id, origin);
+        return;
+      }
+      if (zoom_percent < 25) zoom_percent = 25;
+      if (zoom_percent > 500) zoom_percent = 500;
+      private_origin_zoom_map_[workspace_id][origin] = zoom_percent;
+    }
+  }
+
+  void ClearPrivateOriginZoom(int workspace_id, const std::string& origin) {
+    if (workspace_id <= 0 || origin.empty()) return;
+    auto ws_it = private_origin_zoom_map_.find(workspace_id);
+    if (ws_it == private_origin_zoom_map_.end()) return;
+    ws_it->second.erase(origin);
+    if (ws_it->second.empty()) private_origin_zoom_map_.erase(ws_it);
+  }
+
+  int GetPrivateOriginZoom(int workspace_id, const std::string& origin) const {
+    if (workspace_id <= 0 || origin.empty()) return 100;
+    auto ws_it = private_origin_zoom_map_.find(workspace_id);
+    if (ws_it == private_origin_zoom_map_.end()) return 100;
+    auto org_it = ws_it->second.find(origin);
+    if (org_it == ws_it->second.end()) return 100;
+    return org_it->second;
+  }
+
+  void ClearPrivateWorkspaceOriginZooms(int workspace_id) {
+    private_origin_zoom_map_.erase(workspace_id);
+  }
+
+  void ClearPrivateOriginZooms() {
+    private_origin_zoom_map_.clear();
+  }
+
   void SetFaviconUrl(int tab_id, const std::string& url) {
     favicon_url_map_[tab_id] = url;
   }
@@ -461,6 +543,8 @@ class TabManager {
   std::map<int, int> find_active_map_;
   std::map<int, bool> find_visible_map_;
   std::map<int, int> zoom_percent_map_;
+  std::map<int, std::map<std::string, int>> origin_zoom_map_;
+  std::map<int, std::map<std::string, int>> private_origin_zoom_map_;
   std::map<int, std::string> favicon_url_map_;
   std::map<int, bool> ssl_error_map_;
   std::map<int, std::string> ssl_error_url_map_;
