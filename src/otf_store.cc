@@ -231,6 +231,10 @@ bool OtfStore::RunMigrations() {
   if (!perm_ok) return false;
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (5);");
 
+  // Migration v6: pinned tabs within a workspace
+  Exec("ALTER TABLE workspace_tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (6);");
+
   return true;
 }
 
@@ -913,8 +917,8 @@ bool OtfStore::ReplaceWorkspaceTabs(int workspace_id, const std::vector<Workspac
   sqlite3_stmt* ins = nullptr;
   const char* sql =
       "INSERT INTO workspace_tabs(workspace_id, position, url, preview_local_path, title, favicon, "
-      "was_active, is_image_preview, preview_page) "
-      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);";
+      "was_active, is_image_preview, preview_page, pinned) "
+      "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
   if (sqlite3_prepare_v2(db_, sql, -1, &ins, nullptr) != SQLITE_OK) {
     Exec("ROLLBACK;");
     return false;
@@ -931,6 +935,7 @@ bool OtfStore::ReplaceWorkspaceTabs(int workspace_id, const std::vector<Workspac
     sqlite3_bind_int(ins, 7, t.was_active ? 1 : 0);
     sqlite3_bind_int(ins, 8, t.is_image_preview ? 1 : 0);
     sqlite3_bind_int(ins, 9, t.preview_page < 0 ? 0 : t.preview_page);
+    sqlite3_bind_int(ins, 10, t.pinned ? 1 : 0);
     if (sqlite3_step(ins) != SQLITE_DONE) {
       ok = false;
       break;
@@ -951,7 +956,7 @@ std::vector<WorkspaceTab> OtfStore::GetWorkspaceTabs(int workspace_id) const {
   if (sqlite3_prepare_v2(
           db_,
           "SELECT id, workspace_id, position, url, preview_local_path, title, favicon, was_active, "
-          "is_image_preview, preview_page "
+          "is_image_preview, preview_page, pinned "
           "FROM workspace_tabs WHERE workspace_id = ? ORDER BY position ASC;",
           -1, &stmt, nullptr) != SQLITE_OK) {
     return out;
@@ -973,6 +978,7 @@ std::vector<WorkspaceTab> OtfStore::GetWorkspaceTabs(int workspace_id) const {
     t.was_active = sqlite3_column_int(stmt, 7) != 0;
     t.is_image_preview = sqlite3_column_int(stmt, 8) != 0;
     t.preview_page = sqlite3_column_int(stmt, 9);
+    t.pinned = sqlite3_column_int(stmt, 10) != 0;
     out.push_back(t);
   }
   sqlite3_finalize(stmt);

@@ -217,6 +217,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefBrowser> findbar_browser_;
   CefRefPtr<CefBrowser> certificate_browser_;
   CefRefPtr<CefBrowser> link_preview_browser_;
+  CefRefPtr<CefBrowser> toast_browser_;
   std::deque<ClosedTabInfo> recently_closed_tabs_;
 
   void SendEvent(const std::string& event_json);

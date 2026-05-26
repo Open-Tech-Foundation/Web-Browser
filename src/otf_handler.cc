@@ -180,6 +180,8 @@ const int MENU_ID_TAB_MUTE = 10007;
 const int MENU_ID_TAB_UNMUTE = 10008;
 const int MENU_ID_COPY_EMAIL = 10009;
 const int MENU_ID_TAB_NEW_PRIVATE = 10010;
+const int MENU_ID_TAB_PIN = 10011;
+const int MENU_ID_TAB_UNPIN = 10012;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -272,8 +274,9 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kDownloadsBrowserViewId ||
          view_id == kCertificateBrowserViewId ||
          view_id == kImagePreviewBrowserViewId ||
-         view_id == kLinkPreviewBrowserViewId ||
-         view_id == kConsoleBrowserViewId;
+          view_id == kLinkPreviewBrowserViewId ||
+          view_id == kToastNotificationBrowserViewId ||
+          view_id == kConsoleBrowserViewId;
 }
 
 int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
@@ -730,6 +733,7 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
     builder.AddBool("sslError", tab_manager->HasSslError(tab_id));
     builder.AddBool("muted", tab_manager->GetMuted(tab_id));
     builder.AddBool("private", tab_manager->IsPrivate(tab_id));
+    builder.AddBool("pinned", tab_manager->IsPinned(tab_id));
   }
   builder.AddBool("bookmarked",
                   store && IsPersistableWebUrl(url) &&
@@ -3930,12 +3934,28 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
              .ToString();
 }
 
+std::string TrimTrailingSlash(std::string value) {
+  while (value.size() > 1 && value.back() == '/') {
+    value.pop_back();
+  }
+  return value;
+}
+
+bool IsDevUiUrl(const std::string& url) {
+  const std::string dev_ui_url = TrimTrailingSlash(GetDevUiUrl());
+  return !dev_ui_url.empty() &&
+         (url == dev_ui_url || url == dev_ui_url + "/" ||
+          (url.rfind(dev_ui_url + "/", 0) == 0 &&
+           otf::IsInternalUiPagePath(url)));
+}
+
 bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
   if (tab.is_image_preview) {
     return otf::IsPersistableWebUrl(tab.url);
   }
   return otf::IsPersistableWebUrl(tab.url) &&
-         tab.url.rfind("browser://", 0) != 0;
+         tab.url.rfind("browser://", 0) != 0 &&
+         !IsDevUiUrl(tab.url);
 }
 
 }  // namespace
@@ -4043,6 +4063,7 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
     t.title = tab_manager_->GetTitle(tab_id);
     t.favicon = tab_manager_->GetFaviconUrl(tab_id);
     t.was_active = (tab_id == active_tab);
+    t.pinned = tab_manager_->IsPinned(tab_id);
     snapshot.push_back(t);
   }
   store_->ReplaceWorkspaceTabs(workspace_id, snapshot);
@@ -4619,13 +4640,16 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
                browser_view->GetID() == kZoomBarBrowserViewId ||
                browser_view->GetID() == kDownloadsBrowserViewId ||
                browser_view->GetID() == kCertificateBrowserViewId ||
-               browser_view->GetID() == kImagePreviewBrowserViewId ||
-               browser_view->GetID() == kLinkPreviewBrowserViewId ||
-               browser_view->GetID() == kConsoleBrowserViewId) {
+                browser_view->GetID() == kImagePreviewBrowserViewId ||
+                browser_view->GetID() == kLinkPreviewBrowserViewId ||
+                browser_view->GetID() == kToastNotificationBrowserViewId ||
+                browser_view->GetID() == kConsoleBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
       } else if (browser_view->GetID() == kLinkPreviewBrowserViewId) {
         link_preview_browser_ = browser;
+      } else if (browser_view->GetID() == kToastNotificationBrowserViewId) {
+        toast_browser_ = browser;
       } else if (browser_view->GetID() == kCertificateBrowserViewId) {
         certificate_browser_ = browser;
         OtfApp* app = OtfApp::GetInstance();
@@ -5070,8 +5094,10 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
       std::string tab_id_str = link_url.substr(17);
       const auto tab_id_opt = ParseIntStrict(tab_id_str);
       bool is_muted = false;
+      bool is_pinned = false;
       if (tab_id_opt && tab_manager_) {
         is_muted = tab_manager_->GetMuted(*tab_id_opt);
+        is_pinned = tab_manager_->IsPinned(*tab_id_opt);
       }
 
       model->Clear();
@@ -5082,6 +5108,12 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
         model->AddItem(MENU_ID_TAB_UNMUTE, "Unmute Tab");
       } else {
         model->AddItem(MENU_ID_TAB_MUTE, "Mute Tab");
+      }
+      model->AddSeparator();
+      if (is_pinned) {
+        model->AddItem(MENU_ID_TAB_UNPIN, "Unpin Tab");
+      } else {
+        model->AddItem(MENU_ID_TAB_PIN, "Pin Tab");
       }
       model->AddSeparator();
       model->AddItem(MENU_ID_TAB_CLOSE, "Close Tab");
@@ -5186,7 +5218,8 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
   }
 
   if (command_id == MENU_ID_TAB_CLOSE || command_id == MENU_ID_TAB_CLOSE_OTHERS ||
-      command_id == MENU_ID_TAB_MUTE || command_id == MENU_ID_TAB_UNMUTE) {
+      command_id == MENU_ID_TAB_MUTE || command_id == MENU_ID_TAB_UNMUTE ||
+      command_id == MENU_ID_TAB_PIN || command_id == MENU_ID_TAB_UNPIN) {
     std::string link_url = params->GetLinkUrl().ToString();
     if (link_url.rfind("tab-context-menu:", 0) == 0) {
       std::string tab_id_str = link_url.substr(17);
@@ -5199,11 +5232,10 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
         if (command_id == MENU_ID_TAB_CLOSE) {
           CloseTabAndNotify(tab_id);
         } else if (command_id == MENU_ID_TAB_CLOSE_OTHERS) {
-          // Close other tabs in the active workspace
           int active_workspace_id = active_workspace_id_;
           std::vector<int> ids = tab_manager_->GetTabIdsForWorkspace(active_workspace_id);
           for (int id : ids) {
-            if (id != tab_id) {
+            if (id != tab_id && !tab_manager_->IsPinned(id)) {
               CloseTabAndNotify(id);
             }
           }
@@ -5221,6 +5253,14 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
             tab_manager_->SetMuted(tab_id, false);
             SendEvent(BuildTabPropertyEvent(tab_id, "muted", false));
           }
+        } else if (command_id == MENU_ID_TAB_PIN) {
+          tab_manager_->SetPinned(tab_id, true);
+          SendEvent(BuildTabPropertyEvent(tab_id, "pinned", true));
+          PersistWorkspaceForTab(tab_id);
+        } else if (command_id == MENU_ID_TAB_UNPIN) {
+          tab_manager_->SetPinned(tab_id, false);
+          SendEvent(BuildTabPropertyEvent(tab_id, "pinned", false));
+          PersistWorkspaceForTab(tab_id);
         }
         return true;
       }
@@ -5317,6 +5357,9 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     // CEF Alloy does not route this command to a native handler, so we
     // handle it ourselves using the platform clipboard API.
     WriteToClipboard(params->GetLinkUrl().ToString());
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      app->ShowToastNotification("Link copied");
+    }
     return true;
   }
 
@@ -5330,6 +5373,9 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
         email = email.substr(0, qpos);
       }
       WriteToClipboard(email);
+    }
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      app->ShowToastNotification("Email copied");
     }
     return true;
   }
@@ -6035,6 +6081,7 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
   if (!app) {
     return;
   }
+  if (tab_manager_ && tab_manager_->IsPinned(tab_id)) return;
   if (tab_manager_) {
     std::string url = tab_manager_->GetUrl(tab_id);
     const bool is_image_preview =

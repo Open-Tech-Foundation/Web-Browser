@@ -91,7 +91,7 @@ class OtfApp : public CefApp,
   bool DispatchPopupBrowserCreated(int view_id, CefRefPtr<CefBrowser> browser);
 
   int CreateTab(const std::string& url, int parent_id = -1,
-                bool is_private = false);
+                bool is_private = false, bool is_pinned = false);
   int CreateRestoredTab(const WorkspaceTab& tab, int parent_id = -1);
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
@@ -105,6 +105,10 @@ class OtfApp : public CefApp,
   void CreateBookmarkOverlay();
   void CreateImagePreviewOverlay();
   void CreateLinkPreviewOverlay();
+  void CreateToastOverlay();
+  void ShowToastNotification(const std::string& message);
+  void HideToastOverlay();
+  void PositionToastOverlay();
   void CreateConsoleOverlay();
   void PositionLinkPreviewOverlay();
   void SetLinkPreviewVisible(bool visible);
@@ -154,6 +158,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> bookmark_overlay_;
   CefRefPtr<CefOverlayController> image_preview_overlay_;
   CefRefPtr<CefOverlayController> link_preview_overlay_;
+  CefRefPtr<CefOverlayController> toast_overlay_;
 
   // Console side panel — a proper CefBrowserView child of content_area_panel_,
   // not an overlay, so the tab content resizes when it is shown/hidden.
@@ -162,6 +167,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefBrowserView> console_view_;
 
   static constexpr int kConsoleWidth = 420;
+  int toast_gen_ = 0;
 
  private:
   void ApplyFullscreenState();

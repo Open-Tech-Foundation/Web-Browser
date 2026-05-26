@@ -54,6 +54,7 @@ struct WorkspaceTab {
   bool was_active = false;
   bool is_image_preview = false;
   int preview_page = 0;
+  bool pinned = false;
 };
 
 struct BookmarkEntry {

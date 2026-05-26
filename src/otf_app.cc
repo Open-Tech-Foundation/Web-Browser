@@ -116,7 +116,8 @@ bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
     return otf::IsPersistableWebUrl(tab.url);
   }
   return otf::IsPersistableWebUrl(tab.url) &&
-         !StartsWith(tab.url, "browser://");
+         !StartsWith(tab.url, "browser://") &&
+         !IsDevUiUrl(tab.url);
 }
 
 // Lazily load the OTF window icon from the PNG files shipped alongside the
@@ -238,6 +239,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateBookmarkOverlay();
     app->CreateImagePreviewOverlay();
     app->CreateLinkPreviewOverlay();
+    app->CreateToastOverlay();
     app->CreateConsoleOverlay();
     // Build any popup registered against the PopupOverlay framework.
     app->CreateAllPopups(window);
@@ -668,7 +670,7 @@ void OtfApp::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) {
   registrar->AddCustomScheme("browser", CEF_SCHEME_OPTION_STANDARD | CEF_SCHEME_OPTION_SECURE | CEF_SCHEME_OPTION_CORS_ENABLED);
 }
 
-int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private) {
+int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bool is_pinned) {
   CEF_REQUIRE_UI_THREAD();
 
   CefBrowserSettings browser_settings;
@@ -701,6 +703,9 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private) {
     handler->MarkTabJsDisabled(tab_id);
   }
   tab_manager_.SetUrl(tab_id, url);
+  if (url.rfind("browser://", 0) == 0) {
+    tab_manager_.SetSchemeUrl(tab_id, url);
+  }
   if (url == "browser://imagepreview" ||
       url.rfind("browser://image-preview/", 0) == 0 ||
       url.find("/imagepreview.html") != std::string::npos) {
@@ -709,6 +714,9 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private) {
   }
   if (handler) {
     tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
+  }
+  if (is_pinned) {
+    tab_manager_.SetPinned(tab_id, true);
   }
 
   if (content_panel_) {
@@ -727,14 +735,14 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
     }
     const std::string preview_start_url =
         tab.preview_local_path.empty() ? "browser://imagepreview" : tab.url;
-    const int tab_id = CreateTab(preview_start_url, parent_id);
+    const int tab_id = CreateTab(preview_start_url, parent_id, false, tab.pinned);
     RestoreImagePreviewStateForTab(tab_id, tab);
     return tab_id;
   }
   if (!IsRestorableWorkspaceTab(tab)) {
     return CreateTab("browser://newtab", parent_id);
   }
-  return CreateTab(tab.url, parent_id);
+  return CreateTab(tab.url, parent_id, false, tab.pinned);
 }
 
 void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab) {
@@ -946,6 +954,7 @@ void OtfApp::SwitchTab(int tab_id) {
 
 int OtfApp::CloseTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
+  if (tab_manager_.IsPinned(tab_id)) return -1;
   OtfHandler* handler = OtfHandler::GetInstance();
   const int ws_id = tab_manager_.GetWorkspaceId(tab_id);
   const std::vector<int> ws_tab_ids = tab_manager_.GetTabIdsForWorkspace(ws_id);
@@ -1023,6 +1032,83 @@ void OtfApp::CreateZoomBarOverlay() {
   zoombar_overlay_ = window_->AddOverlayView(
       view, CEF_DOCKING_MODE_CUSTOM, true);
   PositionZoomBarOverlay();
+}
+
+void OtfApp::CreateToastOverlay() {
+  if (!window_) return;
+  std::string url = "browser://toast";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/toast.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 32));
+  view->SetID(kToastNotificationBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  toast_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  toast_overlay_->SetVisible(false);
+  PositionToastOverlay();
+}
+
+namespace {
+
+class HideToastTask : public CefTask {
+ public:
+  HideToastTask(OtfApp* app, int gen) : app_(app), gen_(gen) {}
+  void Execute() override {
+    // Only hide if no newer toast was requested (gen changed).
+    if (app_ && app_->toast_gen_ == gen_) {
+      app_->HideToastOverlay();
+    }
+  }
+ private:
+  OtfApp* app_;
+  int gen_;
+  IMPLEMENT_REFCOUNTING(HideToastTask);
+};
+
+}  // namespace
+
+void OtfApp::ShowToastNotification(const std::string& message) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!toast_overlay_) return;
+  PositionToastOverlay();
+  toast_overlay_->SetVisible(true);
+  CefRefPtr<CefBrowser> browser = OtfHandler::GetInstance()->toast_browser_;
+  if (browser) {
+    std::string safe = message;
+    for (size_t i = 0; (i = safe.find('\\', i)) != std::string::npos; i += 2)
+      safe.replace(i, 1, "\\\\");
+    for (size_t i = 0; (i = safe.find('\'', i)) != std::string::npos; i += 2)
+      safe.replace(i, 1, "\\'");
+    const std::string js = "window.__otfSetToastMessage('" + safe + "');";
+    browser->GetMainFrame()->ExecuteJavaScript(js, "", 0);
+  }
+  ++toast_gen_;
+  CefPostDelayedTask(TID_UI, new HideToastTask(this, toast_gen_), 2200);
+}
+
+void OtfApp::HideToastOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (toast_overlay_) {
+    toast_overlay_->SetVisible(false);
+  }
+}
+
+void OtfApp::PositionToastOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !toast_overlay_ || !content_panel_ || !content_area_panel_) return;
+  constexpr int kOverlayWidth = 240;
+  constexpr int kOverlayHeight = 32;
+  CefRect area = content_area_panel_->GetBounds();
+  CefRect panel = content_panel_->GetBounds();
+  int x = area.x + panel.x + (panel.width - kOverlayWidth) / 2;
+  int y = area.y + panel.y + 4;
+  toast_overlay_->SetBounds(CefRect(x, y, kOverlayWidth, kOverlayHeight));
 }
 
 void OtfApp::CreateLinkPreviewOverlay() {
@@ -1759,6 +1845,9 @@ void OtfApp::OnContextInitialized() {
     handler->MarkTabJsDisabled(tab_id);
   }
   tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
+  if (pending_workspace_restore_first_.id != 0) {
+    tab_manager_.SetPinned(tab_id, pending_workspace_restore_first_.pinned);
+  }
   if (pending_workspace_restore_first_is_preview_) {
     RestoreImagePreviewStateForTab(tab_id, pending_workspace_restore_first_);
     pending_workspace_restore_first_is_preview_ = false;

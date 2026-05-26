@@ -27,6 +27,7 @@ constexpr int kBlockedPopupBrowserViewId = 1009;
 constexpr int kDownloadRequestBrowserViewId = 1010;
 constexpr int kLinkPreviewBrowserViewId = 1011;
 constexpr int kConsoleBrowserViewId = 1012;
+constexpr int kToastNotificationBrowserViewId = 1013;
 
 struct ConsoleEntry {
   int level;        // cef_log_severity_t value
@@ -95,6 +96,7 @@ class TabManager {
     image_preview_mode_map_.erase(tab_id);
     muted_map_.erase(tab_id);
     private_map_.erase(tab_id);
+    pinned_map_.erase(tab_id);
     console_visible_map_.erase(tab_id);
     console_log_map_.erase(tab_id);
     
@@ -155,6 +157,23 @@ class TabManager {
 
   bool HasPrivateTabs() const {
     return !private_map_.empty();
+  }
+
+  void SetPinned(int tab_id, bool pinned) {
+    if (pinned) {
+      pinned_map_[tab_id] = true;
+    } else {
+      pinned_map_.erase(tab_id);
+    }
+    const int workspace_id = GetWorkspaceId(tab_id);
+    if (workspace_id > 0) {
+      ReorderPinnedTabsInWorkspace(workspace_id);
+    }
+  }
+
+  bool IsPinned(int tab_id) const {
+    auto it = pinned_map_.find(tab_id);
+    return it != pinned_map_.end() ? it->second : false;
   }
 
   void SetConsoleVisible(int tab_id, bool visible) {
@@ -312,6 +331,9 @@ class TabManager {
 
   void SetWorkspaceId(int tab_id, int workspace_id) {
     workspace_map_[tab_id] = workspace_id;
+    if (workspace_id > 0 && IsPinned(tab_id)) {
+      ReorderPinnedTabsInWorkspace(workspace_id);
+    }
   }
 
   int GetWorkspaceId(int tab_id) const {
@@ -403,9 +425,31 @@ class TabManager {
     for (size_t k = 0; k < ws_idx.size(); ++k) {
       tab_order_[ws_idx[k]] = ws_slots[k];
     }
+    ReorderPinnedTabsInWorkspace(workspace_id);
   }
 
  private:
+  void ReorderPinnedTabsInWorkspace(int workspace_id) {
+    std::vector<int> pinned;
+    std::vector<int> unpinned;
+    std::vector<size_t> ws_idx;
+    for (size_t i = 0; i < tab_order_.size(); ++i) {
+      const int id = tab_order_[i];
+      auto it = workspace_map_.find(id);
+      const int ws = (it != workspace_map_.end()) ? it->second : 0;
+      if (ws != workspace_id) continue;
+      ws_idx.push_back(i);
+      if (IsPinned(id)) {
+        pinned.push_back(id);
+      } else {
+        unpinned.push_back(id);
+      }
+    }
+    size_t write = 0;
+    for (int id : pinned) tab_order_[ws_idx[write++]] = id;
+    for (int id : unpinned) tab_order_[ws_idx[write++]] = id;
+  }
+
   std::map<int, CefRefPtr<CefBrowserView>> view_map_;
   std::map<int, CefRefPtr<CefBrowser>> browser_map_;
   std::map<int, std::string> scheme_map_;
@@ -428,6 +472,7 @@ class TabManager {
   std::map<int, ImagePreviewMode> image_preview_mode_map_;
   std::map<int, bool> muted_map_;
   std::map<int, bool> private_map_;
+  std::map<int, bool> pinned_map_;
   std::map<int, bool> console_visible_map_;
   std::map<int, std::deque<ConsoleEntry>> console_log_map_;
   std::vector<int> tab_order_;

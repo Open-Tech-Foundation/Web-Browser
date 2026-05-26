@@ -1,4 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+
+const PinnedBadge = () => (
+  <svg className="w-3.5 h-3.5 shrink-0 text-slate-500 dark:text-slate-400" viewBox="0 0 24 24" fill="currentColor" aria-label="Pinned tab">
+    <path d="M7 2v11l-2 2v2h6v5l1 1 1-1v-5h6v-2l-2-2V2H7zm2 2h6v9.17l1.17 1.17H7.83L9 13.17V4z"/>
+  </svg>
+);
 
 const PrivateBadge = () => (
   <svg className="w-[18px] h-[18px] shrink-0 text-violet-500 dark:text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Private tab">
@@ -61,6 +67,14 @@ const getTabIcon = (tab) => {
 };
 
 const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
+  const sortedTabs = useMemo(() => {
+    const pinned = [];
+    const unpinned = [];
+    for (const t of tabs) {
+      (t.pinned ? pinned : unpinned).push(t);
+    }
+    return [...pinned, ...unpinned];
+  }, [tabs]);
   const viewportRef = useRef(null);
   const tabRefs = useRef(new Map());
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -104,7 +118,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   };
 
   useLayoutEffect(() => {
-    const activeTab = tabs.find((tab) => tab.active);
+    const activeTab = sortedTabs.find((tab) => tab.active);
     if (!activeTab) {
       measureOverflow();
       return;
@@ -157,7 +171,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
         </button>
       )}
       <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-1 flex items-end flex-nowrap">
-        {tabs.map((tab, index) => (
+        {sortedTabs.map((tab, index) => (
           <a 
             key={tab.id}
             href={`tab-context-menu:${tab.id}`}
@@ -173,7 +187,10 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
               }
             }}
             className={`
-              group relative flex items-center h-[29px] px-3 min-w-[140px] max-w-[220px] rounded-t-lg text-[12px] cursor-pointer transition-all duration-150 shrink-0 select-none no-underline
+              group relative flex items-center h-[29px] rounded-t-lg text-[12px] cursor-pointer transition-all duration-150 shrink-0 select-none no-underline
+              ${tab.pinned
+                ? 'min-w-[36px] max-w-[36px] px-0 justify-center mx-0.5'
+                : 'min-w-[140px] max-w-[220px] px-3'}
               ${tab.private
                 ? 'bg-violet-500/5 dark:bg-violet-500/10 ring-1 ring-inset ring-violet-500/40'
                 : ''}
@@ -185,30 +202,42 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             {tab.active && (
               <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${tab.private ? 'bg-violet-500' : 'bg-brand-orange'}`} />
             )}
-            <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
-              {tab.private && <PrivateBadge />}
-              {getTabIcon(tab)}
-              {tab.muted && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); window.cefQuery({ request: `unmute-tab:${tab.id}` }); }}
-                  title="Unmute tab"
-                  className="w-4 h-4 shrink-0 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                </button>
-              )}
-              <span className="truncate font-medium">{tab.title || tab.url || 'New Tab'}</span>
-            </div>
-            <button 
-              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onClose(tab.id); }}
-              title="Close tab"
-              className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
+            {tab.pinned ? (
+              <div className="flex items-center justify-center w-full">
+                {tab.favicon ? (
+                  <img src={tab.favicon} className="w-3.5 h-3.5 object-contain" alt="" />
+                ) : (
+                  <PinnedBadge />
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
+                {tab.private && <PrivateBadge />}
+                {getTabIcon(tab)}
+                {tab.muted && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); window.cefQuery({ request: `unmute-tab:${tab.id}` }); }}
+                    title="Unmute tab"
+                    className="w-4 h-4 shrink-0 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  </button>
+                )}
+                <span className="truncate font-medium">{tab.title || tab.url || 'New Tab'}</span>
+              </div>
+            )}
+            {!tab.pinned && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onClose(tab.id); }}
+                title="Close tab"
+                className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            )}
 
             {/* Tab Separator */}
-            {index < tabs.length - 1 && !tab.active && !tabs[index + 1].active && (
+            {!tab.pinned && index < sortedTabs.length - 1 && !tab.active && !sortedTabs[index + 1].active && (
               <div className="absolute right-[-1.5px] top-1.5 bottom-1.5 w-[1px] bg-slate-500/40 dark:bg-white/20 group-hover:opacity-0 transition-opacity" />
             )}
           </a>

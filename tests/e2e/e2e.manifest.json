@@ -16,6 +16,7 @@
         "tabs.test.js",
         "navigation.test.js",
         "findbar.test.js",
+        "toast-notification.test.js",
         "qr.test.js",
         "site-data.test.js",
         "tab-title.test.js"

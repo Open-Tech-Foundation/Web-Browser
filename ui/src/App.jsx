@@ -21,6 +21,7 @@ const normalizeTab = (tab) => ({
   sslError: Boolean(tab.sslError),
   bookmarked: Boolean(tab.bookmarked),
   private: Boolean(tab.private),
+  pinned: Boolean(tab.pinned),
 });
 
 const tabReducer = (state, action) => {
@@ -242,6 +243,7 @@ const App = () => {
               if (event.key === 'zoomPercent') val = Number(event.value);
               else if (event.key === 'sslError') val = event.value === 'true' || event.value === true;
               else if (event.key === 'muted') val = event.value === 'true' || event.value === true;
+              else if (event.key === 'pinned') val = event.value === 'true' || event.value === true;
               dispatch({
                 type: 'UPDATE_TAB', 
                 payload: { 

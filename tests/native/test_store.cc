@@ -156,6 +156,7 @@ void TestWorkspaceLifecycleAndTabs() {
   first.title = "Example";
   first.favicon = "fav";
   first.was_active = true;
+  first.pinned = true;
   tabs.push_back(first);
 
   otf::WorkspaceTab second;
@@ -172,8 +173,10 @@ void TestWorkspaceLifecycleAndTabs() {
   assert(restored.size() == 2);
   assert(restored[0].position == 0);
   assert(restored[0].was_active);
+  assert(restored[0].pinned);
   assert(restored[1].position == 1);
   assert(restored[1].is_image_preview);
+  assert(!restored[1].pinned);
   assert(restored[1].preview_local_path == "/tmp/image.tiff");
   assert(restored[1].preview_page == 2);
 
