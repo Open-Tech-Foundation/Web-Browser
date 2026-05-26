@@ -1040,7 +1040,7 @@ int OtfApp::CloseTab(int tab_id) {
 
 void OtfApp::UpdateWindowTitle(int tab_id) {
   if (tab_id == current_tab_id_ && window_) {
-    window_->SetTitle("OTF Browser - " + tab_manager_.GetTitle(tab_id));
+    window_->SetTitle(tab_manager_.GetTitle(tab_id));
   }
 }
 
