@@ -3305,6 +3305,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           if (!rows_.empty()) rows_ += ",";
           rows_ += JsonObjectBuilder()
                        .AddString("name", CefString(&cookie.name).ToString())
+                       .AddString("value", CefString(&cookie.value).ToString())
                        .AddString("domain", CefString(&cookie.domain).ToString())
                        .AddString("path", CefString(&cookie.path).ToString())
                        .AddBool("secure", cookie.secure != 0)

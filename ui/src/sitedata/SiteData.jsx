@@ -279,6 +279,7 @@ const SiteData = () => {
                   <thead className="bg-slate-100 dark:bg-slate-800/60">
                     <tr>
                       <th className="text-left px-3 py-2 font-semibold">Name</th>
+                      <th className="text-left px-3 py-2 font-semibold">Value</th>
                       <th className="text-left px-3 py-2 font-semibold">Domain</th>
                       <th className="text-left px-3 py-2 font-semibold">Path</th>
                       <th className="text-left px-3 py-2 font-semibold">Flags</th>
@@ -287,7 +288,8 @@ const SiteData = () => {
                   <tbody>
                     {cookies.map((c, i) => (
                       <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-2 font-mono break-all">{c.name}</td>
+                        <td className="px-3 py-2 font-mono break-all max-w-[160px]">{c.name}</td>
+                        <td className="px-3 py-2 font-mono break-all max-w-[200px] text-slate-600 dark:text-slate-400">{c.value}</td>
                         <td className="px-3 py-2 font-mono break-all">{c.domain}</td>
                         <td className="px-3 py-2 font-mono break-all">{c.path}</td>
                         <td className="px-3 py-2 font-mono text-slate-500">
