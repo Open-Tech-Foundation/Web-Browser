@@ -725,6 +725,9 @@ void RevealPathInFolder(const std::string& path) {
 std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
   JsonObjectBuilder builder;
   const std::string url = tab_manager ? tab_manager->GetUrl(tab_id) : "";
+  OtfHandler* handler = OtfHandler::GetInstance();
+  const bool is_guest_tab =
+      handler && tab_manager && handler->IsGuestTab(tab_id);
   builder.AddInt("id", tab_id)
       .AddString("url", url)
       .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id) : "New Tab");
@@ -734,9 +737,10 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
     builder.AddBool("muted", tab_manager->GetMuted(tab_id));
     builder.AddBool("private", tab_manager->IsPrivate(tab_id));
     builder.AddBool("pinned", tab_manager->IsPinned(tab_id));
+    builder.AddBool("guest", is_guest_tab);
   }
   builder.AddBool("bookmarked",
-                  store && IsPersistableWebUrl(url) &&
+                  store && tab_manager && !is_guest_tab && IsPersistableWebUrl(url) &&
                       store->IsBookmarked(NormalizeBookmarkUrl(url)));
   return builder.Build();
 }
@@ -745,16 +749,19 @@ std::string BuildWorkspacesJson(const std::vector<Workspace>& workspaces,
                                 int active_workspace_id) {
   std::stringstream ss;
   ss << "[";
+  bool first = true;
   for (size_t i = 0; i < workspaces.size(); ++i) {
     const auto& w = workspaces[i];
+    if (!first) ss << ",";
+    first = false;
     ss << JsonObjectBuilder()
               .AddInt("id", w.id)
               .AddString("name", w.name)
               .AddString("color", w.color)
               .AddInt("position", w.position)
               .AddBool("active", w.id == active_workspace_id)
+              .AddBool("guest", false)
               .Build();
-    if (i + 1 < workspaces.size()) ss << ",";
   }
   ss << "]";
   return ss.str();
@@ -2374,8 +2381,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "get-tabs") {
       std::stringstream ss;
       ss << "[";
-      std::vector<int> ids = handler->tab_manager_->GetTabIdsForWorkspace(
-          handler->active_workspace_id_);
+      std::vector<int> ids =
+          handler->guest_session_active_
+              ? handler->tab_manager_->GetTabIdsForWorkspace(0)
+              : handler->tab_manager_->GetTabIdsForWorkspace(
+                    handler->active_workspace_id_);
       for (size_t i = 0; i < ids.size(); ++i) {
         ss << BuildTabJson(handler->tab_manager_, handler->store_.get(), ids[i]);
         if (i < ids.size() - 1) ss << ",";
@@ -2393,8 +2403,23 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "get-workspaces") {
       if (!handler->store_) { callback->Success("[]"); return true; }
+      if (handler->guest_session_active_) {
+        callback->Success("[]");
+        return true;
+      }
       callback->Success(BuildWorkspacesJson(handler->store_->GetWorkspaces(),
                                             handler->active_workspace_id_));
+      return true;
+    }
+
+    if (msg == "create-guest-session") {
+      handler->StartGuestSession();
+      callback->Success("");
+      return true;
+    }
+
+    if (msg == "is-guest-session") {
+      callback->Success(handler->guest_session_active_ ? "true" : "false");
       return true;
     }
 
@@ -2509,6 +2534,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const int target = *id_opt;
       if (target == handler->active_workspace_id_) { callback->Success(""); return true; }
       if (!handler->store_) { callback->Failure(1, "store unavailable"); return true; }
+      if (target <= 0) {
+        callback->Failure(1, "workspace not found");
+        return true;
+      }
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "workspace switching is disabled in guest sessions");
+        return true;
+      }
 
       // Snapshot the outgoing workspace now, while GetCurrentTabId() still
       // points to a tab that belongs to it — that's the only moment was_active
@@ -2596,20 +2629,24 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg == "get-downloads") {
-      callback->Success(handler->GetDownloadsJson());
+      callback->Success(handler->guest_session_active_ ? "[]" : handler->GetDownloadsJson());
       return true;
     }
 
     if (msg == "get-history") {
       callback->Success(handler->store_
-                            ? BuildHistoryJson(handler->store_->GetHistory(
-                                  200, handler->active_workspace_id_))
+                            ? (handler->guest_session_active_
+                                   ? "[]"
+                                   : BuildHistoryJson(handler->store_->GetHistory(
+                                         200, handler->active_workspace_id_)))
                             : "[]");
       return true;
     }
 
     if (msg == "get-bookmarks") {
-      callback->Success(handler->store_ ? BuildBookmarksJson(handler->store_->GetBookmarks()) : "[]");
+      callback->Success(handler->store_ && !handler->guest_session_active_
+                            ? BuildBookmarksJson(handler->store_->GetBookmarks())
+                            : "[]");
       return true;
     }
 
@@ -2876,7 +2913,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg == "clear-history") {
-      if (handler->store_) {
+      if (handler->store_ && !handler->guest_session_active_) {
         handler->store_->ClearHistory(handler->active_workspace_id_);
       }
       callback->Success("");
@@ -2888,7 +2925,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (app && handler->tab_manager_ && handler->store_) {
         const int tab_id = app->GetCurrentTabId();
         const std::string url = NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
-        if (IsPersistableWebUrl(url)) {
+        if (IsPersistableWebUrl(url) && !handler->IsGuestTab(tab_id)) {
           bool bookmarked = false;
           if (!handler->store_->IsBookmarked(url)) {
             const std::string title = handler->tab_manager_->GetTitle(tab_id);
@@ -2932,6 +2969,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("add-bookmark:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Bookmarks are disabled in guest sessions");
+        return true;
+      }
       size_t cursor = 13;
       bool ok = false;
       const std::string url = ParseLengthPrefixedField(msg, &cursor, &ok);
@@ -3073,6 +3114,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const int tab_id = *tab_id_opt;
       const int ws =
           handler->tab_manager_ ? handler->tab_manager_->GetWorkspaceId(tab_id) : 0;
+      const bool closes_guest_session =
+          handler->guest_session_active_ && ws == 0 && handler->tab_manager_ &&
+          handler->tab_manager_->GetTabIdsForWorkspace(0).size() == 1;
+      if (closes_guest_session) {
+        callback->Success("");
+        handler->CloseTabAndNotify(tab_id);
+        return true;
+      }
       if (OtfApp::GetInstance()) {
         handler->CloseTabAndNotify(tab_id);
       }
@@ -3543,7 +3592,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     } else if (msg.rfind("get-permissions-for-site:", 0) == 0) {
       const std::string origin = NormalizeOrigin(msg.substr(25));
-      if (handler->store_) {
+      if (handler->store_ && !handler->guest_session_active_) {
         std::string json = handler->store_->GetSitePermissionsJson(origin);
         callback->Success(json);
       } else {
@@ -3551,6 +3600,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       return true;
     } else if (msg.rfind("set-permission-for-site:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Site permissions are disabled in guest sessions");
+        return true;
+      }
       const std::string payload = msg.substr(24);
       size_t last_colon = payload.rfind(':');
       if (last_colon != std::string::npos && last_colon > 0) {
@@ -4127,6 +4180,9 @@ OtfHandler* OtfHandler::GetInstance() {
 }
 
 CefRefPtr<CefRequestContext> OtfHandler::GetActiveWorkspaceRequestContext() {
+  if (guest_session_active_) {
+    return GetGuestRequestContext();
+  }
   return GetWorkspaceRequestContext(active_workspace_id_);
 }
 
@@ -4215,6 +4271,120 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
   ApplyAlwaysOnPrivacyPreferences(ctx);
   workspace_contexts_[workspace_id] = ctx;
   return ctx;
+}
+
+CefRefPtr<CefRequestContext> OtfHandler::GetGuestRequestContext() {
+  CEF_REQUIRE_UI_THREAD();
+  if (guest_context_) {
+    return guest_context_;
+  }
+
+  CefRequestContextSettings settings;
+  CefRefPtr<CefRequestContext> ctx =
+      CefRequestContext::CreateContext(settings, nullptr);
+  OtfApp* app = OtfApp::GetInstance();
+  if (app) app->RegisterBrowserSchemeForContext(ctx);
+  ApplyAlwaysOnPrivacyPreferences(ctx);
+  guest_context_ = ctx;
+  return ctx;
+}
+
+bool OtfHandler::IsGuestTab(int tab_id) const {
+  return tab_manager_ && tab_manager_->GetWorkspaceId(tab_id) == 0;
+}
+
+void OtfHandler::StartGuestSession() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) return;
+  if (guest_session_active_) {
+    const auto guest_tabs =
+        tab_manager_ ? tab_manager_->GetTabIdsForWorkspace(0) : std::vector<int>{};
+    if (!guest_tabs.empty()) {
+      app->SwitchTab(guest_tabs.front());
+      return;
+    }
+  }
+
+  pre_guest_workspace_id_ = active_workspace_id_;
+  pre_guest_tab_id_ = app->GetCurrentTabId();
+  PersistWorkspaceTabs(pre_guest_workspace_id_);
+  if (pre_guest_tab_id_ >= 0) {
+    workspace_last_active_tab_[pre_guest_workspace_id_] = pre_guest_tab_id_;
+  }
+
+  guest_session_active_ = true;
+  const int tab_id = app->CreateTab("browser://newtab");
+  if (tab_manager_) tab_manager_->SetWorkspaceId(tab_id, 0);
+  NotifyNewTab(tab_id, -1);
+  app->SwitchTab(tab_id);
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "guest-session-changed")
+                .AddBool("active", true)
+                .Build());
+  SendEvent(JsonObjectBuilder().AddString("key", "workspaces-updated").Build());
+}
+
+void OtfHandler::EndGuestSession(bool restore_normal_tabs) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!guest_session_active_) return;
+  OtfApp* app = OtfApp::GetInstance();
+
+  guest_session_active_ = false;
+  if (tab_manager_) {
+    tab_manager_->ClearWorkspaceOriginZooms(0);
+    tab_manager_->ClearPrivateWorkspaceOriginZooms(0);
+  }
+  for (auto it = downloads_.begin(); it != downloads_.end();) {
+    if (it->first < 0) {
+      it = downloads_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (auto it = runtime_download_ids_.begin(); it != runtime_download_ids_.end();) {
+    if (it->second < 0) {
+      it = runtime_download_ids_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  guest_context_ = nullptr;
+
+  active_workspace_id_ = pre_guest_workspace_id_ > 0 ? pre_guest_workspace_id_ : 1;
+  if (store_) store_->SetActiveWorkspace(active_workspace_id_);
+
+  if (restore_normal_tabs) {
+    int restore_tab = -1;
+    if (tab_manager_ && pre_guest_tab_id_ >= 0) {
+      const auto tabs = tab_manager_->GetTabIdsForWorkspace(active_workspace_id_);
+      if (std::find(tabs.begin(), tabs.end(), pre_guest_tab_id_) != tabs.end()) {
+        restore_tab = pre_guest_tab_id_;
+      } else if (!tabs.empty()) {
+        restore_tab = tabs.front();
+      }
+    }
+    if (app) {
+      if (restore_tab >= 0) {
+        app->SwitchTab(restore_tab);
+      } else {
+        const int new_id = app->CreateTab("browser://newtab");
+        NotifyNewTab(new_id, -1);
+        app->SwitchTab(new_id);
+      }
+    }
+  }
+
+  pre_guest_tab_id_ = -1;
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "guest-session-changed")
+                .AddBool("active", false)
+                .Build());
+  SendEvent(JsonObjectBuilder().AddString("key", "workspaces-updated").Build());
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "workspace-changed")
+                .AddInt("id", active_workspace_id_)
+                .Build());
 }
 
 CefRefPtr<CefRequestContext> OtfHandler::GetPrivateRequestContext() {
@@ -4317,7 +4487,10 @@ bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
     return true;
   }
 
-  std::string setting = store_->GetSitePermission(page_origin, "downloads");
+  std::string setting =
+      IsGuestTab(tab_manager_ ? tab_manager_->GetId(browser) : -1)
+          ? ""
+          : store_->GetSitePermission(page_origin, "downloads");
   if (setting == "block") {
     return false;
   }
@@ -4397,7 +4570,8 @@ void OtfHandler::OpenAcceptedPopup(const PendingPopup& popup) {
     wi.bounds = CefRect(100, 100, popup.popup_width, popup.popup_height);
     wi.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserSettings bs;
-    ApplyJsPermission(bs, store_.get(), popup.url);
+    ApplyJsPermission(bs, IsGuestTab(popup.parent_tab_id) ? nullptr : store_.get(),
+                      popup.url);
     CefRefPtr<CefDictionaryValue> extra;
     if (app) extra = app->MakeBrowserExtraInfo();
     CefRefPtr<CefRequestContext> rc =
@@ -4428,7 +4602,8 @@ void OtfHandler::NotifyBookmarkStateForTab(int tab_id) {
 
   const std::string url = tab_manager_->GetUrl(tab_id);
   const bool bookmarked =
-      IsPersistableWebUrl(url) && store_->IsBookmarked(NormalizeBookmarkUrl(url));
+      IsPersistableWebUrl(url) && !IsGuestTab(tab_id) &&
+      store_->IsBookmarked(NormalizeBookmarkUrl(url));
   SendEvent(BuildBookmarkSyncEvent(tab_id, url, bookmarked));
 }
 
@@ -4448,7 +4623,7 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
     if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
     const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
     if (store_ && otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
-        !IsInternalUiUrl(url)) {
+        !IsInternalUiUrl(url) && !IsGuestTab(view->GetID())) {
       const int workspace_id =
           tab_manager_ ? tab_manager_->GetWorkspaceId(view->GetID()) : active_workspace_id_;
       store_->UpdateHistoryTitle(url, title.ToString(), workspace_id);
@@ -4532,7 +4707,8 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
       if (store_ && IsPersistableWebUrl(url_str)) {
         SendEvent(BuildBookmarkSyncEvent(
             view->GetID(), url_str,
-            store_->IsBookmarked(NormalizeBookmarkUrl(url_str))));
+            !IsGuestTab(view->GetID()) &&
+                store_->IsBookmarked(NormalizeBookmarkUrl(url_str))));
       }
       PersistWorkspaceForTab(view->GetID());
     }
@@ -4710,13 +4886,15 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
     const std::string current = tab_manager_->GetUrl(tab_id);
     const std::string suppressed_url =
         tab_manager_->GetHistorySuppressedUrl(tab_id);
+    const int workspace_id = tab_manager_->GetWorkspaceId(tab_id);
     if (otf::IsHistoryEnabled() && !tab_manager_->IsPrivate(tab_id) &&
+        !IsGuestTab(tab_id) &&
         IsPersistableWebUrl(url) &&
         !IsInternalUiUrl(url) && (current.empty() ||
         current.rfind("browser://", 0) != 0) &&
         (suppressed_url.empty() || suppressed_url != url)) {
       store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link",
-                          tab_manager_->GetWorkspaceId(tab_id));
+                          workspace_id);
     }
     int zoom_percent = 100;
     if (ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) ||
@@ -4736,7 +4914,9 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
       }
     }
     SendEvent(BuildBookmarkSyncEvent(
-        tab_id, url, store_->IsBookmarked(NormalizeBookmarkUrl(url))));
+        tab_id, url,
+        !IsGuestTab(tab_id) &&
+            store_->IsBookmarked(NormalizeBookmarkUrl(url))));
   }
 
   SendEvent(BuildTabPropertyEvent(tab_id, "load-end", true));
@@ -4961,7 +5141,8 @@ bool OtfHandler::OnBeforePopup(CefRefPtr<CefBrowser> browser,
     return true;
   }
 
-  const std::string setting = store_->GetSitePermission(origin, "popup");
+  const std::string setting =
+      IsGuestTab(parent_tab_id) ? "" : store_->GetSitePermission(origin, "popup");
 
   if (setting == "allow") {
     PendingPopup allowed;
@@ -5031,7 +5212,6 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
                                   const CefString& suggested_name,
                                   CefRefPtr<CefBeforeDownloadCallback> callback) {
   CEF_REQUIRE_UI_THREAD();
-  (void)browser;
   if (!download_item || !callback) {
     return false;
   }
@@ -5044,6 +5224,13 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
   const std::string origin = ExtractOrigin(download_url.empty()
                                                ? download_item->GetURL().ToString()
                                                : download_url);
+  bool is_guest_download = false;
+  if (tab_manager_) {
+    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+    if (view && !IsNonTabBrowserViewId(view->GetID())) {
+      is_guest_download = IsGuestTab(view->GetID());
+    }
+  }
 
   // Consume transient allow-once entry set by the allow-download handler.
   // StartDownload may bypass CanDownload where it's normally consumed, so
@@ -5055,7 +5242,7 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
 
   // Safety net: if the store says block (CanDownload might have been
   // bypassed), cancel the download before any data is saved.
-  if (store_ && !origin.empty()) {
+  if (store_ && !origin.empty() && !is_guest_download) {
     std::string setting = store_->GetSitePermission(origin, "downloads");
     if (setting == "block") {
       return false;
@@ -5064,7 +5251,9 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
 
   const uint32_t runtime_id = download_item->GetId();
   int record_id = static_cast<int>(runtime_id);
-  if (store_ && otf::IsDownloadsEnabled()) {
+  if (is_guest_download) {
+    record_id = -static_cast<int>(runtime_id);
+  } else if (store_ && otf::IsDownloadsEnabled()) {
     const int persisted_id = store_->CreateDownload(download_item->GetURL(),
                                                      download_item->GetOriginalUrl(),
                                                      target_path, resolved_name, "", "starting");
@@ -5545,6 +5734,9 @@ OtfHandler::GetResourceRequestHandler(
     bool is_download,
     const CefString& request_initiator,
     bool& disable_default_handling) {
+  const CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  const int tab_id =
+      (view && !IsNonTabBrowserViewId(view->GetID())) ? view->GetID() : -1;
   if (store_ && !request_initiator.empty()) {
     const std::string raw = request_initiator.ToString();
     if (raw.rfind("browser://", 0) != 0 &&
@@ -5560,7 +5752,7 @@ OtfHandler::GetResourceRequestHandler(
         }
 
         // Image permission check.
-        if (request->GetResourceType() == RT_IMAGE &&
+        if (!IsGuestTab(tab_id) && request->GetResourceType() == RT_IMAGE &&
             store_->GetSitePermission(page_origin, "images") == "block") {
           return new ImageBlockHandler;
         }
@@ -5594,7 +5786,7 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
       const std::string origin = ExtractOrigin(next_url);
       const int tab_id = view->GetID();
 
-      if (!origin.empty() && store_) {
+      if (!origin.empty() && store_ && !IsGuestTab(tab_id)) {
         const bool dest_blocked =
             store_->GetSitePermission(origin, "javascript") == "block";
         const bool tab_js_disabled = IsTabJsDisabled(tab_id);
@@ -5939,7 +6131,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kCtrl, Key::kD)) {
     if (store_ && tab_manager_) {
       const std::string url = NormalizeBookmarkUrl(tab_manager_->GetUrl(cur));
-      if (IsPersistableWebUrl(url)) {
+      if (IsPersistableWebUrl(url) && !IsGuestTab(cur)) {
         bool bookmarked = false;
         if (store_->IsBookmarked(url)) {
           store_->RemoveBookmarkByUrl(url);

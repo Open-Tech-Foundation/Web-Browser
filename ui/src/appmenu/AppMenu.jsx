@@ -1,6 +1,7 @@
 import React from 'react';
 
 const AppMenu = () => {
+  const [guestSession, setGuestSession] = React.useState(false);
   const handleAction = (request) => {
     if (window.cefQuery) {
       window.cefQuery({
@@ -12,6 +13,13 @@ const AppMenu = () => {
       });
     }
   };
+
+  React.useEffect(() => {
+    window.cefQuery?.({
+      request: 'is-guest-session',
+      onSuccess: (value) => setGuestSession(value === 'true'),
+    });
+  }, []);
 
   const handleNavigate = (url) => {
     if (window.cefQuery) {
@@ -72,21 +80,33 @@ const AppMenu = () => {
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 13h20"/><path d="M5 13l1.5-5.5A2 2 0 0 1 8.4 6h7.2a2 2 0 0 1 1.9 1.5L19 13"/><circle cx="7" cy="16" r="2.5"/><circle cx="17" cy="16" r="2.5"/><path d="M9.5 16h5"/></svg>}
             onClick={() => handleAction('new-private-tab:')}
           />
+          <AppMenuItem
+            name={guestSession ? 'Guest Active' : 'Guest Session'}
+            accent="violet"
+            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V7l-8-4Z"/><path d="M9 12h6"/></svg>}
+            onClick={() => handleAction('create-guest-session')}
+          />
         </div>
       </div>
     </div>
   );
 };
 
-const AppMenuItem = ({ name, icon, onClick }) => (
+const AppMenuItem = ({ name, icon, onClick, accent = 'orange' }) => (
   <button 
     onClick={onClick}
     className="flex flex-col items-center gap-3 p-2 rounded-2xl transition-all group active:scale-90"
   >
-    <div className="w-14 h-14 flex items-center justify-center bg-slate-100 dark:bg-white/5 rounded-2xl border border-transparent group-hover:border-orange-500/50 group-hover:bg-orange-500/10 text-slate-700 dark:text-slate-200 group-hover:text-orange-500 transition-all shadow-sm relative overflow-hidden">
+    <div className={`w-14 h-14 flex items-center justify-center bg-slate-100 dark:bg-white/5 rounded-2xl border border-transparent transition-all shadow-sm relative overflow-hidden ${
+      accent === 'violet'
+        ? 'text-violet-700 dark:text-violet-200 group-hover:border-violet-500/50 group-hover:bg-violet-500/10 group-hover:text-violet-500'
+        : 'text-slate-700 dark:text-slate-200 group-hover:border-orange-500/50 group-hover:bg-orange-500/10 group-hover:text-orange-500'
+    }`}>
       {icon}
     </div>
-    <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 group-hover:text-orange-500 transition-colors uppercase tracking-widest">{name}</span>
+    <span className={`text-[10px] font-black text-slate-600 dark:text-slate-300 transition-colors uppercase tracking-widest ${
+      accent === 'violet' ? 'group-hover:text-violet-500' : 'group-hover:text-orange-500'
+    }`}>{name}</span>
   </button>
 );
 

@@ -363,6 +363,10 @@ class OtfHandler : public CefClient,
   // per-workspace CefRequestContext with its own cache_path.
   int active_workspace_id_ = 1;
   std::map<int, CefRefPtr<CefRequestContext>> workspace_contexts_;
+  bool guest_session_active_ = false;
+  int pre_guest_workspace_id_ = 1;
+  int pre_guest_tab_id_ = -1;
+  CefRefPtr<CefRequestContext> guest_context_;
   // Remembers the last active tab per workspace so switching back to a
   // workspace with live in-memory tabs restores the correct tab, not
   // just the first one that was created.
@@ -376,6 +380,11 @@ class OtfHandler : public CefClient,
   // expects to mean "use the global context".
   CefRefPtr<CefRequestContext> GetActiveWorkspaceRequestContext();
   CefRefPtr<CefRequestContext> GetWorkspaceRequestContext(int workspace_id);
+  CefRefPtr<CefRequestContext> GetGuestRequestContext();
+  bool IsGuestSessionActive() const { return guest_session_active_; }
+  bool IsGuestTab(int tab_id) const;
+  void StartGuestSession();
+  void EndGuestSession(bool restore_normal_tabs = true);
   // Shared in-memory (incognito) request context for private tabs. Created
   // lazily with an empty cache_path so nothing is persisted to disk, and
   // released once the last private tab closes so the ephemeral session is

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { rm } from 'node:fs/promises';
 
 import {
   clickByText,
@@ -7,6 +8,7 @@ import {
   launchDevBrowser,
   navigateFromAddressBar,
   pressKey,
+  sleep,
   startStaticServer,
   timeoutMs,
   typeText,
@@ -95,10 +97,23 @@ async function createAndSwitchWorkspace(browser, name) {
   );
 }
 
+async function cefQuery(cdp, request) {
+  return await cdp.evaluate(`
+    new Promise((resolve, reject) => {
+      window.cefQuery({
+        request: ${JSON.stringify(request)},
+        onSuccess: resolve,
+        onFailure: (_code, message) => reject(new Error(message || 'cefQuery failed')),
+      });
+    })
+  `);
+}
+
 test('user can create and switch workspaces from the workspace popup',
   { timeout: timeoutMs + 15000 },
   async () => {
-    const browser = await launchDevBrowser();
+    let browser = await launchDevBrowser({ preserveProfile: true });
+    const profileRoot = browser.profileRoot;
     try {
       const uniqueName = `QA ${Date.now()}`;
       await createAndSwitchWorkspace(browser, uniqueName);
@@ -109,6 +124,99 @@ test('user can create and switch workspaces from the workspace popup',
       assert.ok(shellText.includes(uniqueName), `expected workspace label to change, got ${shellText}`);
     } finally {
       await browser.close();
+    }
+  });
+
+test('guest session is isolated and discarded when closed',
+  { timeout: timeoutMs + 45000 },
+  async () => {
+    const server = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<!doctype html><title>guest-isolation</title><main>guest isolation</main>');
+    });
+    let browser = await launchDevBrowser({ preserveProfile: true });
+    const profileRoot = browser.profileRoot;
+    try {
+      await cefQuery(browser.cdp, 'create-guest-session');
+      assert.equal(await cefQuery(browser.cdp, 'is-guest-session'), 'true');
+      await waitFor(
+        browser.cdp,
+        `document.querySelector('button[title="Guest session"]')?.textContent || ''`,
+        (text) => text.includes('Guest'),
+        15000,
+      );
+      assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-workspaces')), []);
+      assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-bookmarks')), []);
+      assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-downloads')), []);
+
+      await navigateFromAddressBar(browser.cdp, `${server.origin}/guest-one`);
+      const firstGuestCdp = await browser.connectToTarget(
+        (t) => (t.url || '').includes('/guest-one'),
+        15000,
+      );
+      try {
+        await waitFor(firstGuestCdp, `document.readyState`, (s) => s === 'complete', 15000);
+        await firstGuestCdp.evaluate(`
+          (() => {
+            localStorage.setItem('otf-guest-key', 'guest-value');
+            document.cookie = 'otfguest=present; path=/';
+          })()
+        `);
+      } finally {
+        firstGuestCdp.close();
+      }
+
+      const historyWhileGuest = JSON.parse(await cefQuery(browser.cdp, 'get-history'));
+      assert.equal(historyWhileGuest.some((item) => String(item.url || '').includes('/guest-one')), false);
+
+      const guestTabId = Number(await cefQuery(browser.cdp, 'get-active-tab'));
+      await browser.cdp.evaluate(`
+        window.cefQuery({ request: ${JSON.stringify(`close-tab:${guestTabId}`)} });
+      `);
+      await sleep(1000);
+      await browser.close();
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true });
+      assert.equal(await cefQuery(browser.cdp, 'is-guest-session'), 'false');
+      await waitFor(browser.cdp, `!!document.querySelector('button[title="Workspaces"]')`, Boolean, 15000);
+
+      await navigateFromAddressBar(browser.cdp, `${server.origin}/normal-after-guest`);
+      const normalCdp = await browser.connectToTarget(
+        (t) => (t.url || '').includes('/normal-after-guest'),
+        15000,
+      );
+      try {
+        await waitFor(normalCdp, `document.readyState`, (s) => s === 'complete', 15000);
+        const read = await normalCdp.evaluate(`
+          (() => ({ ls: localStorage.getItem('otf-guest-key'), cookie: document.cookie }))()
+        `);
+        assert.equal(read.ls, null, 'guest localStorage must not leak to normal workspace');
+        assert.ok(!read.cookie.includes('otfguest'), 'guest cookie must not leak to normal workspace');
+      } finally {
+        normalCdp.close();
+      }
+
+      await cefQuery(browser.cdp, 'create-guest-session');
+      assert.equal(await cefQuery(browser.cdp, 'is-guest-session'), 'true');
+      await navigateFromAddressBar(browser.cdp, `${server.origin}/guest-two`);
+      const secondGuestCdp = await browser.connectToTarget(
+        (t) => (t.url || '').includes('/guest-two'),
+        15000,
+      );
+      try {
+        await waitFor(secondGuestCdp, `document.readyState`, (s) => s === 'complete', 15000);
+        const read = await secondGuestCdp.evaluate(`
+          (() => ({ ls: localStorage.getItem('otf-guest-key'), cookie: document.cookie }))()
+        `);
+        assert.equal(read.ls, null, 'new guest session must start with empty localStorage');
+        assert.ok(!read.cookie.includes('otfguest'), 'new guest session must start with empty cookies');
+      } finally {
+        secondGuestCdp.close();
+      }
+    } finally {
+      if (browser) await browser.close();
+      await rm(profileRoot, { recursive: true, force: true });
+      await server.close();
     }
   });
 

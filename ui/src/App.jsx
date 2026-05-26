@@ -22,6 +22,7 @@ const normalizeTab = (tab) => ({
   bookmarked: Boolean(tab.bookmarked),
   private: Boolean(tab.private),
   pinned: Boolean(tab.pinned),
+  guest: Boolean(tab.guest),
 });
 
 const tabReducer = (state, action) => {
@@ -91,6 +92,7 @@ const App = () => {
   const [downloadBadge, setDownloadBadge] = React.useState(0);
   const [hasDownloads, setHasDownloads] = React.useState(false);
   const [blockedPopupOrigin, setBlockedPopupOrigin] = React.useState('');
+  const [guestSession, setGuestSession] = React.useState(false);
   const initialized = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -171,6 +173,10 @@ const App = () => {
 
     if (window.cefQuery) {
       refreshWorkspaces();
+      window.cefQuery({
+        request: 'is-guest-session',
+        onSuccess: (value) => setGuestSession(value === 'true'),
+      });
       // Load settings
       window.cefQuery({
         request: "get-settings",
@@ -219,6 +225,10 @@ const App = () => {
               refreshWorkspaces();
             } else if (event.key === 'workspace-changed') {
               dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: event.id });
+              refreshWorkspaceTabs();
+            } else if (event.key === 'guest-session-changed') {
+              setGuestSession(Boolean(event.active));
+              refreshWorkspaces();
               refreshWorkspaceTabs();
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
@@ -415,10 +425,23 @@ const App = () => {
   return (
     <div className="flex flex-col h-[65px] max-h-[65px] w-full bg-slate-100 dark:bg-slate-950 border-b border-slate-300 dark:border-slate-800 antialiased overflow-hidden select-none box-border m-0 p-0">
       <div className="flex items-end h-[29px] bg-slate-300/50 dark:bg-[#020617]">
-        <WorkspaceSwitcher
-          workspaces={state.workspaces}
-          activeId={state.activeWorkspaceId}
-        />
+        {guestSession ? (
+          <button
+            tabIndex={-1}
+            title="Guest session"
+            className="h-[23px] mx-1 px-2 flex items-center gap-1 rounded-md text-[11px] font-semibold transition-all shadow-sm shrink-0 text-violet-700 dark:text-violet-200 bg-violet-50 dark:bg-violet-950/50"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3 4 7v5c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V7l-8-4Z" />
+            </svg>
+            <span>Guest</span>
+          </button>
+        ) : (
+          <WorkspaceSwitcher
+            workspaces={state.workspaces}
+            activeId={state.activeWorkspaceId}
+          />
+        )}
         <div className="flex-1 min-w-0">
           <TabStrip
             tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))}
@@ -500,11 +523,13 @@ const App = () => {
               title="Menu"
               icon={<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>}
             />
-            <NavButton
-              onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
-              title="Settings"
-              icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1-1-1.73l.43.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
-            />
+            {!guestSession && (
+              <NavButton
+                onClick={() => handleNewTab(BROWSER_SCHEME.SETTINGS)}
+                title="Settings"
+                icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1-1-1.73l.43.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>}
+              />
+            )}
           </div>
         </div>
     </div>

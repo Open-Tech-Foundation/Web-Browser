@@ -676,7 +676,7 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bo
   CefBrowserSettings browser_settings;
   bool js_disabled = false;
   OtfHandler* handler = OtfHandler::GetInstance();
-  if (handler) {
+  if (handler && !handler->IsGuestSessionActive()) {
     OtfStore* store = handler->GetStore();
     std::string origin = ExtractOrigin(url);
     if (!origin.empty() && store &&
@@ -713,7 +713,8 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bo
     tab_manager_.SetImagePreviewMode(tab_id, ImagePreviewMode::kDedicated);
   }
   if (handler) {
-    tab_manager_.SetWorkspaceId(tab_id, handler->active_workspace_id_);
+    tab_manager_.SetWorkspaceId(
+        tab_id, handler->IsGuestSessionActive() ? 0 : handler->active_workspace_id_);
   }
   if (is_pinned) {
     tab_manager_.SetPinned(tab_id, true);
@@ -1025,6 +1026,15 @@ int OtfApp::CloseTab(int tab_id) {
   }
   if (current_tab_id_ == tab_id) {
     current_tab_id_ = -1;
+  }
+
+  if (handler && handler->IsGuestSessionActive() && ws_id == 0 &&
+      tab_manager_.GetTabIdsForWorkspace(0).empty()) {
+    handler->EndGuestSession(/*restore_normal_tabs=*/false);
+    if (window_) {
+      window_->Close();
+    }
+    return -1;
   }
 
   if (next_active_tab_id >= 0) {
@@ -1880,7 +1890,7 @@ void OtfApp::OnContextInitialized() {
   {
     OtfStore* store = handler->GetStore();
     std::string origin = ExtractOrigin(start_url);
-    if (!origin.empty() && store &&
+    if (!handler->IsGuestSessionActive() && !origin.empty() && store &&
         store->GetSitePermission(origin, "javascript") == "block") {
       browser_settings.javascript = STATE_DISABLED;
       startup_js_disabled = true;
@@ -1967,15 +1977,19 @@ void OtfApp::CreateAllPopups(CefRefPtr<CefWindow> window) {
   if (ws_popup && h) {
     ws_popup->SetRestoreProducer([h]() -> std::string {
       if (!h->store_) return "[]";
+      if (h->IsGuestSessionActive()) return "[]";
       const auto ws = h->store_->GetWorkspaces();
       const int active = h->active_workspace_id_;
       std::string out = "[";
+      bool first = true;
       for (size_t i = 0; i < ws.size(); ++i) {
-        if (i) out += ",";
+        if (!first) out += ",";
+        first = false;
         out += JsonObjectBuilder()
                    .AddInt("id", ws[i].id)
                    .AddString("name", ws[i].name)
                    .AddBool("active", ws[i].id == active)
+                   .AddBool("guest", false)
                    .Build();
       }
       return out + "]";
