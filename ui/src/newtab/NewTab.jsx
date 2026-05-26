@@ -2,8 +2,19 @@ import React, { useState, useEffect } from 'react';
 import SearchHero from './SearchHero';
 import QuickLinks from './QuickLinks';
 
+const PrivateBadge = () => (
+  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-500/10 border border-violet-500/30 animate-in fade-in duration-500">
+    <svg className="w-4 h-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 13h20" /><path d="M5 13l1.5-5.5A2 2 0 0 1 8.4 6h7.2a2 2 0 0 1 1.9 1.5L19 13" />
+      <circle cx="7" cy="16" r="2.5" /><circle cx="17" cy="16" r="2.5" /><path d="M9.5 16h5" />
+    </svg>
+    <span className="text-[11px] font-bold text-violet-400 uppercase tracking-[0.15em]">Private</span>
+  </div>
+);
+
 const NewTab = () => {
   const [tabId, setTabId] = useState(null);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [time, setTime] = useState(new Date());
   const [appearanceMode, setAppearanceMode] = useState('auto');
 
@@ -60,6 +71,10 @@ const NewTab = () => {
         request: 'get-my-tab-id',
         onSuccess: (id) => setTabId(parseInt(id))
       });
+      window.cefQuery({
+        request: 'get-tab-private',
+        onSuccess: (res) => setIsPrivate(res === 'true')
+      });
     }
   }, []);
 
@@ -71,19 +86,22 @@ const NewTab = () => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-between h-screen overflow-y-auto bg-main text-main selection:bg-orange-500/30 overflow-x-hidden relative py-12">
+    <div className={`flex flex-col items-center justify-between h-screen overflow-y-auto text-main selection:bg-orange-500/30 overflow-x-hidden relative py-12 ${isPrivate ? 'bg-violet-950/90' : 'bg-main'}`}>
       {/* Ambient Background Glow */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-500/5 blur-[120px] rounded-full pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-500/5 blur-[120px] rounded-full pointer-events-none"></div>
+      <div className={`absolute top-[-10%] left-[-10%] w-[40%] h-[40%] blur-[120px] rounded-full pointer-events-none ${isPrivate ? 'bg-violet-500/10' : 'bg-orange-500/5'}`}></div>
+      <div className={`absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] blur-[120px] rounded-full pointer-events-none ${isPrivate ? 'bg-violet-500/5' : 'bg-amber-500/5'}`}></div>
 
-      {/* Top Right Date/Time */}
-      <div className="absolute top-8 right-10 text-right animate-in fade-in slide-in-from-top-4 duration-1000">
+      {/* Top Right Date/Time & Private Badge */}
+      <div className="absolute top-8 right-10 flex items-start gap-4 animate-in fade-in slide-in-from-top-4 duration-1000">
+        {isPrivate && <PrivateBadge />}
+        <div className="text-right">
         <p className="text-2xl font-bold text-main tracking-tight leading-none mb-1">
           {time.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
         </p>
         <p className="text-[10px] font-bold text-muted uppercase tracking-[0.2em]">
           {time.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
         </p>
+      </div>
       </div>
 
       {/* Spacer to push content down or keep layout balanced */}
@@ -93,7 +111,7 @@ const NewTab = () => {
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000 flex flex-col items-center">
           <div className="flex items-center gap-4 mb-3">
             <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-orange-600 to-amber-500 rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+              <div className={`absolute -inset-1 rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-1000 ${isPrivate ? 'bg-gradient-to-r from-violet-600 to-violet-500' : 'bg-gradient-to-r from-orange-600 to-amber-500'}`}></div>
               <img
                 src="/assets/icons/otf-browser-128.png"
                 alt="OTF Browser Logo"
@@ -101,21 +119,30 @@ const NewTab = () => {
               />
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight text-main">
-              OTF <span className="text-orange-500">Browser</span>
+              OTF <span className={isPrivate ? 'text-violet-500' : 'text-orange-500'}>Browser</span>
             </h1>
           </div>
           
-          <p className="text-sm font-bold text-muted uppercase tracking-[0.3em] mb-4">
-            {getGreeting()}, Explorer
-          </p>
+          <div className="flex items-center gap-3 mb-4">
+            <p className="text-sm font-bold text-muted uppercase tracking-[0.3em]">
+              {getGreeting()}, Explorer
+            </p>
+            {isPrivate && (
+              <span className="px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-[0.15em]">
+                Private
+              </span>
+            )}
+          </div>
         </div>
 
-        <SearchHero tabId={tabId} />
+        <SearchHero tabId={tabId} isPrivate={isPrivate} />
         <QuickLinks />
       </div>
       
-      <footer className="mt-16 text-muted/30 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500 text-center z-10 shrink-0">
-        Engineered for Privacy & Security
+      <footer className="mt-16 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500 text-center z-10 shrink-0">
+        <span className={isPrivate ? 'text-violet-500/40' : 'text-muted/30'}>
+          {isPrivate ? 'Private Browsing — No history is saved' : 'Engineered for Privacy & Security'}
+        </span>
       </footer>
     </div>
   );

@@ -21,7 +21,7 @@ const EngineLogo = ({ id, name }) => {
   );
 };
 
-const SearchHero = ({ tabId }) => {
+const SearchHero = ({ tabId, isPrivate }) => {
   const cached = tabId != null ? stateByTab[tabId] : null;
   const [query, setQuery] = useState(cached ? cached.query : '');
   const [engine, setEngine] = useState(() => {
@@ -114,9 +114,12 @@ const SearchHero = ({ tabId }) => {
   return (
     <div className="w-full max-w-2xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
       <div className="relative group">
-        <div className="absolute -inset-1 bg-gradient-to-r from-orange-600/20 to-amber-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
-        <div className="relative flex items-center bg-card/80 backdrop-blur-xl border border-main rounded-2xl
-                        group-focus-within:border-orange-500/40 group-focus-within:bg-card shadow-2xl transition-all duration-500">
+        {isPrivate ? (
+          <div className="absolute -inset-1 bg-gradient-to-r from-violet-600/20 to-violet-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
+        ) : (
+          <div className="absolute -inset-1 bg-gradient-to-r from-orange-600/20 to-amber-500/20 rounded-2xl blur opacity-0 group-focus-within:opacity-100 transition duration-700"></div>
+        )}
+        <div className={`relative flex items-center bg-card/80 backdrop-blur-xl border border-main rounded-2xl shadow-2xl transition-all duration-500 ${isPrivate ? 'group-focus-within:border-violet-500/40' : 'group-focus-within:border-orange-500/40'} group-focus-within:bg-card`}>
           <div className="w-6 h-6 ml-5 shrink-0 flex items-center justify-center">
             {engine ? <EngineLogo id={engine} name={engineDisplayName} /> : <GenericIcon />}
           </div>

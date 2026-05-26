@@ -1888,6 +1888,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "get-tab-private") {
+      CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+      int tab_id = view ? view->GetID() : 0;
+      bool is_private = handler && handler->tab_manager_ &&
+                        handler->tab_manager_->IsPrivate(tab_id);
+      callback->Success(is_private ? "true" : "false");
+      return true;
+    }
+
     if (msg == "get-version-info") {
       const std::string chromium = std::to_string(CHROME_VERSION_MAJOR) + "." +
                                    std::to_string(CHROME_VERSION_MINOR) + "." +
