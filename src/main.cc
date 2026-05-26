@@ -73,10 +73,16 @@ static int RunApp(int argc, char* argv[]) {
   CefSettings settings;
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
 
+  const std::filesystem::path app_data = otf::GetAppDataDir();
+  const std::filesystem::path app_cache = otf::GetAppCacheDir();
+
+  LOG(INFO) << "[otf] app data dir : " << app_data.string();
+  LOG(INFO) << "[otf] app cache dir: " << app_cache.string();
+
   // Point CEF at the platform-correct cache directory so cookies, HTTP cache,
   // and localStorage survive across restarts in a predictable location.
   // workspace-specific request contexts each get a sub-directory under this.
-  const std::filesystem::path cef_cache = otf::GetAppCacheDir() / "cef";
+  const std::filesystem::path cef_cache = app_cache / "cef";
   if (!cef_cache.empty()) {
 #if defined(_WIN32)
     CefString(&settings.root_cache_path) = cef_cache.wstring();

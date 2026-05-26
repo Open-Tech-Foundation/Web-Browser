@@ -5,7 +5,7 @@
   "description": "Branded Browser with CEF",
   "scripts": {
     "dev": "fuser -k 3000/tcp || true; (cd ui && bun x vite --port 3000 --strictPort &) && bun x wait-on http://localhost:3000 && bun run dev:browser; fuser -k 3000/tcp || true",
-    "dev:browser": "mkdir -p \"$HOME/.otf-browser-dev/cef_user_data\" && OTF_DEV_MODE=1 ./build/Release/otf-browser --no-sandbox --dev-ui-url=http://localhost:3000 --ozone-platform=x11 --user-data-dir=\"$HOME/.otf-browser-dev/cef_user_data\"",
+    "dev:browser": "OTF_DEV_MODE=1 ./build/Release/otf-browser --no-sandbox --dev-ui-url=http://localhost:3000 --ozone-platform=x11",
     "build": "bun run build:ui && bun run build:cpp",
     "build:ui": "bun x vite build ui",
     "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
