@@ -216,6 +216,7 @@ constexpr int kPopupDefaultWidth = 600;
 constexpr int kPopupDefaultHeight = 700;
 
 std::string GetDataURI(const std::string& data, const std::string& mime_type);
+bool IsRestorableWorkspaceTab(const WorkspaceTab& tab);
 
 struct PopupPolicyDecision {
   bool open_as_popup = false;
@@ -2446,25 +2447,12 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           // Find the tab that was active when the workspace was last saved.
           auto active_it = std::find_if(persisted.begin(), persisted.end(),
               [](const WorkspaceTab& t) {
-                const bool preview_ok = t.is_image_preview &&
-                                        !otf::IsLocalFilesystemPathLike(t.url) &&
-                                        (otf::IsPersistableWebUrl(t.url) ||
-                                         !t.preview_local_path.empty());
-                return t.was_active &&
-                       (preview_ok ||
-                        (!otf::IsLocalFilesystemPathLike(t.url) &&
-                         otf::IsAllowedStartupUrl(t.url)));
+                return t.was_active && IsRestorableWorkspaceTab(t);
               });
           if (active_it == persisted.end()) {
             active_it = std::find_if(persisted.begin(), persisted.end(),
                 [](const WorkspaceTab& t) {
-                  const bool preview_ok = t.is_image_preview &&
-                                          !otf::IsLocalFilesystemPathLike(t.url) &&
-                                          (otf::IsPersistableWebUrl(t.url) ||
-                                           !t.preview_local_path.empty());
-                  return preview_ok ||
-                         (!otf::IsLocalFilesystemPathLike(t.url) &&
-                          otf::IsAllowedStartupUrl(t.url));
+                  return IsRestorableWorkspaceTab(t);
                 });
           }
 
@@ -2474,7 +2462,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             std::map<int, int> db_pos_to_tab_id;
             int active_tab_id = -1;
             for (auto it = persisted.begin(); it != persisted.end(); ++it) {
-              if (it->url.empty()) continue;
+              if (!IsRestorableWorkspaceTab(*it)) continue;
               const int id = app->CreateRestoredTab(*it);
               handler->NotifyNewTab(id, -1);
               db_pos_to_tab_id[it->position] = id;
@@ -3942,6 +3930,13 @@ std::string GetDataURI(const std::string& data, const std::string& mime_type) {
              .ToString();
 }
 
+bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
+  if (tab.is_image_preview) {
+    return otf::IsPersistableWebUrl(tab.url);
+  }
+  return otf::IsPersistableWebUrl(tab.url);
+}
+
 }  // namespace
 
 OtfHandler::OtfHandler(bool use_alloy_style)
@@ -4040,14 +4035,8 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
       t.preview_page = GetImagePreviewPageForTab(tab_id);
     } else {
       t.url = tab_manager_->GetUrl(tab_id);
-      // Don't persist transient browser:// shells or the dev-ui URL —
-      // restore should land users on a fresh new-tab page, not a
-      // bare browser-internal page that the user wasn't actually viewing.
-      if (t.url.empty() || t.url == "browser://newtab" ||
-          t.url.rfind("browser://", 0) == 0) {
-        t.url = "";
-      }
     }
+    if (!IsRestorableWorkspaceTab(t)) continue;
     t.title = tab_manager_->GetTitle(tab_id);
     t.favicon = tab_manager_->GetFaviconUrl(tab_id);
     t.was_active = (tab_id == active_tab);
@@ -4331,6 +4320,9 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
     }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
     PersistWorkspaceForTab(view->GetID());
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      app->UpdateWindowTitle(view->GetID());
+    }
   }
 }
 

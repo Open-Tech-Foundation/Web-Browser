@@ -96,6 +96,7 @@ class OtfApp : public CefApp,
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
+  void UpdateWindowTitle(int tab_id);
   void CreateFindBarOverlay();
   void CreateZoomBarOverlay();
   void CreateDownloadsOverlay();

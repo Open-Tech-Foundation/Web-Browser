@@ -111,6 +111,13 @@ bool IsInheritedFrameUrl(const std::string& url) {
          StartsWith(url, "data:") || StartsWith(url, "blob:");
 }
 
+bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
+  if (tab.is_image_preview) {
+    return otf::IsPersistableWebUrl(tab.url);
+  }
+  return otf::IsPersistableWebUrl(tab.url);
+}
+
 // Lazily load the OTF window icon from the PNG files shipped alongside the
 // binary at ui/assets/icons/otf-browser-{N}.png. Cached after the first call
 // so subsequent windows reuse the same CefImage. Multiple scale factors are
@@ -714,7 +721,7 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private) {
 int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
   CEF_REQUIRE_UI_THREAD();
   if (tab.is_image_preview) {
-    if (otf::IsLocalFilesystemPathLike(tab.url) && tab.preview_local_path.empty()) {
+    if (!IsRestorableWorkspaceTab(tab)) {
       return CreateTab("browser://newtab", parent_id);
     }
     const std::string preview_start_url =
@@ -723,10 +730,7 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
     RestoreImagePreviewStateForTab(tab_id, tab);
     return tab_id;
   }
-  if (otf::IsLocalFilesystemPathLike(tab.url) ||
-      !otf::IsAllowedStartupUrl(tab.url) ||
-      tab.url == "browser://imagepreview" ||
-      tab.url.find("/imagepreview.html") != std::string::npos) {
+  if (!IsRestorableWorkspaceTab(tab)) {
     return CreateTab("browser://newtab", parent_id);
   }
   return CreateTab(tab.url, parent_id);
@@ -793,10 +797,7 @@ void OtfApp::SwitchTab(int tab_id) {
     window_->Layout();
     current_tab_id_ = tab_id;
 
-    // Update window title to reflect current tab
-    if (window_) {
-      window_->SetTitle("OTF Browser - " + tab_manager_.GetTitle(tab_id));
-    }
+    UpdateWindowTitle(tab_id);
 
     OtfHandler* handler = OtfHandler::GetInstance();
     if (handler) {
@@ -977,6 +978,12 @@ int OtfApp::CloseTab(int tab_id) {
     window_->Close();
   }
   return next_active_tab_id;
+}
+
+void OtfApp::UpdateWindowTitle(int tab_id) {
+  if (tab_id == current_tab_id_ && window_) {
+    window_->SetTitle("OTF Browser - " + tab_manager_.GetTitle(tab_id));
+  }
 }
 
 void OtfApp::CreateFindBarOverlay() {
@@ -1368,7 +1375,7 @@ void OtfApp::OpenPendingStartupTabs() {
     }
 
     for (const auto& t : pending_workspace_restore_) {
-      if (t.url.empty()) continue;
+      if (!IsRestorableWorkspaceTab(t)) continue;
       const int id = CreateRestoredTab(t);
       if (id >= 0) db_pos_to_tab_id[t.position] = id;
     }
@@ -1690,26 +1697,14 @@ void OtfApp::OnContextInitialized() {
           pending_workspace_restore_.begin(),
           pending_workspace_restore_.end(),
           [](const WorkspaceTab& t) {
-            const bool preview_ok = t.is_image_preview &&
-                                    !otf::IsLocalFilesystemPathLike(t.url) &&
-                                    (otf::IsPersistableWebUrl(t.url) ||
-                                     !t.preview_local_path.empty());
-            return t.was_active &&
-                   (preview_ok || !otf::IsLocalFilesystemPathLike(t.url) &&
-                                        otf::IsAllowedStartupUrl(t.url));
+            return t.was_active && IsRestorableWorkspaceTab(t);
           });
       if (it == pending_workspace_restore_.end()) {
         it = std::find_if(
             pending_workspace_restore_.begin(),
             pending_workspace_restore_.end(),
             [](const WorkspaceTab& t) {
-              const bool preview_ok = t.is_image_preview &&
-                                      !otf::IsLocalFilesystemPathLike(t.url) &&
-                                      (otf::IsPersistableWebUrl(t.url) ||
-                                       !t.preview_local_path.empty());
-              return preview_ok ||
-                     (!otf::IsLocalFilesystemPathLike(t.url) &&
-                      otf::IsAllowedStartupUrl(t.url));
+              return IsRestorableWorkspaceTab(t);
             });
       }
       if (it != pending_workspace_restore_.end()) {

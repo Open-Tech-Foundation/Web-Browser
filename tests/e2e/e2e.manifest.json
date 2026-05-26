@@ -17,7 +17,8 @@
         "navigation.test.js",
         "findbar.test.js",
         "qr.test.js",
-        "site-data.test.js"
+        "site-data.test.js",
+        "tab-title.test.js"
       ]
     },
     {
@@ -50,7 +51,8 @@
         "javascript-permission.test.js",
         "image-permission.test.js",
         "popup-scheme.test.js",
-        "popup-intent.test.js"
+        "popup-intent.test.js",
+        "private-tab.test.js"
       ]
     }
   ]
