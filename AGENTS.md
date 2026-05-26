@@ -46,6 +46,9 @@ Use `feat:`, `fix:`, `docs:`, `refactor:`, or `test:` as appropriate. Keep commi
 
 Pull requests should include a short summary, linked issue when relevant, verification commands run, and screenshots or screen recordings for visible UI changes.
 
+- **Never auto commit:** Always ask for permission before making a commit.
+- **Never code push:** Never perform code pushes.
+
 ## Security & Configuration Tips
 
 Treat `browser://` pages, settings JSON, and native-to-React event payloads as security-sensitive. Prefer allowlists for internal pages and search engines. Never concatenate untrusted strings into JSON without escaping or structured serialization.
