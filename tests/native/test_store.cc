@@ -47,6 +47,8 @@ void TestHistoryPersistenceAndFiltering() {
   assert(store.RecordVisit("https://example.com", "Example 2", "reload"));
   assert(store.RecordVisit("browser://settings", "Settings", "link"));
   assert(store.RecordVisit("http://localhost:3000/appmenu.html", "App", "link"));
+  assert(store.RecordVisit("http://localhost:3000/blockedpopup.html", "Popup", "link"));
+  assert(store.RecordVisit("http://localhost:3000/downloadrequest.html", "Download", "link"));
   assert(store.UpdateHistoryTitle("https://example.com", "Example Final"));
 
   const auto history = store.GetHistory();

@@ -55,6 +55,8 @@ void TestInternalUiTrustBoundaries() {
 
   assert(otf::IsInternalUiUrl("browser://newtab"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/appmenu.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/blockedpopup.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/downloadrequest.html"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/insecure-blocked.html?x=1"));
   assert(!otf::IsInternalUiUrl("file:///opt/otf/ui/index.html"));
   assert(!otf::IsInternalUiUrl("https://example.com/products"));

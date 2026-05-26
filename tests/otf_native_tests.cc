@@ -159,6 +159,8 @@ void TestIsInternalUiUrl() {
   assert(otf::IsInternalUiUrl("http://localhost:3000/bookmarkbar.html"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/certificate.html"));
   assert(otf::IsInternalUiUrl("http://localhost:3000/imagepreview.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/blockedpopup.html"));
+  assert(otf::IsInternalUiUrl("http://localhost:3000/downloadrequest.html"));
   // The hyphen vs underscore fix — the file on disk is insecure-blocked.html.
   assert(otf::IsInternalUiUrl("http://localhost:3000/insecure-blocked.html"));
   // Regular web pages are not matched.
