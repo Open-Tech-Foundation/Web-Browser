@@ -102,7 +102,7 @@ export default function History() {
   }, [filteredItems]);
 
   const clearHistory = () => {
-    if (confirm('Are you sure you want to clear your entire browsing history?')) {
+    if (confirm("Are you sure you want to clear this workspace's browsing history?")) {
       window.cefQuery?.({ request: 'clear-history', onSuccess: load });
     }
   };
@@ -138,7 +138,7 @@ export default function History() {
             <span className={`transition-colors duration-200 ${activeTab === 'all' ? 'text-orange-400' : 'text-muted group-hover:text-main'}`}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>
             </span>
-            All History
+            Workspace History
           </button>
           
           <button 
@@ -148,7 +148,7 @@ export default function History() {
             <span className="text-red-400/60 group-hover:text-red-400">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
             </span>
-            Clear History
+            Clear Workspace History
           </button>
         </nav>
       </aside>
@@ -182,8 +182,8 @@ export default function History() {
                  <div className="w-24 h-24 bg-main/5 rounded-3xl flex items-center justify-center mb-8 border border-main">
                     <svg className="text-muted" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>
                  </div>
-                 <h3 className="text-2xl font-bold text-main mb-2">No History Yet</h3>
-                 <p className="text-muted max-w-sm">Websites you visit will be shown here for easy access later.</p>
+                 <h3 className="text-2xl font-bold text-main mb-2">No Workspace History Yet</h3>
+                 <p className="text-muted max-w-sm">Websites you visit in this workspace will be shown here for easy access later.</p>
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="text-center py-20 text-muted">

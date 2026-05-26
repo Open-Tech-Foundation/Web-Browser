@@ -1349,6 +1349,7 @@ std::string BuildHistoryJson(const std::vector<HistoryEntry>& items) {
     }
     out << JsonObjectBuilder()
                .AddInt("id", item.id)
+               .AddInt("workspaceId", item.workspace_id)
                .AddString("url", item.url)
                .AddString("title", item.title)
                .AddInt("visitCount", item.visit_count)
@@ -2505,7 +2506,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg == "get-history") {
-      callback->Success(handler->store_ ? BuildHistoryJson(handler->store_->GetHistory()) : "[]");
+      callback->Success(handler->store_
+                            ? BuildHistoryJson(handler->store_->GetHistory(
+                                  200, handler->active_workspace_id_))
+                            : "[]");
       return true;
     }
 
@@ -2778,7 +2782,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "clear-history") {
       if (handler->store_) {
-        handler->store_->ClearHistory();
+        handler->store_->ClearHistory(handler->active_workspace_id_);
       }
       callback->Success("");
       return true;
@@ -4340,7 +4344,9 @@ void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
     const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
     if (store_ && otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
         !IsInternalUiUrl(url)) {
-      store_->UpdateHistoryTitle(url, title.ToString());
+      const int workspace_id =
+          tab_manager_ ? tab_manager_->GetWorkspaceId(view->GetID()) : active_workspace_id_;
+      store_->UpdateHistoryTitle(url, title.ToString(), workspace_id);
     }
     SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
     PersistWorkspaceForTab(view->GetID());
@@ -4604,7 +4610,8 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
         !IsInternalUiUrl(url) && (current.empty() ||
         current.rfind("browser://", 0) != 0) &&
         (suppressed_url.empty() || suppressed_url != url)) {
-      store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link");
+      store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link",
+                          tab_manager_->GetWorkspaceId(tab_id));
     }
     SendEvent(BuildBookmarkSyncEvent(
         tab_id, url, store_->IsBookmarked(NormalizeBookmarkUrl(url))));

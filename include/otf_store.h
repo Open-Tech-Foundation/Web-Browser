@@ -12,6 +12,7 @@ namespace otf {
 
 struct HistoryEntry {
   int id = 0;
+  int workspace_id = 0;
   std::string url;
   std::string title;
   int visit_count = 0;
@@ -76,11 +77,15 @@ class OtfStore {
 
   bool RecordVisit(const std::string& url,
                    const std::string& title,
-                   const std::string& transition);
-  bool UpdateHistoryTitle(const std::string& url, const std::string& title);
-  std::vector<HistoryEntry> GetHistory(int limit = 200) const;
+                   const std::string& transition,
+                   int workspace_id = 1);
+  bool UpdateHistoryTitle(const std::string& url,
+                          const std::string& title,
+                          int workspace_id = 1);
+  std::vector<HistoryEntry> GetHistory(int limit = 200,
+                                       int workspace_id = 1) const;
   bool DeleteHistoryItem(int id);
-  bool ClearHistory();
+  bool ClearHistory(int workspace_id = 0);
   bool ClearBookmarks();
 
   int CreateDownload(const std::string& url,

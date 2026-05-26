@@ -235,6 +235,67 @@ bool OtfStore::RunMigrations() {
   Exec("ALTER TABLE workspace_tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (6);");
 
+  // Migration v8: history is workspace-scoped. Existing global history is
+  // retained in the default workspace.
+  bool history_has_workspace_id = false;
+  sqlite3_stmt* history_probe = nullptr;
+  if (sqlite3_prepare_v2(db_, "SELECT workspace_id FROM history LIMIT 0;",
+                         -1, &history_probe, nullptr) == SQLITE_OK) {
+    history_has_workspace_id = true;
+  }
+  sqlite3_finalize(history_probe);
+  if (!history_has_workspace_id) {
+    Exec("PRAGMA foreign_keys = OFF;");
+    const bool history_ws_ok =
+        Exec(
+            "CREATE TABLE IF NOT EXISTS history_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "workspace_id INTEGER NOT NULL DEFAULT 1,"
+            "url TEXT NOT NULL,"
+            "title TEXT NOT NULL DEFAULT '',"
+            "visit_count INTEGER NOT NULL DEFAULT 0,"
+            "last_visit_at INTEGER NOT NULL,"
+            "created_at INTEGER NOT NULL,"
+            "UNIQUE(workspace_id, url),"
+            "FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
+            ");") &&
+        Exec(
+            "INSERT OR IGNORE INTO history_new("
+            "id, workspace_id, url, title, visit_count, last_visit_at, created_at) "
+            "SELECT id, 1, url, title, visit_count, last_visit_at, created_at "
+            "FROM history;") &&
+        Exec(
+            "CREATE TABLE IF NOT EXISTS visits_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "history_id INTEGER NOT NULL,"
+            "workspace_id INTEGER NOT NULL DEFAULT 1,"
+            "url TEXT NOT NULL,"
+            "title TEXT NOT NULL DEFAULT '',"
+            "visited_at INTEGER NOT NULL,"
+            "transition TEXT NOT NULL DEFAULT 'link',"
+            "FOREIGN KEY(history_id) REFERENCES history(id) ON DELETE CASCADE"
+            ");") &&
+        Exec(
+            "INSERT OR IGNORE INTO visits_new("
+            "id, history_id, workspace_id, url, title, visited_at, transition) "
+            "SELECT id, history_id, 1, url, title, visited_at, transition "
+            "FROM visits;") &&
+        Exec("DROP TABLE visits;") &&
+        Exec("DROP TABLE history;") &&
+        Exec("ALTER TABLE history_new RENAME TO history;") &&
+        Exec("ALTER TABLE visits_new RENAME TO visits;");
+    Exec("PRAGMA foreign_keys = ON;");
+    if (!history_ws_ok) return false;
+  }
+  if (!Exec("CREATE INDEX IF NOT EXISTS idx_history_workspace_last_visit "
+            "ON history(workspace_id, last_visit_at DESC);") ||
+      !Exec("CREATE INDEX IF NOT EXISTS idx_visits_history_id ON visits(history_id);") ||
+      !Exec("CREATE INDEX IF NOT EXISTS idx_visits_workspace "
+            "ON visits(workspace_id, visited_at DESC);")) {
+    return false;
+  }
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (8);");
+
   return true;
 }
 
@@ -256,16 +317,18 @@ int64_t OtfStore::Now() const {
 
 bool OtfStore::RecordVisit(const std::string& url,
                            const std::string& title,
-                           const std::string& transition) {
+                           const std::string& transition,
+                           int workspace_id) {
   if (!db_) {
     return false;
   }
+  if (workspace_id <= 0) workspace_id = 1;
 
   sqlite3_stmt* upsert = nullptr;
   const char* upsert_sql =
-      "INSERT INTO history(url, title, visit_count, last_visit_at, created_at) "
-      "VALUES(?, ?, 1, ?, ?) "
-      "ON CONFLICT(url) DO UPDATE SET "
+      "INSERT INTO history(workspace_id, url, title, visit_count, last_visit_at, created_at) "
+      "VALUES(?, ?, ?, 1, ?, ?) "
+      "ON CONFLICT(workspace_id, url) DO UPDATE SET "
       "title=excluded.title, "
       "visit_count=history.visit_count + 1, "
       "last_visit_at=excluded.last_visit_at;";
@@ -274,10 +337,11 @@ bool OtfStore::RecordVisit(const std::string& url,
   }
 
   const int64_t now = Now();
-  sqlite3_bind_text(upsert, 1, url.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(upsert, 2, title.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int64(upsert, 3, now);
+  sqlite3_bind_int(upsert, 1, workspace_id);
+  sqlite3_bind_text(upsert, 2, url.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(upsert, 3, title.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int64(upsert, 4, now);
+  sqlite3_bind_int64(upsert, 5, now);
   const bool upsert_ok = sqlite3_step(upsert) == SQLITE_DONE;
   sqlite3_finalize(upsert);
   if (!upsert_ok) {
@@ -285,11 +349,13 @@ bool OtfStore::RecordVisit(const std::string& url,
   }
 
   sqlite3_stmt* select = nullptr;
-  if (sqlite3_prepare_v2(db_, "SELECT id FROM history WHERE url = ?;", -1, &select,
-                         nullptr) != SQLITE_OK) {
+  if (sqlite3_prepare_v2(
+          db_, "SELECT id FROM history WHERE workspace_id = ? AND url = ?;",
+          -1, &select, nullptr) != SQLITE_OK) {
     return false;
   }
-  sqlite3_bind_text(select, 1, url.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(select, 1, workspace_id);
+  sqlite3_bind_text(select, 2, url.c_str(), -1, SQLITE_TRANSIENT);
   int history_id = 0;
   if (sqlite3_step(select) == SQLITE_ROW) {
     history_id = sqlite3_column_int(select, 0);
@@ -301,62 +367,72 @@ bool OtfStore::RecordVisit(const std::string& url,
 
   sqlite3_stmt* visit = nullptr;
   const char* visit_sql =
-      "INSERT INTO visits(history_id, url, title, visited_at, transition) "
-      "VALUES(?, ?, ?, ?, ?);";
+      "INSERT INTO visits(history_id, workspace_id, url, title, visited_at, transition) "
+      "VALUES(?, ?, ?, ?, ?, ?);";
   if (sqlite3_prepare_v2(db_, visit_sql, -1, &visit, nullptr) != SQLITE_OK) {
     return false;
   }
   sqlite3_bind_int(visit, 1, history_id);
-  sqlite3_bind_text(visit, 2, url.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(visit, 3, title.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int64(visit, 4, now);
-  sqlite3_bind_text(visit, 5, transition.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(visit, 2, workspace_id);
+  sqlite3_bind_text(visit, 3, url.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(visit, 4, title.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(visit, 5, now);
+  sqlite3_bind_text(visit, 6, transition.c_str(), -1, SQLITE_TRANSIENT);
   const bool ok = sqlite3_step(visit) == SQLITE_DONE;
   sqlite3_finalize(visit);
   return ok;
 }
 
-bool OtfStore::UpdateHistoryTitle(const std::string& url, const std::string& title) {
+bool OtfStore::UpdateHistoryTitle(const std::string& url,
+                                  const std::string& title,
+                                  int workspace_id) {
   if (!db_) {
     return false;
   }
+  if (workspace_id <= 0) workspace_id = 1;
   sqlite3_stmt* stmt = nullptr;
-  if (sqlite3_prepare_v2(db_, "UPDATE history SET title = ? WHERE url = ?;", -1, &stmt,
-                         nullptr) != SQLITE_OK) {
+  if (sqlite3_prepare_v2(
+          db_, "UPDATE history SET title = ? WHERE workspace_id = ? AND url = ?;",
+          -1, &stmt, nullptr) != SQLITE_OK) {
     return false;
   }
   sqlite3_bind_text(stmt, 1, title.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 2, url.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 2, workspace_id);
+  sqlite3_bind_text(stmt, 3, url.c_str(), -1, SQLITE_TRANSIENT);
   const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
   sqlite3_finalize(stmt);
   return ok;
 }
 
-std::vector<HistoryEntry> OtfStore::GetHistory(int limit) const {
+std::vector<HistoryEntry> OtfStore::GetHistory(int limit,
+                                               int workspace_id) const {
   std::vector<HistoryEntry> out;
   if (!db_) {
     return out;
   }
+  if (workspace_id <= 0) workspace_id = 1;
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(
           db_,
-          "SELECT id, url, title, visit_count, last_visit_at, created_at "
-          "FROM history ORDER BY last_visit_at DESC LIMIT ?;",
+          "SELECT id, workspace_id, url, title, visit_count, last_visit_at, created_at "
+          "FROM history WHERE workspace_id = ? ORDER BY last_visit_at DESC LIMIT ?;",
           -1, &stmt, nullptr) != SQLITE_OK) {
     return out;
   }
-  sqlite3_bind_int(stmt, 1, limit);
+  sqlite3_bind_int(stmt, 1, workspace_id);
+  sqlite3_bind_int(stmt, 2, limit);
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     HistoryEntry item;
     item.id = sqlite3_column_int(stmt, 0);
-    item.url = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+    item.workspace_id = sqlite3_column_int(stmt, 1);
+    item.url = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
     if (IsInternalBrowserHistoryUrl(item.url)) {
       continue;
     }
-    item.title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-    item.visit_count = sqlite3_column_int(stmt, 3);
-    item.last_visit_at = sqlite3_column_int64(stmt, 4);
-    item.created_at = sqlite3_column_int64(stmt, 5);
+    item.title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+    item.visit_count = sqlite3_column_int(stmt, 4);
+    item.last_visit_at = sqlite3_column_int64(stmt, 5);
+    item.created_at = sqlite3_column_int64(stmt, 6);
     out.push_back(item);
   }
   sqlite3_finalize(stmt);
@@ -378,8 +454,21 @@ bool OtfStore::DeleteHistoryItem(int id) {
   return ok;
 }
 
-bool OtfStore::ClearHistory() {
-  return Exec("DELETE FROM visits;") && Exec("DELETE FROM history;");
+bool OtfStore::ClearHistory(int workspace_id) {
+  if (!db_) return false;
+  if (workspace_id <= 0) {
+    return Exec("DELETE FROM visits;") && Exec("DELETE FROM history;");
+  }
+
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "DELETE FROM history WHERE workspace_id = ?;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_int(stmt, 1, workspace_id);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
 }
 
 bool OtfStore::ClearBookmarks() {

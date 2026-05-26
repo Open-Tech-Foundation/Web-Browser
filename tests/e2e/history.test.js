@@ -144,7 +144,7 @@ test('History records visited web pages but not internal Settings page',
     }
   });
 
-test('user can remove individual history items and clear all history',
+test('user can remove individual history items and clear workspace history',
   { timeout: timeoutMs + 20000 },
   async () => {
     const unique = Date.now();
@@ -232,7 +232,7 @@ test('user can remove individual history items and clear all history',
         (() => {
           window.confirm = () => true;
           const button = [...document.querySelectorAll('button')]
-            .find((item) => (item.textContent || '').includes('Clear History'));
+            .find((item) => (item.textContent || '').includes('Clear Workspace History'));
           if (!button) return false;
           button.click();
           return true;
@@ -243,7 +243,7 @@ test('user can remove individual history items and clear all history',
       await waitFor(
         historyCdp,
         `document.body.innerText`,
-        (text) => text.includes('No History Yet') && !text.includes(clearPath),
+        (text) => text.includes('No Workspace History Yet') && !text.includes(clearPath),
         15000,
       );
     } finally {

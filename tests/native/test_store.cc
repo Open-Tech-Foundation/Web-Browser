@@ -57,6 +57,23 @@ void TestHistoryPersistenceAndFiltering() {
   assert(history[0].title == "Example Final");
   assert(history[0].visit_count == 2);
 
+  const int second_workspace = store.CreateWorkspace("History WS");
+  assert(second_workspace > 1);
+  assert(store.RecordVisit("https://example.com", "Workspace Example", "link",
+                           second_workspace));
+  assert(store.UpdateHistoryTitle("https://example.com", "Workspace Final",
+                                  second_workspace));
+  const auto second_history = store.GetHistory(200, second_workspace);
+  assert(second_history.size() == 1);
+  assert(second_history[0].workspace_id == second_workspace);
+  assert(second_history[0].url == "https://example.com");
+  assert(second_history[0].title == "Workspace Final");
+  assert(second_history[0].visit_count == 1);
+  assert(store.GetHistory()[0].title == "Example Final");
+  assert(store.ClearHistory(second_workspace));
+  assert(store.GetHistory(200, second_workspace).empty());
+  assert(store.GetHistory().size() == 1);
+
   assert(store.DeleteHistoryItem(history[0].id));
   assert(store.GetHistory().empty());
 }
