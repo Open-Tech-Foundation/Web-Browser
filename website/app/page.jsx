@@ -28,231 +28,7 @@ function copyOneLiner(e) {
   }
 }
 
-const privacySecurityRows = [
-  {
-    area: "Scheme blocking",
-    detail: "Unsafe/internal schemes",
-    rationale: "Blocks address-bar vectors that can expose local files, internal engine pages, extension APIs, or script/data spoofing.",
-    otf: [
-      "Blocks chrome://",
-      "Blocks chrome-devtools://",
-      "Blocks chrome-extension://",
-      "Blocks chrome-search://",
-      "Blocks chrome-untrusted://",
-      "Blocks devtools://",
-      "Blocks javascript:",
-      "Blocks data:",
-      "Blocks file:// except trusted UI shell paths",
-    ],
-    mainstream: "Blocks or restricts many dangerous schemes, but rules are browser/vendor-specific.",
-    modern: "Generally restricted; exact behavior differs across privacy browsers.",
-  },
-  {
-    area: "Search and navigation",
-    detail: "Address bar resolver",
-    rationale: "Separates URL navigation from search so dotted search terms and real hostnames do not silently go down the wrong path.",
-    otf: "Browser-owned resolver with DNS-backed host decisions and clean search query encoding.",
-    mainstream: "Mature omnibox behavior, usually tied to vendor defaults.",
-    modern: "Usually customizable, but behavior varies by product.",
-  },
-  {
-    area: "History privacy",
-    detail: "Persistence defaults",
-    rationale: "Browsing history is sensitive and should not persist unless the user explicitly enables it.",
-    otf: "Web history persistence follows saved privacy settings and defaults to session-only when disabled.",
-    mainstream: "History persistence is usually enabled by default.",
-    modern: "Varies; Tor is ephemeral, Brave/others usually persist unless configured.",
-  },
-  {
-    area: "Download privacy",
-    detail: "Download history",
-    rationale: "Downloaded filenames and origins reveal user activity and should follow explicit user preference.",
-    otf: "Download history persistence follows saved privacy settings.",
-    mainstream: "Download history is usually persisted by default.",
-    modern: "Varies by browser and private mode.",
-  },
-  {
-    area: "Reset controls",
-    detail: "Browser data clearing",
-    rationale: "Reset must clear selected data categories predictably without exposing implementation noise to lay users.",
-    otf: [
-      "Settings",
-      "History",
-      "Bookmarks",
-      "SSL exceptions",
-      "HTTP auth",
-      "Connections",
-      "Cache",
-      "Cookies",
-    ],
-    mainstream: "Comprehensive reset and clear-data tools.",
-    modern: "Usually strong clear-data tools, with product-specific categories.",
-  },
-  {
-    area: "SSL errors",
-    detail: "Security indicator",
-    rationale: "The page security icon must reflect the original certificate state, even when a user previously allowed an exception.",
-    otf: "Tracks certificate error state per tab and avoids turning known SSL-error pages green after remembered allow actions.",
-    mainstream: "Mature certificate-error and exception handling.",
-    modern: "Generally mature; privacy browsers may restrict exceptions more aggressively.",
-  },
-  {
-    area: "Certificate viewer",
-    detail: "Current tab certificate",
-    rationale: "Users should be able to inspect who a certificate is issued to, who issued it, and its validity window.",
-    otf: [
-      "Issued to",
-      "Issued by",
-      "Validity period",
-      "Certificate-error status",
-    ],
-    mainstream: "Available in page/security information UI.",
-    modern: "Usually available, with different levels of detail.",
-  },
-  {
-    area: "HTTP blocking",
-    detail: "Insecure navigation",
-    rationale: "Plain HTTP is vulnerable to interception and downgrade attacks.",
-    otf: "Blocks insecure HTTP according to browser security policy and marks blocked pages as insecure.",
-    mainstream: "Usually warns, upgrades, or blocks depending on HTTPS-only settings.",
-    modern: "Often stronger HTTPS-first or HTTPS-only modes.",
-  },
-  {
-    area: "WebGPU",
-    detail: "Graphics",
-    rationale: "Graphics support preserves modern site compatibility without enabling high-risk compute workloads.",
-    otf: "Graphics pipeline enabled.",
-    mainstream: "Enabled where hardware and platform support exist.",
-    modern: "Varies; often enabled or configurable.",
-  },
-  {
-    area: "WebGPU",
-    detail: "Compute",
-    rationale: "Compute pipelines can amplify crypto-mining, high-intensity background workloads, and fingerprinting surface.",
-    otf: "Compute pipeline access blocked by standard browser policy.",
-    mainstream: "Usually enabled where WebGPU is enabled.",
-    modern: "Varies; may be enabled, disabled, or protected by policy.",
-  },
-  {
-    area: "WebGL",
-    detail: "Vendor and renderer",
-    rationale: "Raw GPU vendor/renderer details are high-value fingerprinting signals.",
-    otf: "Normalizes exposed WebGL identity values.",
-    mainstream: "Often exposes device-specific or engine-specific GPU details.",
-    modern: "Often reduced, randomized, or permission-gated depending on product.",
-  },
-  {
-    area: "WebGL",
-    detail: "Capability limits",
-    rationale: "Large GPU capability matrices create stable hardware fingerprints.",
-    otf: "Uses a normalized capability profile for sensitive reported values.",
-    mainstream: "Typically exposes real hardware/driver limits.",
-    modern: "Varies; some reduce or standardize values.",
-  },
-  {
-    area: "WebGL",
-    detail: "Debug extensions",
-    rationale: "Debug shader and driver extensions can reveal extra implementation details.",
-    otf: "Reduces sensitive WebGL extension exposure as part of fingerprint policy.",
-    mainstream: "Often exposes broad extension lists.",
-    modern: "Varies; privacy-focused browsers commonly reduce this surface.",
-  },
-  {
-    area: "Canvas",
-    detail: "Readback and export",
-    rationale: "Canvas readback can produce stable per-device hashes from rendering differences.",
-    otf: "Applies canvas fingerprint protection to readback/export paths.",
-    mainstream: "Usually exposed directly in normal browsing.",
-    modern: "Often protected, randomized, or permission-gated.",
-  },
-  {
-    area: "Frames",
-    detail: "Main frame and iframes",
-    rationale: "Fingerprint scripts commonly run inside embedded frames to bypass top-level checks.",
-    otf: "Policy injection covers page frames and diagnostic reporting tracks coverage.",
-    mainstream: "APIs generally available to frames subject to normal permissions.",
-    modern: "Varies; stronger browsers restrict more surfaces.",
-  },
-  {
-    area: "Service Workers",
-    detail: "Registration and persistent realm",
-    rationale: "Service Workers run in a separate realm that bypasses inline page policy injection and can persist cached responses, background sync, and push subscriptions across sessions — amplifying tracking surface beyond the page lifetime.",
-    otf: "Service Worker API disabled at the engine level and via page policy. navigator.serviceWorker is removed — no registration path exists. Constructor interface objects on Window.prototype remain present but are inert.",
-    mainstream: "Fully enabled by default; essential for PWA and offline-first apps.",
-    modern: "Usually enabled; some privacy modes restrict background sync or push but retain the API.",
-  },
-  {
-    area: "Workers",
-    detail: [
-      "Classic worker",
-      "Module worker",
-      "Shared worker",
-      "Nested worker",
-    ],
-    rationale: "Workers are a common off-main-thread fingerprinting and compute path.",
-    otf: "Policy and diagnostics target worker execution paths and expose remaining coverage gaps.",
-    mainstream: "Workers generally receive the same powerful APIs when available.",
-    modern: "Varies; some reduce APIs in privacy modes.",
-  },
-  {
-    area: "Worklets",
-    detail: [
-      "Audio worklet",
-      "Paint worklet",
-      "Layout worklet",
-      "Animation worklet",
-    ],
-    rationale: "Worklets are separate execution worlds and must be tracked as independent policy surfaces.",
-    otf: "Fingerprint diagnostics report worklet capability presence and coverage.",
-    mainstream: "Usually available where supported by engine.",
-    modern: "Varies by engine and privacy mode.",
-  },
-  {
-    area: "Fingerprint diagnostics",
-    detail: "Public test ground",
-    rationale: "Privacy claims should be testable and visible rather than hidden in implementation details.",
-    otf: [
-      "Applied patches",
-      "Canvas behavior",
-      "WebGL values",
-      "WebGPU compute blocking",
-      "Frame coverage",
-      "Worker coverage",
-      "User-agent string",
-    ],
-    mainstream: "Usually no centralized built-in fingerprint proof page.",
-    modern: "Some expose protections, but diagnostics are often partial or external.",
-  },
-  {
-    area: "User agent",
-    detail: "Branding and platform",
-    rationale: "UA should identify the browser without accidentally pushing sites into mobile or unsupported layouts.",
-    otf: [
-      "Linux desktop string",
-      "Windows desktop string",
-      "macOS desktop string",
-    ],
-    mainstream: "Mature desktop UA and client-hints behavior.",
-    modern: "Usually desktop-compatible, with varying anti-fingerprint strategies.",
-  },
-];
 
-function renderCellContent(value) {
-  if (Array.isArray(value)) {
-    return (
-      <ul className="space-y-1.5">
-        {value.map((item) => (
-          <li key={item} className="flex gap-2 leading-relaxed">
-            <span className="mt-2 h-1 w-1 rounded-full shrink-0" style="background-color: var(--accent); opacity: 0.7;"></span>
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
-  return value;
-}
 
 export default function HomePage() {
   let activeTab = $state("windows");
@@ -339,8 +115,8 @@ export default function HomePage() {
           {/* macOS */}
           {activeTab === "macos" && (
             <div className="text-center p-10 rounded-[32px] border" style="background-color: var(--bg-card); border-color: var(--border);">
-              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, #a855f7 12%, transparent);">
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor" style="color: #a855f7;"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" /></svg>
+              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor" style="color: var(--accent);"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" /></svg>
               </div>
               <h3 className="text-2xl font-bold mb-3" style="color: var(--foreground);">macOS</h3>
               <p className="mb-8 leading-relaxed" style="color: var(--muted);">
@@ -500,38 +276,199 @@ export default function HomePage() {
       </section>
 
       <section className="py-28 px-6 max-w-7xl mx-auto w-full">
-        <div className="mb-12">
-          <h2 className="text-4xl font-bold mb-6" style="color: var(--foreground);">Privacy & Security Comparison</h2>
-          <p className="max-w-3xl leading-relaxed" style="color: var(--muted);">
-            A practical comparison of OTF Browser against mainstream browsers such as Chrome, Firefox, and Safari, and modern privacy-focused browsers such as Tor, Brave, Zen, Arc, Orion, Sigma, and Vivaldi.
+        <div className="mb-16">
+          <h2 className="text-4xl font-bold mb-6" style="color: var(--foreground);">Privacy & Security Features in the Browser</h2>
+          <p className="max-w-3xl leading-relaxed text-lg" style="color: var(--muted);">
+            OTF Browser bakes privacy and security into every layer — from kernel-level scheme blocking and WebGPU compute prevention to per-session fingerprint rotation and full certificate transparency. No extensions required, no toggles to hunt for.
           </p>
         </div>
 
-        <div className="overflow-x-auto rounded-3xl border shadow-2xl transition-colors" style="background-color: var(--bg-card); border-color: var(--border);">
-          <table className="w-full min-w-[1180px] text-left border-collapse">
-            <thead>
-              <tr className="border-b" style="background-color: color-mix(in srgb, var(--foreground) 3%, transparent); border-color: var(--border);">
-                <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Area</th>
-                <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Detail</th>
-                <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Why It Matters</th>
-                <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--accent);">OTF Browser</th>
-                <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Mainstream Browsers</th>
-                <th className="p-5 text-[11px] font-black uppercase tracking-widest" style="color: var(--muted);">Modern Browsers</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {privacySecurityRows.map((row) => (
-                <tr key={`${row.area}-${row.detail}`} className="border-b transition-colors hover:bg-neutral-500/5" style="border-color: var(--border);">
-                  <td className="p-5 font-bold" style="color: var(--foreground);">{row.area}</td>
-                  <td className="p-5" style="color: var(--foreground);">{renderCellContent(row.detail)}</td>
-                  <td className="p-5 leading-relaxed" style="color: var(--muted);">{renderCellContent(row.rationale)}</td>
-                  <td className="p-5 leading-relaxed" style="color: var(--foreground); font-weight: 500;">{renderCellContent(row.otf)}</td>
-                  <td className="p-5 leading-relaxed" style="color: var(--muted);">{renderCellContent(row.mainstream)}</td>
-                  <td className="p-5 leading-relaxed" style="color: var(--muted);">{renderCellContent(row.modern)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* ── Always-On Privacy Protections ──────────────────────────────── */}
+        <div className="mb-16">
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 className="text-2xl font-bold" style="color: var(--foreground);">Always-On Privacy Protections</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[
+              {
+                name: "Canvas Fingerprint Protection",
+                plain: "Prevents websites from generating a unique device ID by reading subtle differences in how your browser renders graphics.",
+                tech: "Injects per-session noise into canvas read methods: getImageData, toDataURL, toBlob, OffscreenCanvas.convertToBlob, and transferToImageBitmap. Each page load produces a fresh canvas fingerprint, making cross-session tracking impossible.",
+              },
+              {
+                name: "WebGL Identity Protection",
+                plain: "Hides your GPU model, driver version, and graphics capabilities so trackers cannot identify your hardware.",
+                tech: "Normalizes 40+ WebGL parameters (renderer, vendor, shader precision, max texture size) to fixed generic values. Blocks WEBGL_debug_renderer_info extension. Perturbs readPixels output with per-session noise.",
+              },
+              {
+                name: "Font Probing Protection",
+                plain: "Stops websites from scanning your system fonts to build a unique device fingerprint.",
+                tech: "Limits document.fonts.check(), load(), and forEach() to 4 allowed fonts (Arial, Helvetica, Times New Roman, Courier New). Normalizes canvas measureText widths. Applies per-session noise to DOM font metrics (getBoundingClientRect, offsetWidth/Height).",
+              },
+              {
+                name: "Audio Fingerprint Protection",
+                plain: "Prevents websites from using subtle differences in your audio stack to identify your device.",
+                tech: "Perturbs AudioBuffer.getChannelData, AnalyserNode.getFloatFrequencyData and getByteFrequencyData with per-origin deterministic noise. Audio output still works — only the fingerprint signal is disrupted.",
+              },
+              {
+                name: "Math Function Fingerprinting Protection",
+                plain: "Blocks a sophisticated technique where websites use tiny rounding errors in math functions to identify your CPU and browser.",
+                tech: "Adds per-(session, function, input) deterministic noise (~1e-13) to 22 Math functions including sin, cos, tan, log, sqrt, pow, and atan2. Values rotate across sessions to prevent cross-session correlation.",
+              },
+              {
+                name: "Screen & Hardware Profile Normalization",
+                plain: "Reports a standard screen size, CPU count, and memory amount instead of your real device specs.",
+                tech: "Fixes screen dimensions to a common profile (e.g., 1920x1080@1x), hardwareConcurrency to 6, deviceMemory to 16 GB, navigator.platform to 'Linux x86_64', and screen.colorDepth to 24. Sec-CH-UA-Platform forced to 'Linux' at the CEF level.",
+              },
+              {
+                name: "Media Devices Spoofing",
+                plain: "Shows a fixed set of generic microphone, camera, and speaker devices instead of your actual hardware labels.",
+                tech: "Returns exactly 3 fixed devices (audioinput, audiooutput, videoinput) with standardized groupIds and capabilities. Real device labels are never exposed. Speaker output still works — verified by the built-in test tone.",
+              },
+              {
+                name: "API Surface Reduction",
+                plain: "Removes or disables browser APIs that are commonly abused for tracking, such as battery status, network type, and keyboard layout.",
+                tech: "Completely removes navigator.getBattery and BatteryManager, navigator.connection and prefixed variants, navigator.keyboard and KeyboardLayoutMap. Also removes navigator.serviceWorker at the engine level and via page policy. speechSynthesis.getVoices() returns an empty array.",
+              },
+            ].map((feature) => (
+              <div
+                key={feature.name}
+                className="p-6 rounded-2xl border transition-all duration-300"
+                style="background-color: var(--bg-card); border-color: var(--border);"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent);">Always On</span>
+                </div>
+                <h4 className="text-lg font-bold mb-2" style="color: var(--foreground);">{feature.name}</h4>
+                <p className="text-sm leading-relaxed mb-3" style="color: var(--muted);">{feature.plain}</p>
+                <details className="group">
+                  <summary className="text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors" style="color: var(--accent);">Technical detail</summary>
+                  <p className="mt-3 text-xs leading-relaxed" style="color: var(--muted);">{feature.tech}</p>
+                </details>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Security Protections ──────────────────────────────────────── */}
+        <div className="mb-16">
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <h3 className="text-2xl font-bold" style="color: var(--foreground);">Security Protections</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[
+              {
+                name: "Dangerous Scheme Blocking",
+                plain: "Blocks navigation URLs that can expose local files, internal browser pages, or execute scripts from the address bar.",
+                tech: "Blocks chrome://, chrome-devtools://, chrome-extension://, chrome-search://, chrome-untrusted://, devtools://, javascript:, data:, and file:// (except trusted UI shell paths). Also blocks javascript: and data: URLs in iframe src attributes and setAttribute calls.",
+              },
+              {
+                name: "WebGPU Compute Pipeline Blocking",
+                plain: "Allows modern graphics features while blocking crypto-mining and GPU abuse through compute pipelines.",
+                tech: "WebGPU graphics pipeline is enabled for compatibility. Compute pipeline creation throws with 'compute pipelines are disabled'. Policy is verified via __otfWebGPUPolicyState, __otfGPUPolicy, and __otfWebGPUComputePolicy markers on prototype chains.",
+              },
+              {
+                name: "HTTPS-Only Mode",
+                plain: "Every navigation is upgraded to HTTPS automatically. If a site does not support HTTPS, you are warned before loading.",
+                tech: "Upgrades all navigations to HTTPS via CEF request handler. HTTP navigations are blocked and redirected to browser://insecure-blocked with the original URL shown. Blocked page warns about password, message, and credit card exposure risks.",
+              },
+              {
+                name: "Pop-Up & Download Manager",
+                plain: "Pop-ups and automatic downloads require your permission before they can open or save files.",
+                tech: "Pop-up attempts fire a popup-blocked event showing the requesting origin with Block / Allow once / Always allow options. Download requests show a similar prompt with the filename and origin. Permissions are persisted per origin.",
+              },
+              {
+                name: "Service Workers Disabled",
+                plain: "Prevents background scripts that can persist across sessions, cache sensitive data, and enable push-based tracking.",
+                tech: "Service Worker API disabled at the CEF engine level via --disable-features=ServiceWorker and reinforced by page policy removal of navigator.serviceWorker. Constructor interface objects on Window.prototype remain present but are inert.",
+              },
+            ].map((feature) => (
+              <div
+                key={feature.name}
+                className="p-6 rounded-2xl border transition-all duration-300"
+                style="background-color: var(--bg-card); border-color: var(--border);"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, #22c55e 12%, transparent); color: #22c55e;">Always On</span>
+                </div>
+                <h4 className="text-lg font-bold mb-2" style="color: var(--foreground);">{feature.name}</h4>
+                <p className="text-sm leading-relaxed mb-3" style="color: var(--muted);">{feature.plain}</p>
+                <details className="group">
+                  <summary className="text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors" style="color: var(--accent);">Technical detail</summary>
+                  <p className="mt-3 text-xs leading-relaxed" style="color: var(--muted);">{feature.tech}</p>
+                </details>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── User-Controlled Privacy ─────────────────────────────────────── */}
+        <div>
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </div>
+            <h3 className="text-2xl font-bold" style="color: var(--foreground);">User-Controlled Privacy</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[
+              {
+                name: "Browsing & Download History Toggles",
+                plain: "Turn history recording on or off. When disabled, your browsing and download activity is not persisted between sessions.",
+                tech: "Settings stored in browser JSON config. History persistence follows the toggle: when disabled, web and download history are session-only and cleared on exit. Accessible from browser://settings Privacy panel.",
+              },
+              {
+                name: "Private Tabs & Guest Sessions",
+                plain: "Browse without leaving any trace. Private tabs use ephemeral storage. Guest sessions fully isolate bookmarks, history, and permissions.",
+                tech: "Private tabs use a separate CEF request context with in-memory-only storage. Guest sessions lock bookmarks, browsing history, downloads, workspace switching, and site permissions. Closing the last guest tab ends the session automatically.",
+              },
+              {
+                name: "Per-Site Data Manager",
+                plain: "See exactly what cookies, storage, and permissions a website has — and clear them individually.",
+                tech: "browser://sitedata shows a full cookie table (name, value, domain, path, secure, httponly), storage usage breakdown by type, permission toggles (pop-ups, downloads, images, JavaScript), and a cross-origin resource list showing third-party trackers the site loaded.",
+              },
+              {
+                name: "TLS Certificate Viewer",
+                plain: "Inspect the security certificate of any website: who issued it, who it was issued to, and when it expires.",
+                tech: "Opens as a side panel from the address bar security icon. Shows Common Name, Organization, Issuer CA, validity start and expiry dates. Green banner for valid certificates, red warning for invalid or untrusted ones. Data fetched via C++ get-certificate-by-tab-id query.",
+              },
+              {
+                name: "Browser Data Reset",
+                plain: "Clear selected categories of your browsing data — from history and cookies to SSL exceptions and cached files — in one go.",
+                tech: "Reset dialog in browser://settings lets you selectively clear: settings, history, bookmarks, SSL exceptions, HTTP auth, connections, cache, cookies, service workers, site permissions, and web storage. After reset, a restart button appears.",
+              },
+              {
+                name: "Protection Diagnostics Portal",
+                plain: "Verify your browser's privacy defenses are working with a built-in test center that checks every protected surface.",
+                tech: "browser://settings links to browser.opentechf.org/protection — a comprehensive test suite that probes all 41+ protected surfaces (canvas, WebGL, fonts, audio, realm coverage, etc.) and scores them from 0-100. Results can be exported as a JSON report.",
+              },
+            ].map((feature) => (
+              <div
+                key={feature.name}
+                className="p-6 rounded-2xl border transition-all duration-300"
+                style="background-color: var(--bg-card); border-color: var(--border);"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, #3b82f6 12%, transparent); color: #3b82f6;">User Controlled</span>
+                </div>
+                <h4 className="text-lg font-bold mb-2" style="color: var(--foreground);">{feature.name}</h4>
+                <p className="text-sm leading-relaxed mb-3" style="color: var(--muted);">{feature.plain}</p>
+                <details className="group">
+                  <summary className="text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors" style="color: var(--accent);">Technical detail</summary>
+                  <p className="mt-3 text-xs leading-relaxed" style="color: var(--muted);">{feature.tech}</p>
+                </details>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 

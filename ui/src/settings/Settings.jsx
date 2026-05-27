@@ -113,7 +113,7 @@ const Settings = () => {
   const [newUrl, setNewUrl] = useState('');
   const [startupUrlError, setStartupUrlError] = useState('');
   const [httpsOnly, setHttpsOnly] = useState(false);
-  const [blockInsecure, setBlockInsecure] = useState(true);
+
   const [appearanceMode, setAppearanceMode] = useState('auto');
   const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '', cef: '' });
 
@@ -218,7 +218,7 @@ const Settings = () => {
             setStartupBehavior(settings.startupBehavior || 'newtab');
             setStartupUrls(settings.startupUrls || []);
             setHttpsOnly(settings.httpsOnly || false);
-            setBlockInsecure(settings.blockInsecure !== undefined ? settings.blockInsecure : true);
+
             setAppearanceMode(settings.appearanceMode || 'auto');
           } catch (e) {
             console.error('Failed to parse settings:', e);
@@ -282,7 +282,7 @@ const Settings = () => {
           startupBehavior,
           startupUrls,
           httpsOnly,
-          blockInsecure,
+
           appearanceMode,
           customSearchEngines: customEngines,
           ...updates
@@ -822,7 +822,7 @@ const Settings = () => {
                     <div className="grid grid-cols-1 gap-4">
                       {[
                         { title: 'HTTPS-Only Mode', desc: "Upgrade all navigations to HTTPS and warn you before loading sites that don't support it." },
-                        { title: 'Block Insecure Content', desc: "Prevent pages from loading insecure elements (scripts, images) over HTTP when the main page is secure." },
+
                         { title: 'Enhanced Safe Browsing', desc: "Proactively protects you against dangerous websites, downloads, and extensions." }
                       ].map((item, idx) => (
                         <div key={idx} className="flex items-center justify-between p-8 bg-card/50 border border-main rounded-3xl relative overflow-hidden group">
