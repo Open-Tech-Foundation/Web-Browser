@@ -3902,7 +3902,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
       handler->tab_manager_->SetFindVisible(tab_id, true);
       handler->tab_manager_->SetFindText(tab_id, findbar_request.text);
-        handler->tab_manager_->SetFindCase(tab_id, findbar_request.match_case);
+      handler->tab_manager_->SetFindCase(tab_id, findbar_request.match_case);
 
       auto b = handler->tab_manager_->GetBrowser(tab_id);
       if (!b) { callback->Success(""); return true; }

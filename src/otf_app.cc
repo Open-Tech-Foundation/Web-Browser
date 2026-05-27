@@ -1074,7 +1074,7 @@ void OtfApp::CreateFindBarOverlay() {
   settings.background_color = CefColorSetARGB(0, 0, 0, 0);
   CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
       OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
-      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 34));
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 84));
   view->SetID(kFindBarBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   findbar_overlay_ = window_->AddOverlayView(
@@ -1327,7 +1327,7 @@ void OtfApp::PositionFindBarOverlay() {
   if (!window_ || !findbar_overlay_) return;
 
   constexpr int kOverlayWidth = 380;
-  constexpr int kOverlayHeight = 36;
+  constexpr int kOverlayHeight = 84;
   constexpr int kOverlayTop = 60;
   constexpr int kOverlayRightMargin = 20;
 

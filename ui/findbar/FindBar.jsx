@@ -3,9 +3,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 const S = {
   bar: {
     display: 'flex',
-    alignItems: 'center',
-    height: 36,
-    padding: '0 10px',
+    flexDirection: 'column',
+    padding: '8px 12px 8px',
     gap: 6,
     background: 'var(--bg, #ffffff)',
     border: '1px solid var(--sep)',
@@ -13,6 +12,12 @@ const S = {
     borderRadius: '0 0 16px 16px',
     boxShadow: '0 8px 20px rgba(15,23,42,0.12)',
     fontFamily: "'Inter', system-ui, sans-serif",
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 28,
   },
   input: {
     flex: 1,
@@ -37,8 +42,8 @@ const S = {
     border: 'none',
     cursor: 'pointer',
     color: 'var(--muted, #94a3b8)',
-    padding: '3px 5px',
-    borderRadius: 4,
+    padding: '4px 6px',
+    borderRadius: 6,
     fontSize: 12,
     lineHeight: 1,
     display: 'flex',
@@ -46,23 +51,33 @@ const S = {
     justifyContent: 'center',
     transition: 'background 0.15s, color 0.15s',
   },
-  btnActive: {
-    background: 'rgba(255,122,0,0.12)',
-    color: 'var(--accent, #FF7A00)',
-  },
   sep: {
     width: 1,
-    height: 16,
+    height: 18,
     background: 'var(--sep, #e2e8f0)',
-    margin: '0 3px',
+    margin: '0 2px',
     flexShrink: 0,
   },
-  toggle: {
-    fontSize: 10,
+  chip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '4px 12px',
+    borderRadius: 999,
+    fontSize: 11,
     fontWeight: 600,
-    letterSpacing: '0.3px',
+    letterSpacing: '0.4px',
+    cursor: 'pointer',
+    border: 'none',
+    fontFamily: 'inherit',
+    transition: 'background 0.15s, color 0.15s',
+    background: 'var(--sep, #e2e8f0)',
+    color: 'var(--muted, #64748b)',
     textTransform: 'uppercase',
-    padding: '3px 6px',
+  },
+  chipActive: {
+    background: 'var(--accent, #FF7A00)',
+    color: '#fff',
   },
 };
 
@@ -193,7 +208,7 @@ const FindBar = () => {
   const onKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      execFind(!e.shiftKey, matchCase, true); // findNext=true
+      execFind(!e.shiftKey, matchCase, true);
       return;
     }
     if (e.key === 'Escape') {
@@ -227,36 +242,38 @@ const FindBar = () => {
   const onNext = useCallback(() => execFind(true, matchCase, true), [execFind, matchCase]);
 
   const countText = count > 0 ? `${active}/${count}` : isFinal ? '0/0' : '';
-  const btnStyle = (on) => ({ ...S.btn, ...S.toggle, ...(on ? S.btnActive : {}) });
 
   return (
     <div style={S.bar}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: 'var(--muted,#94a3b8)' }}>
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
-      <input
-        ref={inputRef}
-        type="text"
-        value={text}
-        onChange={(e) => onTyping(e.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder="Find in page..."
-        style={S.input}
-      />
-      <span style={S.count}>{countText}</span>
-      <span style={S.sep} />
-      <button onClick={onPrev} style={S.btn} title="Previous (Shift+Enter)">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>
-      </button>
-      <button onClick={onNext} style={S.btn} title="Next (Enter)">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-      </button>
-      <span style={S.sep} />
-      <button onClick={onToggleCase} style={btnStyle(matchCase)} title="Match case">Aa</button>
-      <span style={S.sep} />
-      <button onClick={() => window.cefQuery({ request: 'findbar-close:' })} style={S.btn} title="Close (Escape)">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-      </button>
+      <div style={S.row}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, color: 'var(--muted,#94a3b8)' }}>
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input
+          ref={inputRef}
+          type="text"
+          value={text}
+          onChange={(e) => onTyping(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Find in page..."
+          style={S.input}
+        />
+        <span style={S.count}>{countText}</span>
+        <span style={S.sep} />
+        <button onClick={onPrev} style={S.btn} title="Previous (Shift+Enter)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+        </button>
+        <button onClick={onNext} style={S.btn} title="Next (Enter)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <span style={S.sep} />
+        <button onClick={() => window.cefQuery({ request: 'findbar-close:' })} style={S.btn} title="Close (Escape)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div style={S.row}>
+        <button onClick={onToggleCase} style={{ ...S.chip, ...(matchCase ? S.chipActive : {}) }} title="Match case">Match case</button>
+      </div>
     </div>
   );
 };

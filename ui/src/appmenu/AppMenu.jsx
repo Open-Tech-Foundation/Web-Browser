@@ -86,6 +86,11 @@ const AppMenu = () => {
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V7l-8-4Z"/><path d="M9 12h6"/></svg>}
             onClick={() => handleAction('create-guest-session')}
           />
+          <AppMenuItem
+            name="Find"
+            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
+            onClick={() => handleAction('show-findbar')}
+          />
         </div>
       </div>
     </div>
