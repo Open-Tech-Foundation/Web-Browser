@@ -160,22 +160,22 @@ CefRefPtr<CefImage> LoadOtfWindowIcon() {
 }
 
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
-  CefRefPtr<CefFrame> current = frame;
-  while (current) {
-    const std::string url = current->GetURL().ToString();
-    if (IsDevUiUrl(url) || StartsWith(url, "browser://") ||
-        StartsWith(url, "file://") || StartsWith(url, "devtools://")) {
-      return false;
-    }
-    if (otf::ShouldInjectPagePolicy(url)) {
-      return true;
-    }
-    if (!IsInheritedFrameUrl(url)) {
-      return false;
-    }
-    current = current->GetParent();
+  const std::string url = frame->GetURL().ToString();
+  // Never inject into inherited-URL frames (about:blank, about:srcdoc, data:,
+  // blob:, empty). about:blank / srcdoc frames share their creator's prototype
+  // chain so Navigator.prototype / Screen.prototype patches already apply.
+  // Attempting to eval() into sandboxed inherited frames (sandbox without
+  // allow-scripts) produces "Blocked script execution in about:blank" errors
+  // from Chromium's engine and does not help — the patched prototypes are
+  // already visible from the same-origin parent context.
+  if (IsInheritedFrameUrl(url)) {
+    return false;
   }
-  return false;
+  if (IsDevUiUrl(url) || StartsWith(url, "browser://") ||
+      StartsWith(url, "file://") || StartsWith(url, "devtools://")) {
+    return false;
+  }
+  return otf::ShouldInjectPagePolicy(url);
 }
 
 class OtfWindowDelegate : public CefWindowDelegate {

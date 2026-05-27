@@ -504,6 +504,8 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     };
   }
 })();
+)JS"
+R"JS(
 
   // Layout metrics: normalize font probes with stable per-session noise.
   const layoutNoiseSeed = (() => {
@@ -1745,6 +1747,33 @@ R"JS(
     ]) { noisyMath(fn); }
   })();
 
+  // chrome.runtime: Chromium-based browsers always expose window.chrome.runtime
+  // as an object — even on regular (non-extension) pages where runtime.id is
+  // undefined and the messaging APIs are inert. Its absence while the UA claims
+  // Chromium is the primary inconsistency Cloudflare's bot checks flag.
+  (() => {
+    'use strict';
+    if (typeof window === 'undefined') return;
+    const chr = globalThis.chrome;
+    if (!chr || typeof chr !== 'object') return;
+    if (typeof chr.runtime !== 'undefined') return;
+
+    const eventStub = (name) => ({
+      addListener:    makeNative(function addListener() {},    'function addListener() { [native code] }'),
+      removeListener: makeNative(function removeListener() {}, 'function removeListener() { [native code] }'),
+      hasListener:    makeNative(function hasListener() { return false; }, 'function hasListener() { [native code] }'),
+    });
+
+    chr.runtime = {
+      id:          undefined,
+      connect:     makeNative(function connect() {},     'function connect() { [native code] }'),
+      sendMessage: makeNative(function sendMessage() {}, 'function sendMessage() { [native code] }'),
+      onMessage:   eventStub(),
+      onConnect:   eventStub(),
+      onInstalled: eventStub(),
+    };
+  })();
+
   // Workers: re-apply the same policy in each worker realm that spawns workers
   // of its own. policySource and wrapWorkerCtor live INSIDE applyPagePolicy so
   // that applyPagePolicy.toString() captures them — making the bootstrap blob
@@ -1781,7 +1810,14 @@ R"JS(
       const isModule = !!(options && typeof options === 'object' && options.type === 'module');
       const importSource = isModule
         ? 'import ' + JSON.stringify(originalUrl) + ';\n'
-        : 'importScripts(' + JSON.stringify(originalUrl) + ');\n';
+        : '(() => {\n' +
+          '  const __otfWorkerBaseUrl = ' + JSON.stringify(originalUrl) + ';\n' +
+          '  const __otfImportScripts = globalThis.importScripts.bind(globalThis);\n' +
+          '  globalThis.importScripts = function(...urls) {\n' +
+          '    return __otfImportScripts(...urls.map((url) => new URL(String(url), __otfWorkerBaseUrl).href));\n' +
+          '  };\n' +
+          '})();\n' +
+          'importScripts(' + JSON.stringify(originalUrl) + ');\n';
       const bootstrap = new Blob([
         policySource,
         '\n',
