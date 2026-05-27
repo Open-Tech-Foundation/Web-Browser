@@ -242,11 +242,15 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
             )}
           </a>
         ))}
-        <button 
-          onClick={() => onNew()}
+        <a 
+          href="tab-context-menu:newtab"
+          onClick={(e) => {
+            e.preventDefault();
+            onNew();
+          }}
           title="New tab"
           className={`
-            h-[29px] w-9 ml-4 flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all rounded-md shadow-sm
+            h-[29px] w-9 ml-4 flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-400 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all rounded-md shadow-sm cursor-pointer
             ${isOverflowing ? 'sticky right-0 z-10 bg-white dark:bg-[#1a1a20] shadow-[-6px_0_10px_rgba(15,23,42,0.08)] dark:shadow-[-6px_0_10px_rgba(0,0,0,0.25)]' : ''}
           `}
           aria-label="New tab"
@@ -254,7 +258,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12h14"/><path d="M12 5v14"/>
           </svg>
-        </button>
+        </a>
       </div>
       {isOverflowing && canScrollRight && (
         <button

@@ -3901,7 +3901,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
       handler->tab_manager_->SetFindVisible(tab_id, true);
       handler->tab_manager_->SetFindText(tab_id, findbar_request.text);
-      handler->tab_manager_->SetFindCase(tab_id, findbar_request.match_case);
+        handler->tab_manager_->SetFindCase(tab_id, findbar_request.match_case);
 
       auto b = handler->tab_manager_->GetBrowser(tab_id);
       if (!b) { callback->Success(""); return true; }
@@ -3917,6 +3917,17 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         // Track pending so async OnFindResult can correlate and filter
         handler->pending_find_tab_  = tab_id;
         handler->pending_find_text_ = findbar_request.text;
+        handler->pending_find_expected_active_ = 1;
+        if (findbar_request.find_next) {
+          const int current_count = handler->tab_manager_->GetFindCount(tab_id);
+          const int current_active = handler->tab_manager_->GetFindActive(tab_id);
+          if (current_count > 0 && current_active > 0) {
+            handler->pending_find_expected_active_ =
+                findbar_request.forward
+                    ? (current_active % current_count) + 1
+                    : (current_active <= 1 ? current_count : current_active - 1);
+          }
+        }
         b->GetHost()->Find(findbar_request.text, findbar_request.forward, findbar_request.match_case, findbar_request.find_next);
       }
       callback->Success("");
@@ -3932,6 +3943,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       handler->pending_find_tab_ = -1;
       handler->pending_find_text_.clear();
+      handler->pending_find_expected_active_ = 0;
       if (handler->findbar_subscription_) {
         handler->findbar_subscription_->Success(
             BuildFindResultEvent(0, 0, -1, "", true));
@@ -3950,6 +3962,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         if (handler->pending_find_tab_ == tab_id) {
           handler->pending_find_tab_ = -1;
           handler->pending_find_text_.clear();
+          handler->pending_find_expected_active_ = 0;
         }
         app->FocusCurrentTabContent();
       }
@@ -5415,6 +5428,14 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
     std::string link_url = params->GetLinkUrl().ToString();
     if (link_url.rfind("tab-context-menu:", 0) == 0) {
       std::string tab_id_str = link_url.substr(17);
+
+      if (tab_id_str == "newtab") {
+        model->Clear();
+        model->AddItem(MENU_ID_TAB_NEW, "New Tab");
+        model->AddItem(MENU_ID_TAB_NEW_PRIVATE, "New Private Tab");
+        return;
+      }
+
       const auto tab_id_opt = ParseIntStrict(tab_id_str);
       bool is_muted = false;
       bool is_pinned = false;
@@ -5511,6 +5532,11 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
 
   if ((params->HasImageContents() && !params->GetSourceUrl().empty()) || is_image_link) {
     model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_IMAGE, "Preview Image");
+  }
+
+  if (params->GetLinkUrl().empty() && search_text.empty() &&
+      !(params->HasImageContents() && !params->GetSourceUrl().empty())) {
+    model->Clear();
   }
 }
 
@@ -6073,6 +6099,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
       if (pending_find_tab_ == app->GetCurrentTabId()) {
         pending_find_tab_ = -1;
         pending_find_text_.clear();
+        pending_find_expected_active_ = 0;
       }
       app->FocusCurrentTabContent();
       if (findbar_subscription_) {
@@ -6274,13 +6301,32 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
       !is_current_tab && finalUpdate && count == 0 && activeMatchOrdinal == 0 &&
       tab_manager_->IsFindVisible(tab_id) && !tab_manager_->GetFindText(tab_id).empty();
 
+  // Only forward results for the currently focused tab
+  if (!is_current_tab) {
+    if (!is_background_stop_reset) {
+      tab_manager_->SetFindCount(tab_id, count);
+      tab_manager_->SetFindActive(tab_id, activeMatchOrdinal);
+    }
+    return;
+  }
+
+  if (finalUpdate && count > 0 && activeMatchOrdinal == 0 &&
+      pending_find_tab_ == tab_id && !pending_find_text_.empty()) {
+    browser->GetHost()->Find(pending_find_text_, true,
+                             tab_manager_->GetFindCase(tab_id), true);
+    return;
+  }
+
+  if (finalUpdate && count > 0 && activeMatchOrdinal > 0 &&
+      pending_find_tab_ == tab_id && pending_find_expected_active_ > 0 &&
+      activeMatchOrdinal != pending_find_expected_active_) {
+    return;
+  }
+
   if (!is_background_stop_reset) {
     tab_manager_->SetFindCount(tab_id, count);
     tab_manager_->SetFindActive(tab_id, activeMatchOrdinal);
   }
-
-  // Only forward results for the currently focused tab
-  if (!is_current_tab) return;
 
   if (restore_find_in_progress_ && pending_find_tab_ == tab_id && finalUpdate) {
     if (count <= 0 || restore_find_target_ordinal_ <= 1 ||
