@@ -1,3 +1,33 @@
+import pkg from "../../package.json" with { type: "json" };
+
+const GH_REPO = "Open-Tech-Foundation/Web-Browser";
+const GH_TAG = "v" + pkg.version;
+
+const downloadPlatforms = ["windows", "macos", "linux"];
+
+const LINUX_INSTALL_SCRIPT_URL = `https://raw.githubusercontent.com/${GH_REPO}/main/scripts/install.sh`;
+const ONE_LINER = `curl -fsSL ${LINUX_INSTALL_SCRIPT_URL} | sh`;
+
+function copyOneLiner(e) {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    navigator.clipboard.writeText(ONE_LINER).then(() => {
+      if (e?.target) {
+        const btn = e.target;
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      }
+    }).catch(() => {
+      if (e?.target) {
+        const btn = e.target;
+        const orig = btn.textContent;
+        btn.textContent = 'Failed';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      }
+    });
+  }
+}
+
 const privacySecurityRows = [
   {
     area: "Scheme blocking",
@@ -225,6 +255,7 @@ function renderCellContent(value) {
 }
 
 export default function HomePage() {
+  let activeTab = $state("windows");
   return (
     <div className="flex flex-col">
       <section className="relative pt-20 pb-16 px-6 overflow-hidden">
@@ -248,6 +279,154 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Download Section ──────────────────────────────────────────────── */}
+      <section className="py-20 px-6 max-w-7xl mx-auto w-full">
+        <div className="text-center mb-12">
+          <h2 className="text-4xl font-extrabold mb-4 tracking-tight" style="color: var(--foreground);">Download OTF Browser</h2>
+          <p className="max-w-2xl mx-auto text-lg leading-relaxed" style="color: var(--muted);">
+            Choose your platform and get the latest build.
+          </p>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex justify-center gap-2 mb-10">
+          {["windows", "macos", "linux"].map((p) => (
+              <button
+                key={p}
+                onClick={() => activeTab = p}
+                className={`flex items-center gap-2.5 px-6 py-3 rounded-xl border text-sm font-bold transition-all duration-200 ${activeTab === p ? "shadow-lg scale-105" : "opacity-60 hover:opacity-90"}`}
+                style={{
+                  backgroundColor: activeTab === p ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "var(--bg-card)",
+                  borderColor: activeTab === p ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--border)",
+                  color: activeTab === p ? "var(--accent)" : "var(--foreground)",
+                }}
+              >
+                {p === "windows" ? (
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.25-9.602L24 0v11.4H10.25M0 12.6h9.75v9.451L0 20.699M10.25 12.6H24V24l-13.75-1.949" /></svg>
+                ) : p === "macos" ? (
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" /></svg>
+                ) : (
+                  <svg className="w-5 h-5" viewBox="55 60 90 125" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><ellipse cx="100" cy="115" rx="42" ry="55" fill="#000000"/><ellipse cx="100" cy="122" rx="28" ry="38" fill="#ffffff"/><circle cx="84" cy="78" r="7" fill="#ffffff"/><circle cx="116" cy="78" r="7" fill="#ffffff"/><circle cx="84" cy="78" r="3" fill="#000000"/><circle cx="116" cy="78" r="3" fill="#000000"/><polygon points="100,88 90,100 110,100" fill="#f59e0b"/><ellipse cx="78" cy="170" rx="18" ry="8" fill="#f59e0b"/><ellipse cx="122" cy="170" rx="18" ry="8" fill="#f59e0b"/></svg>
+                )}
+                {p === "windows" ? "Windows" : p === "macos" ? "macOS" : "Linux"}
+              </button>
+            ))}
+        </div>
+
+        {/* Tab Content */}
+        <div className="max-w-2xl mx-auto">
+          {/* Windows */}
+          {activeTab === "windows" && (
+            <div className="text-center p-10 rounded-[32px] border" style="background-color: var(--bg-card); border-color: var(--border);">
+              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor" style="color: var(--accent);"><path d="M0 3.449L9.75 2.1v9.451H0m10.25-9.602L24 0v11.4H10.25M0 12.6h9.75v9.451L0 20.699M10.25 12.6H24V24l-13.75-1.949" /></svg>
+              </div>
+              <h3 className="text-2xl font-bold mb-3" style="color: var(--foreground);">Windows</h3>
+              <p className="mb-8 leading-relaxed" style="color: var(--muted);">
+                Portable ZIP archive. Extract and run <code className="px-2 py-0.5 rounded text-sm font-mono" style="background-color: color-mix(in srgb, var(--foreground) 8%, transparent);">otf-browser.exe</code>.
+              </p>
+              <a
+                href={`https://github.com/${GH_REPO}/releases/download/${GH_TAG}/otf-browser-windows-x64-${GH_TAG}.zip`}
+                className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-xl text-base font-bold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl active:scale-[0.98]"
+                style="background: linear-gradient(135deg, var(--accent), #f59e0b);"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                Download for Windows
+              </a>
+            </div>
+          )}
+
+          {/* macOS */}
+          {activeTab === "macos" && (
+            <div className="text-center p-10 rounded-[32px] border" style="background-color: var(--bg-card); border-color: var(--border);">
+              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, #a855f7 12%, transparent);">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor" style="color: #a855f7;"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" /></svg>
+              </div>
+              <h3 className="text-2xl font-bold mb-3" style="color: var(--foreground);">macOS</h3>
+              <p className="mb-8 leading-relaxed" style="color: var(--muted);">
+                macOS support is coming soon. Follow the project on GitHub for updates.
+              </p>
+              <div className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-xl text-base font-bold opacity-60 cursor-not-allowed" style="background-color: color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--muted);">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                Coming Soon
+              </div>
+            </div>
+          )}
+
+          {/* Linux */}
+          {activeTab === "linux" && (
+            <div className="text-center p-10 rounded-[32px] border" style="background-color: var(--bg-card); border-color: var(--border);">
+              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
+                <svg className="w-8 h-8" viewBox="55 60 90 125" fill="currentColor" style="color: var(--accent);" xmlns="http://www.w3.org/2000/svg"><ellipse cx="100" cy="115" rx="42" ry="55" fill="#000000"/><ellipse cx="100" cy="122" rx="28" ry="38" fill="#ffffff"/><circle cx="84" cy="78" r="7" fill="#ffffff"/><circle cx="116" cy="78" r="7" fill="#ffffff"/><circle cx="84" cy="78" r="3" fill="#000000"/><circle cx="116" cy="78" r="3" fill="#000000"/><polygon points="100,88 90,100 110,100" fill="#f59e0b"/><ellipse cx="78" cy="170" rx="18" ry="8" fill="#f59e0b"/><ellipse cx="122" cy="170" rx="18" ry="8" fill="#f59e0b"/></svg>
+              </div>
+              <h3 className="text-2xl font-bold mb-3" style="color: var(--foreground);">Linux</h3>
+
+              {/* Option 1 — One-liner install */}
+              <div className="mb-8 text-left max-w-xl mx-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold uppercase tracking-widest" style="color: var(--muted);">Quick Install (one-liner)</span>
+                  <button
+                    onClick={copyOneLiner}
+                    className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-colors"
+                    style="border-color: var(--border); color: var(--muted);"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div className="rounded-xl border p-4 font-mono text-sm leading-relaxed overflow-x-auto" style="background-color: #0f172a; border-color: #1e293b; color: #e2e8f0;">
+                  <span style="color: #22c55e;">$</span> curl -fsSL <span style="color: #f59e0b;">{LINUX_INSTALL_SCRIPT_URL}</span> | sh
+                </div>
+                <p className="mt-2 text-xs leading-relaxed" style="color: var(--muted);">
+                  Auto-detects your distro and installs the correct package using apt, dnf, pacman, or falls back to AppImage.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4 mb-8 max-w-md mx-auto">
+                <div className="flex-1 h-px" style="background-color: var(--border);"></div>
+                <span className="text-xs font-bold uppercase tracking-widest" style="color: var(--muted);">or download directly</span>
+                <div className="flex-1 h-px" style="background-color: var(--border);"></div>
+              </div>
+
+              {/* Option 2 — Package links */}
+              <div className="flex flex-wrap justify-center gap-3">
+                <a
+                  href={`https://github.com/${GH_REPO}/releases/download/${GH_TAG}/otf-browser_${pkg.version}_amd64.deb`}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border text-sm font-bold transition-all hover:-translate-y-0.5"
+                  style="background-color: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent);"
+                >
+                  Debian / Ubuntu (.deb)
+                </a>
+                <a
+                  href={`https://github.com/${GH_REPO}/releases/download/${GH_TAG}/otf-browser-${pkg.version}-1.x86_64.rpm`}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border text-sm font-bold transition-all hover:-translate-y-0.5"
+                  style="background-color: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent);"
+                >
+                  Fedora / RHEL (.rpm)
+                </a>
+                <a
+                  href={`https://github.com/${GH_REPO}/releases/download/${GH_TAG}/otf-browser-linux-x64-${GH_TAG}.AppImage`}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border text-sm font-bold transition-all hover:-translate-y-0.5"
+                  style="background-color: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent);"
+                >
+                  AppImage
+                </a>
+                <a
+                  href={`https://github.com/${GH_REPO}/releases/download/${GH_TAG}/otf-browser-linux-x64-${GH_TAG}.tar.gz`}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border text-sm font-bold transition-all hover:-translate-y-0.5"
+                  style="background-color: color-mix(in srgb, var(--accent) 8%, transparent); border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent);"
+                >
+                  Arch / Manjaro (tar.gz)
+                </a>
+              </div>
+
+              <p className="mt-6 text-xs" style="color: var(--muted);">
+                <a href={`https://github.com/${GH_REPO}/releases`} className="underline hover:text-[var(--accent)]">View all releases on GitHub</a>
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+
       <section className="py-24 px-6 max-w-7xl mx-auto w-full">
         <div className="text-center mb-16">
           <h2 className="text-4xl font-extrabold mb-4 tracking-tight" style="color: var(--foreground);">Unique Features</h2>
@@ -261,12 +440,12 @@ export default function HomePage() {
             {
               title: "Intelligent Tab Strip",
               desc: "Real-time counters and attention animations for hidden tabs provide the most intuitive multi-tab navigation experience.",
-              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20M2 5h20M2 19h20"/></svg>
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20M2 5h20M2 19h20" /></svg>
             },
             {
               title: "WebGPU Compute Protection",
               desc: "Prevents GPU resource abuse by automatically blocking non-graphical WebGPU compute workloads, stopping stealth crypto mining and hardware strain.",
-              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h10"/></svg>
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 8h10M7 12h10M7 16h10" /></svg>
             },
             {
               title: "Native Image Preview",
@@ -278,15 +457,14 @@ export default function HomePage() {
             {
               title: "Privacy-First QR Sharing",
               desc: "Generate QR codes for any page directly from the address bar. UTM tracking parameters are automatically stripped before the code is generated, so you share clean links.",
-              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="3" height="3"/><path d="M14 17h3v4"/><path d="M20 14v3"/></svg>,
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="3" height="3" /><path d="M14 17h3v4" /><path d="M20 14v3" /></svg>,
               badges: ["UTM stripped", "Copy & Download"],
             }
           ].map((feature) => (
             <div
               key={feature.title}
-              className={`p-8 rounded-[32px] border transition-all duration-500 hover:-translate-y-2 group overflow-hidden relative ${
-                feature.emphasize ? "hover:border-orange-400/50 shadow-[0_24px_80px_rgba(249,115,22,0.10)]" : "hover:border-orange-500/30"
-              }`}
+              className={`p-8 rounded-[32px] border transition-all duration-500 hover:-translate-y-2 group overflow-hidden relative ${feature.emphasize ? "hover:border-orange-400/50 shadow-[0_24px_80px_rgba(249,115,22,0.10)]" : "hover:border-orange-500/30"
+                }`}
               style="background-color: var(--bg-card); border-color: var(--border);"
             >
               {feature.emphasize && (
