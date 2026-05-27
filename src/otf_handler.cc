@@ -274,6 +274,7 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kDownloadsBrowserViewId ||
          view_id == kCertificateBrowserViewId ||
          view_id == kImagePreviewBrowserViewId ||
+          view_id == kQrBrowserViewId ||
           view_id == kLinkPreviewBrowserViewId ||
           view_id == kToastNotificationBrowserViewId ||
           view_id == kConsoleBrowserViewId;
@@ -3917,17 +3918,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         // Track pending so async OnFindResult can correlate and filter
         handler->pending_find_tab_  = tab_id;
         handler->pending_find_text_ = findbar_request.text;
-        handler->pending_find_expected_active_ = 1;
-        if (findbar_request.find_next) {
-          const int current_count = handler->tab_manager_->GetFindCount(tab_id);
-          const int current_active = handler->tab_manager_->GetFindActive(tab_id);
-          if (current_count > 0 && current_active > 0) {
-            handler->pending_find_expected_active_ =
-                findbar_request.forward
-                    ? (current_active % current_count) + 1
-                    : (current_active <= 1 ? current_count : current_active - 1);
-          }
-        }
         b->GetHost()->Find(findbar_request.text, findbar_request.forward, findbar_request.match_case, findbar_request.find_next);
       }
       callback->Success("");
@@ -3943,7 +3933,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       handler->pending_find_tab_ = -1;
       handler->pending_find_text_.clear();
-      handler->pending_find_expected_active_ = 0;
       if (handler->findbar_subscription_) {
         handler->findbar_subscription_->Success(
             BuildFindResultEvent(0, 0, -1, "", true));
@@ -3962,7 +3951,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         if (handler->pending_find_tab_ == tab_id) {
           handler->pending_find_tab_ = -1;
           handler->pending_find_text_.clear();
-          handler->pending_find_expected_active_ = 0;
         }
         app->FocusCurrentTabContent();
       }
@@ -4489,6 +4477,13 @@ bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
   (void)request_method;
 
   if (!store_) return true;
+
+  // Downloads initiated from internal UI views (QR code, etc.) are internal
+  // actions and must not be subject to page download permissions.
+  CefRefPtr<CefBrowserView> _can_dl_view = CefBrowserView::GetForBrowser(browser);
+  if (_can_dl_view && IsNonTabBrowserViewId(_can_dl_view->GetID())) {
+    return true;
+  }
 
   CefRefPtr<CefFrame> main_frame = browser->GetMainFrame();
   std::string page_origin =
@@ -6099,7 +6094,6 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
       if (pending_find_tab_ == app->GetCurrentTabId()) {
         pending_find_tab_ = -1;
         pending_find_text_.clear();
-        pending_find_expected_active_ = 0;
       }
       app->FocusCurrentTabContent();
       if (findbar_subscription_) {
@@ -6314,12 +6308,6 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
       pending_find_tab_ == tab_id && !pending_find_text_.empty()) {
     browser->GetHost()->Find(pending_find_text_, true,
                              tab_manager_->GetFindCase(tab_id), true);
-    return;
-  }
-
-  if (finalUpdate && count > 0 && activeMatchOrdinal > 0 &&
-      pending_find_tab_ == tab_id && pending_find_expected_active_ > 0 &&
-      activeMatchOrdinal != pending_find_expected_active_) {
     return;
   }
 
