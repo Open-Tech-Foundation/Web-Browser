@@ -74,9 +74,15 @@ async function clickTabCloseButton(cdp, titleNeedle) {
 async function openTabsFromAddressBar(cdp, origin, slugs) {
   for (const slug of slugs) {
     const before = await waitFor(cdp, tabCountExpression, (count) => count >= 1, 15000);
-    await clickSelector(cdp, 'button[title="New tab"]');
+    await clickSelector(cdp, 'a[title="New tab"]');
     await waitFor(cdp, tabCountExpression, (count) => count === before + 1, 15000);
     await navigateFromAddressBar(cdp, `${origin}/${slug}`);
+    await waitFor(
+      cdp,
+      tabStateExpression,
+      (tabs) => tabs.some((tab) => tab.active && tab.text.toLowerCase().includes(slug)),
+      15000,
+    );
   }
 }
 
@@ -92,7 +98,7 @@ test('user can open and close a tab from the tab strip',
         (count) => count >= 1,
       );
 
-      await clickSelector(cdp, 'button[title="New tab"]');
+      await clickSelector(cdp, 'a[title="New tab"]');
 
       await waitFor(
         cdp,
