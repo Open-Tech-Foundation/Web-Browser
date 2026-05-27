@@ -71,9 +71,11 @@ export const protectionStyles = `
   background: var(--panel); color: var(--ink); border: 1px solid var(--line);
   padding: 6px 12px; font-size: 13px; border-radius: 999px;
 }
+#protection-container .filter-bar button:hover { color: #fff; }
 #protection-container .filter-bar button.active {
   background: var(--ink); color: var(--panel); border-color: var(--ink);
 }
+#protection-container .filter-bar button.active:hover { color: var(--panel); }
 
 #protection-container .row-list {
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
