@@ -743,8 +743,18 @@ std::string BuildSearchUrl(const std::string& search_engine_id,
 
 std::vector<CustomSearchEngine> GetCustomSearchEngines() {
   std::vector<CustomSearchEngine> engines;
+  const std::string json = LoadSettingsJson();
+  // Skip CEF parsing entirely when the array is empty — avoids calling
+  // CefParseJSON (which requires CEF to be initialized) in test binaries.
+  const auto key_pos = json.find("\"customSearchEngines\"");
+  if (key_pos != std::string::npos) {
+    const auto bracket = json.find('[', key_pos);
+    if (bracket == std::string::npos) return engines;
+    const auto first = json.find_first_not_of(" \t\r\n", bracket + 1);
+    if (first == std::string::npos || json[first] == ']') return engines;
+  }
   CefRefPtr<CefValue> root =
-      CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+      CefParseJSON(json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
   if (!root || root->GetType() != VTYPE_DICTIONARY) {
     return engines;
   }
