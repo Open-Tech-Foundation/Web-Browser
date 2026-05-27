@@ -51,7 +51,7 @@ if(WIN32)
         "${VIPS_ROOT}/lib/glib-2.0/include"
     )
     link_directories("${VIPS_ROOT}/lib")
-    set(VIPS_LIBS vips)
+    set(VIPS_LIBS libvips)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(VIPS REQUIRED vips)
