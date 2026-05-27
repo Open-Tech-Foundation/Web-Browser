@@ -63,7 +63,7 @@ export default function RootLayout({ children }) {
 
             <button 
               onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-neutral-500/10 transition-colors"
+              className="p-2 rounded-lg hover:bg-neutral-500/10 transition-colors cursor-pointer"
               title="Toggle Theme"
             >
               {theme.value === "dark" ? (

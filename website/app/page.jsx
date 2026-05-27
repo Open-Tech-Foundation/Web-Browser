@@ -294,7 +294,7 @@ export default function HomePage() {
               <button
                 key={p}
                 onClick={() => activeTab = p}
-                className={`flex items-center gap-2.5 px-6 py-3 rounded-xl border text-sm font-bold transition-all duration-200 ${activeTab === p ? "shadow-lg scale-105" : "opacity-60 hover:opacity-90"}`}
+                className={`flex items-center gap-2.5 px-6 py-3 rounded-xl border text-sm font-bold transition-all duration-200 cursor-pointer ${activeTab === p ? "shadow-lg scale-105" : "opacity-60 hover:opacity-90"}`}
                 style={{
                   backgroundColor: activeTab === p ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "var(--bg-card)",
                   borderColor: activeTab === p ? "color-mix(in srgb, var(--accent) 40%, transparent)" : "var(--border)",
@@ -367,7 +367,7 @@ export default function HomePage() {
                   <span className="text-xs font-bold uppercase tracking-widest" style="color: var(--muted);">Quick Install (one-liner)</span>
                   <button
                     onClick={copyOneLiner}
-                    className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-colors"
+                    className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-colors cursor-pointer"
                     style="border-color: var(--border); color: var(--muted);"
                   >
                     Copy
