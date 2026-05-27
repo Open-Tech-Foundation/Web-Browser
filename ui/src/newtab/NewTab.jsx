@@ -86,7 +86,7 @@ const NewTab = () => {
   };
 
   return (
-    <div className={`flex flex-col items-center justify-between h-screen overflow-y-auto text-main selection:bg-orange-500/30 overflow-x-hidden relative py-12 ${isPrivate ? 'bg-violet-950/90' : 'bg-main'}`}>
+    <div className={`flex flex-col items-center h-screen overflow-y-auto text-main selection:bg-orange-500/30 overflow-x-hidden ${isPrivate ? 'bg-violet-950/90' : 'bg-main'}`}>
       {/* Ambient Background Glow */}
       <div className={`absolute top-[-10%] left-[-10%] w-[40%] h-[40%] blur-[120px] rounded-full pointer-events-none ${isPrivate ? 'bg-violet-500/10' : 'bg-orange-500/5'}`}></div>
       <div className={`absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] blur-[120px] rounded-full pointer-events-none ${isPrivate ? 'bg-violet-500/5' : 'bg-amber-500/5'}`}></div>
@@ -107,7 +107,7 @@ const NewTab = () => {
       {/* Spacer to push content down or keep layout balanced */}
       <div className="h-8"></div>
 
-      <div className="flex flex-col items-center w-full max-w-4xl px-6 relative z-10 my-auto pb-16">
+      <div className="flex-1 flex flex-col items-center w-full max-w-4xl px-6 relative z-10 justify-center pb-8">
         <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000 flex flex-col items-center">
           <div className="flex items-center gap-4 mb-3">
             <div className="relative group">
@@ -134,9 +134,9 @@ const NewTab = () => {
         <QuickLinks isPrivate={isPrivate} />
       </div>
       
-      <footer className="mt-16 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500 text-center z-10 shrink-0">
-        <span className={`${isPrivate ? 'text-violet-200/30' : 'text-muted/30'}`}>
-          {isPrivate ? 'Private Browsing — No history is saved' : 'Engineered for Privacy & Security'}
+      <footer className="mt-auto pt-4 pb-8 text-[10px] font-bold uppercase tracking-[0.3em] animate-in fade-in duration-1000 delay-500 text-center z-10 shrink-0">
+        <span className={`${isPrivate ? 'text-white' : 'text-muted/30'}`}>
+          {'Engineered for Privacy & Security'}
         </span>
       </footer>
     </div>
