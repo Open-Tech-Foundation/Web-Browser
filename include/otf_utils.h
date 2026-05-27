@@ -17,6 +17,32 @@ struct CustomSearchEngine {
 
 namespace otf {
 
+// Convert a UTF-8 encoded std::string to std::filesystem::path.
+// On Windows, std::filesystem::path constructed from std::string uses the
+// system ANSI code page, silently misinterpreting non-ASCII paths. Going
+// through char8_t forces correct UTF-8 interpretation on all platforms.
+inline std::filesystem::path Utf8Path(const std::string& s) {
+  return std::filesystem::path(reinterpret_cast<const char8_t*>(s.c_str()));
+}
+
+// Convert a std::filesystem::path to a UTF-8 encoded std::string.
+// Uses the generic (forward-slash) format so the result is consistent across
+// platforms and safe to concatenate with "/".
+inline std::string PathToUtf8(const std::filesystem::path& p) {
+  const std::u8string u8 = p.generic_u8string();
+  return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+// Read entire file as binary bytes. Returns nullopt if the file cannot be
+// opened or does not exist.
+std::optional<std::vector<uint8_t>> ReadFileBinary(const std::string& utf8_path);
+
+// Read entire file as a UTF-8 text string. Returns empty string on failure.
+std::string ReadFileText(const std::string& utf8_path);
+
+// Write text to a file, replacing existing contents. Returns true on success.
+bool WriteFileText(const std::string& utf8_path, const std::string& content);
+
 std::string ExtractOrigin(const std::string& url);
 std::string JsonEscape(const std::string& s);
 std::string JsonString(const std::string& s);

@@ -28,9 +28,7 @@
 #include "otf_utils.h"
 
 #include <cctype>
-#include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <iterator>
 #include <string_view>
 #include <utility>
@@ -143,17 +141,9 @@ CefRefPtr<CefImage> LoadOtfWindowIcon() {
     bool any_loaded = false;
     for (const auto& v : kVariants) {
       const std::string path = base + std::to_string(v.size) + ".png";
-      FILE* f = std::fopen(path.c_str(), "rb");
-      if (!f) continue;
-      std::fseek(f, 0, SEEK_END);
-      const long len = std::ftell(f);
-      std::fseek(f, 0, SEEK_SET);
-      if (len <= 0) { std::fclose(f); continue; }
-      std::vector<char> buf(static_cast<size_t>(len));
-      const size_t got = std::fread(buf.data(), 1, buf.size(), f);
-      std::fclose(f);
-      if (got != buf.size()) continue;
-      if (image->AddPNG(v.scale, buf.data(), buf.size())) {
+      auto buf = otf::ReadFileBinary(path);
+      if (!buf || buf->empty()) continue;
+      if (image->AddPNG(v.scale, buf->data(), buf->size())) {
         any_loaded = true;
       }
     }
@@ -358,13 +348,13 @@ using ::otf::HtmlAttrEscape;
 // holder; the holder's destruction is what frees the bytes.
 class CefBytesHolder : public CefBaseRefCounted {
  public:
-  explicit CefBytesHolder(std::vector<unsigned char> bytes)
+  explicit CefBytesHolder(std::vector<uint8_t> bytes)
       : bytes_(std::move(bytes)) {}
   const unsigned char* data() const { return bytes_.data(); }
   size_t size() const { return bytes_.size(); }
 
  private:
-  std::vector<unsigned char> bytes_;
+  std::vector<uint8_t> bytes_;
   IMPLEMENT_REFCOUNTING(CefBytesHolder);
 };
 
@@ -411,7 +401,7 @@ bool IsSafeUiRelativePath(const std::string& path) {
 }
 
 CefRefPtr<CefResourceHandler> MakeBytesResponse(
-    const std::string& mime, std::vector<unsigned char> bytes) {
+    const std::string& mime, std::vector<uint8_t> bytes) {
   CefRefPtr<CefBytesHolder> holder = new CefBytesHolder(std::move(bytes));
   CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForHandler(
       new CefByteReadHandler(holder->data(), holder->size(), holder));
@@ -430,24 +420,13 @@ CefRefPtr<CefResourceHandler> MakeNotFound() {
 }
 
 CefRefPtr<CefResourceHandler> MakeFileResponse(const std::string& disk_path) {
-  std::error_code ec;
-  if (!std::filesystem::is_regular_file(disk_path, ec)) {
-    return MakeNotFound();
-  }
-  std::ifstream f(disk_path, std::ios::binary);
-  if (!f) return MakeNotFound();
-  std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(f)),
-                                   std::istreambuf_iterator<char>());
-  return MakeBytesResponse(GuessMimeType(disk_path), std::move(bytes));
+  auto bytes = otf::ReadFileBinary(disk_path);
+  if (!bytes) return MakeNotFound();
+  return MakeBytesResponse(GuessMimeType(disk_path), std::move(*bytes));
 }
 
 std::string LoadTextFile(const std::string& disk_path) {
-  std::ifstream f(disk_path, std::ios::binary);
-  if (!f) {
-    return "";
-  }
-  return std::string((std::istreambuf_iterator<char>(f)),
-                     std::istreambuf_iterator<char>());
+  return otf::ReadFileText(disk_path);
 }
 
 std::string InjectBaseHref(const std::string& html, const std::string& base_href) {
@@ -530,7 +509,8 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
       } else if (is_image_preview_route) {
         target = dev_ui_url + "/imagepreview.html";
       } else if (path.empty()) {
-        target = dev_ui_url + "/" + authority + ".html";
+        const std::string page = (authority == "shell") ? "index" : authority;
+        target = dev_ui_url + "/" + page + ".html";
       } else {
         target = dev_ui_url + "/" + path;
       }

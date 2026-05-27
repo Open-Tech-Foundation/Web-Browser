@@ -5,7 +5,6 @@
 
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -52,13 +51,10 @@ std::optional<std::string> LoadPersistedScreenProfileId() {
     return std::nullopt;
   }
 
-  std::ifstream input(path);
-  if (!input.is_open()) {
-    return std::nullopt;
-  }
-
-  std::string id;
-  std::getline(input, id);
+  std::string contents = otf::ReadFileText(path);
+  const size_t nl = contents.find('\n');
+  std::string id = (nl != std::string::npos) ? contents.substr(0, nl) : contents;
+  if (!id.empty() && id.back() == '\r') id.pop_back();  // strip CRLF \r
   if (!FindScreenProfileById(id)) {
     return std::nullopt;
   }
@@ -70,11 +66,7 @@ void SavePersistedScreenProfileId(const std::string& id) {
   if (path.empty()) {
     return;
   }
-
-  std::ofstream output(path, std::ios::trunc);
-  if (output.is_open()) {
-    output << id;
-  }
+  otf::WriteFileText(path, id);
 }
 
 const ScreenProfile& ChooseNearestScreenProfile() {

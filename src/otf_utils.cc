@@ -16,7 +16,6 @@
 #include <windows.h>
 #include <shlobj.h>
 #else
-#include <libgen.h>
 #include <limits.h>
 #include <pwd.h>
 #include <sys/types.h>
@@ -133,24 +132,6 @@ bool IsAllowedStartupBehavior(const std::string& startup_behavior) {
 bool IsAllowedAppearanceMode(const std::string& mode) {
   return mode == "auto" || mode == "light" || mode == "dark";
 }
-
-#if defined(_WIN32)
-std::string WideToUtf8(const std::wstring& wide_value) {
-  if (wide_value.empty()) {
-    return "";
-  }
-  int len = WideCharToMultiByte(CP_UTF8, 0, wide_value.c_str(), -1, nullptr, 0, nullptr, nullptr);
-  if (len <= 0) {
-    return "";
-  }
-  std::string utf8(static_cast<size_t>(len), '\0');
-  if (WideCharToMultiByte(CP_UTF8, 0, wide_value.c_str(), -1, utf8.data(), len, nullptr, nullptr) <= 0) {
-    return "";
-  }
-  utf8.resize(static_cast<size_t>(len - 1));
-  return utf8;
-}
-#endif
 
 }  // namespace
 
@@ -311,21 +292,39 @@ std::string JsonObjectBuilder::Build() const {
   return out.str();
 }
 
+std::optional<std::vector<uint8_t>> ReadFileBinary(const std::string& utf8_path) {
+  std::ifstream f(Utf8Path(utf8_path), std::ios::binary);
+  if (!f) return std::nullopt;
+  return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+}
+
+std::string ReadFileText(const std::string& utf8_path) {
+  std::ifstream f(Utf8Path(utf8_path), std::ios::binary);
+  if (!f) return {};
+  return std::string((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+}
+
+bool WriteFileText(const std::string& utf8_path, const std::string& content) {
+  std::ofstream f(Utf8Path(utf8_path), std::ios::trunc);
+  if (!f) return false;
+  f << content;
+  return f.good();
+}
+
 std::string GetExecutableDir() {
 #if defined(_WIN32)
   wchar_t module_path[MAX_PATH];
   const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
-  if (len == 0 || len >= MAX_PATH) {
-    return "";
-  }
-  std::filesystem::path exe_path(module_path);
-  return WideToUtf8(exe_path.parent_path().wstring());
+  if (len == 0 || len >= MAX_PATH) return "";
+  return PathToUtf8(std::filesystem::path(module_path).parent_path());
 #else
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
   if (count > 0 && count < PATH_MAX) {
     result[count] = '\0';
-    return std::string(dirname(result));
+    return PathToUtf8(std::filesystem::path(result).parent_path());
   }
   return "";
 #endif
@@ -335,20 +334,17 @@ std::string GetExecutablePath() {
 #if defined(_WIN32)
   wchar_t module_path[MAX_PATH];
   const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
-  if (len == 0 || len >= MAX_PATH) {
-    return "";
-  }
-  return WideToUtf8(std::wstring(module_path, module_path + len));
+  if (len == 0 || len >= MAX_PATH) return "";
+  return PathToUtf8(std::filesystem::path(module_path));
 #else
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
-  if (count != -1) {
-    return std::string(result, static_cast<size_t>(count));
+  if (count > 0 && count < PATH_MAX) {
+    result[count] = '\0';
+    return PathToUtf8(std::filesystem::path(result));
   }
   const std::string dir = GetExecutableDir();
-  if (!dir.empty()) {
-    return dir + "/otf-browser";
-  }
+  if (!dir.empty()) return dir + "/otf-browser";
   return "";
 #endif
 }
@@ -363,7 +359,7 @@ std::string GetHomeDir() {
   PWSTR wide_profile = nullptr;
   std::string home_dir;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &wide_profile))) {
-    std::string converted = WideToUtf8(wide_profile);
+    std::string converted = PathToUtf8(std::filesystem::path(wide_profile));
     CoTaskMemFree(wide_profile);
     wide_profile = nullptr;
     if (!converted.empty()) {
@@ -514,26 +510,21 @@ std::filesystem::path GetAppCacheDir() {
 std::string GetSettingsFilePath() {
   const std::filesystem::path dir = GetAppDataDir();
   if (dir.empty()) return "";
-  return (dir / "settings.json").string();
+  return PathToUtf8(dir / "settings.json");
 }
 
 std::string GetDownloadsDir() {
 #if defined(_WIN32)
   PWSTR path = nullptr;
   if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &path))) {
-    std::string result = WideToUtf8(path ? std::wstring(path) : std::wstring{});
+    const std::string result = path ? PathToUtf8(std::filesystem::path(path)) : std::string{};
     CoTaskMemFree(path);
-    path = nullptr;
-    if (!result.empty()) {
-      return result;
-    }
+    if (!result.empty()) return result;
   }
 #endif
-  std::string home = GetHomeDir();
-  if (home.empty()) {
-    return "";
-  }
-  return (std::filesystem::path(home) / "Downloads").string();
+  const std::string home = GetHomeDir();
+  if (home.empty()) return "";
+  return PathToUtf8(Utf8Path(home) / "Downloads");
 }
 
 std::string SanitizeFilename(const std::string& filename) {

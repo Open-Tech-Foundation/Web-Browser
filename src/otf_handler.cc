@@ -6629,8 +6629,8 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
               .Build();
         }
       } else if (otf::IsSupportedImageUrl(local_path)) {
-        std::ifstream f(local_path, std::ios::binary);
-        if (!f) {
+        auto file_bytes = otf::ReadFileBinary(local_path);
+        if (!file_bytes) {
           return JsonObjectBuilder()
               .AddString("key", "load-image")
               .AddString("url", url)
@@ -6645,8 +6645,7 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
               .AddString("error", "Failed to open downloaded image")
               .Build();
         }
-        std::string raw_bytes((std::istreambuf_iterator<char>(f)),
-                              std::istreambuf_iterator<char>());
+        std::string raw_bytes(file_bytes->begin(), file_bytes->end());
         std::string mime_type = GuessImageMimeType(local_path);
         const std::string data_url = GetDataURI(raw_bytes, mime_type);
         payload.display_url = data_url;
