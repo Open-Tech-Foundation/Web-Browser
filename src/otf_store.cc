@@ -309,6 +309,19 @@ bool OtfStore::RunMigrations() {
   if (!oz_ok) return false;
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (9);");
 
+  // Migration v10: search history for address bar suggestions.
+  bool sh_ok =
+      Exec(
+          "CREATE TABLE IF NOT EXISTS search_history ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "query TEXT NOT NULL UNIQUE,"
+          "created_at INTEGER NOT NULL"
+          ");") &&
+      Exec("CREATE INDEX IF NOT EXISTS idx_search_history_query "
+           "ON search_history(query);");
+  if (!sh_ok) return false;
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (10);");
+
   return true;
 }
 
@@ -718,6 +731,43 @@ bool OtfStore::IsBookmarked(const std::string& url) const {
     sqlite3_finalize(stmt);
   }
   return found;
+}
+
+bool OtfStore::AddSearchHistory(const std::string& query) {
+  if (!db_ || query.empty()) return false;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_,
+      "INSERT OR IGNORE INTO search_history(query, created_at) VALUES(?, ?);",
+      -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_text(stmt, 1, query.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(stmt, 2, Now());
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+std::vector<std::string> OtfStore::GetSearchSuggestions(const std::string& prefix,
+                                                        int limit) const {
+  std::vector<std::string> results;
+  if (!db_ || prefix.empty()) return results;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_,
+      "SELECT query FROM search_history WHERE query LIKE ? "
+      "ORDER BY created_at DESC LIMIT ?;",
+      -1, &stmt, nullptr) != SQLITE_OK) {
+    return results;
+  }
+  std::string pattern = "%" + prefix + "%";
+  sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 2, limit);
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    results.push_back(
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+  }
+  sqlite3_finalize(stmt);
+  return results;
 }
 
 bool OtfStore::ClearSitePermissions(const std::string& origin) {

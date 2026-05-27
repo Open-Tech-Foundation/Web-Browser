@@ -3980,6 +3980,26 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
       callback->Success("");
+    } else if (msg.rfind("save-search-hist:", 0) == 0) {
+      const std::string query = msg.substr(17);
+      if (handler->store_ && !query.empty()) {
+        handler->store_->AddSearchHistory(query);
+      }
+      callback->Success("");
+    } else if (msg.rfind("get-search-suggestions:", 0) == 0) {
+      const std::string prefix = msg.substr(23);
+      if (handler->store_ && !prefix.empty()) {
+        auto suggestions = handler->store_->GetSearchSuggestions(prefix, 10);
+        std::string json = "[";
+        for (size_t i = 0; i < suggestions.size(); ++i) {
+          if (i > 0) json += ",";
+          json += "\"" + otf::JsonEscape(suggestions[i]) + "\"";
+        }
+        json += "]";
+        callback->Success(json);
+      } else {
+        callback->Success("[]");
+      }
     } else if (msg == "focus-ui") {
       if (handler->ui_browser_) {
         handler->ui_browser_->GetHost()->SetFocus(true);

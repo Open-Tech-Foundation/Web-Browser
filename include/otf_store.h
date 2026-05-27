@@ -131,6 +131,10 @@ class OtfStore {
                          const std::string& permission,
                          const std::string& setting);
 
+  bool AddSearchHistory(const std::string& query);
+  std::vector<std::string> GetSearchSuggestions(const std::string& prefix,
+                                                int limit = 10) const;
+
   // Test-facing: returns whether secure_delete is on for this connection.
   // SQLite pragmas are per-connection, not stored in the file, so the only
   // way to verify our Open() set it is to query the same connection.

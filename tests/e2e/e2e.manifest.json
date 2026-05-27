@@ -19,7 +19,8 @@
         "toast-notification.test.js",
         "qr.test.js",
         "site-data.test.js",
-        "tab-title.test.js"
+        "tab-title.test.js",
+        "search-history.test.js"
       ]
     },
     {
