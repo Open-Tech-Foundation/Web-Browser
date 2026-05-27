@@ -1282,6 +1282,32 @@ R"JS(
           return originalConvertToBlob.apply(this, args);
         });
       }
+      const originalTransferToImageBitmap =
+          OffscreenCanvasCtor.prototype.transferToImageBitmap;
+      if (typeof originalTransferToImageBitmap === 'function') {
+        defineMethod(OffscreenCanvasCtor.prototype, 'transferToImageBitmap',
+            function() {
+          try {
+            // Perturb the source canvas pixels before transferring. We can
+            // only access pixels on a 2d context; WebGL canvases skip this
+            // (WebGL readPixels is hooked separately). getContext('2d') returns
+            // the existing context if one was already created, or null for
+            // WebGL canvases — so this never clobbers a WebGL context.
+            if (this.width && this.height &&
+                typeof originalGetImageData === 'function' &&
+                typeof originalPutImageData === 'function') {
+              const ctx2d = this.getContext('2d');
+              if (ctx2d) {
+                const imageData = originalGetImageData.call(
+                    ctx2d, 0, 0, this.width, this.height);
+                const perturbed = perturbImageData(imageData);
+                originalPutImageData.call(ctx2d, perturbed, 0, 0);
+              }
+            }
+          } catch (_) {}
+          return originalTransferToImageBitmap.call(this);
+        });
+      }
       Object.defineProperty(OffscreenCanvasCtor.prototype, '__otfCanvasPolicy', {
         value: true,
         configurable: false

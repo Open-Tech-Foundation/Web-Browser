@@ -107,7 +107,10 @@ bool IsDevUiUrl(const std::string& url) {
 }
 
 bool IsInheritedFrameUrl(const std::string& url) {
-  return url.empty() || url == "about:blank" || url == "about:srcdoc" ||
+  // about:srcdoc frames have their own V8 realm with separate built-in
+  // prototypes — the parent's prototype patches do NOT carry over, so they
+  // must receive policy injection like any other frame.
+  return url.empty() || url == "about:blank" ||
          StartsWith(url, "data:") || StartsWith(url, "blob:");
 }
 
@@ -161,15 +164,21 @@ CefRefPtr<CefImage> LoadOtfWindowIcon() {
 
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
   const std::string url = frame->GetURL().ToString();
-  // Never inject into inherited-URL frames (about:blank, about:srcdoc, data:,
-  // blob:, empty). about:blank / srcdoc frames share their creator's prototype
-  // chain so Navigator.prototype / Screen.prototype patches already apply.
-  // Attempting to eval() into sandboxed inherited frames (sandbox without
-  // allow-scripts) produces "Blocked script execution in about:blank" errors
-  // from Chromium's engine and does not help — the patched prototypes are
-  // already visible from the same-origin parent context.
+  // Skip about:blank, data:, blob:, and empty URLs. Each iframe has its own
+  // V8 realm, so parent prototype patches do NOT carry over. about:blank is
+  // excluded because it is often created as an empty placeholder and then
+  // written to by the parent; injecting there is unnecessary and can produce
+  // "Blocked script execution" errors in sandboxed frames. about:srcdoc is
+  // explicitly NOT excluded — it has its own realm and carries real script
+  // content that needs the protection.
   if (IsInheritedFrameUrl(url)) {
     return false;
+  }
+  // about:srcdoc frames have their own V8 realm (not shared with the parent)
+  // and host real script content, so they need the policy even though they
+  // are not an http/https URL.
+  if (url == "about:srcdoc") {
+    return true;
   }
   if (IsDevUiUrl(url) || StartsWith(url, "browser://") ||
       StartsWith(url, "file://") || StartsWith(url, "devtools://")) {
