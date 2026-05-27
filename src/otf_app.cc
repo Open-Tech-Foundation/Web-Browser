@@ -594,11 +594,12 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   // Production: hard-block switches that open security surfaces.
-  // Some (e.g. no-sandbox) are parsed by CEF before this callback fires so
-  // we cannot un-parse them — aborting early prevents an insecure startup.
+  // Sandbox-related switches (no-sandbox etc.) are NOT listed here — they are
+  // silently stripped by the Reset()+whitelist pass below, so the binary
+  // ignores them rather than crashing when they are passed.
+  // Remote-debugging switches are blocked (fatal) because they open a network
+  // attack surface that cannot be safely stripped after CEF processes them.
   static const std::set<std::string> kBlockedSwitches = {
-    "no-sandbox", "renderer-no-sandbox", "no-zygote",
-    "disable-seccomp-filter-sandbox", "disable-gpu-sandbox",
     "remote-debugging-port", "remote-debugging-pipe", "remote-allow-origins",
   };
   {
