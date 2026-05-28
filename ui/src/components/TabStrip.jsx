@@ -105,16 +105,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
     if (!viewport) return;
 
     const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-    const scrollLeft = viewport.scrollLeft;
-    const nextOverflowing = maxScrollLeft > 1;
-    const nextCanScrollLeft = scrollLeft > 1;
-    const nextCanScrollRight = scrollLeft < maxScrollLeft - 1;
 
-    setIsOverflowing(nextOverflowing);
-    setCanScrollLeft(nextCanScrollLeft);
-    setCanScrollRight(nextCanScrollRight);
-
-    // Calculate hidden counts
     let leftCount = 0;
     let rightCount = 0;
     const viewportRect = viewport.getBoundingClientRect();
@@ -122,7 +113,6 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
     tabRefs.current.forEach((el) => {
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      // We use a small buffer (5px) to avoid flickering on sub-pixel positions
       if (rect.right < viewportRect.left + 5) {
         leftCount++;
       } else if (rect.left > viewportRect.right - 5) {
@@ -130,6 +120,9 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
       }
     });
 
+    setIsOverflowing(maxScrollLeft > 1);
+    setCanScrollLeft(leftCount > 0);
+    setCanScrollRight(rightCount > 0);
     setHiddenLeft(leftCount);
     setHiddenRight(rightCount);
   };
@@ -146,6 +139,18 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
       tabEl.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
     }
     measureOverflow();
+
+    const viewport = viewportRef.current;
+    if (viewport) {
+      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      const viewportRect = viewport.getBoundingClientRect();
+      const allRightVisible = Array.from(tabRefs.current.values()).every(
+        (el) => !el || el.getBoundingClientRect().left <= viewportRect.right + 5
+      );
+      if (allRightVisible && maxScrollLeft > 1) {
+        viewport.scrollLeft = maxScrollLeft;
+      }
+    }
   }, [tabs]);
 
   useEffect(() => {
@@ -179,7 +184,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
 
   return (
     <div className="flex items-end h-[29px] bg-slate-300/50 dark:bg-[#020617] overflow-hidden">
-      {isOverflowing && canScrollLeft && (
+      {isOverflowing && hiddenLeft > 0 && (
         <button
           onClick={() => scrollTabs(-1)}
           aria-label="Scroll tabs left"
@@ -285,7 +290,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           </svg>
         </a>
       </div>
-      {isOverflowing && canScrollRight && (
+      {isOverflowing && hiddenRight > 0 && (
         <button
           onClick={() => scrollTabs(1)}
           aria-label="Scroll tabs right"
