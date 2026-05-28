@@ -2,6 +2,15 @@ import React, { useState, useEffect } from 'react';
 import * as Icons from './Icons';
 import { resolveUrl, looksLikeDirectUrl } from '../shared/search';
 
+const humanizeSize = (bytes) => {
+  if (!bytes || bytes === 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let size = bytes;
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+  return `${size.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+};
+
 const GenericIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full text-slate-400">
     <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
@@ -715,11 +724,20 @@ const Settings = () => {
                       const displayPath = pending || configured || active;
                       const hasPending = pending != null && pending !== '';
                       const localError = rowErrors[key] || '';
+                      const sizeKey = key === 'dataDir' ? '' : (key === 'cacheDir' ? 'cacheSize' : 'downloadsSize');
+                      const dirSize = sizeKey && storagePaths ? storagePaths[sizeKey] : null;
                       return (
                         <div key={key} className={`p-6 bg-card/50 border rounded-2xl transition-all ${hasPending ? 'border-orange-500/50' : localError ? 'border-red-500/50' : 'border-main'}`}>
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-grow min-w-0">
-                              <h3 className="text-base font-semibold text-main">{label}</h3>
+                              <h3 className="text-base font-semibold text-main flex items-center gap-2">
+                                {label}
+                                {dirSize != null && (
+                                  <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold font-mono uppercase tracking-wider bg-orange-500/10 text-orange-400 rounded-full border border-orange-500/20">
+                                    {humanizeSize(Number(dirSize))}
+                                  </span>
+                                )}
+                              </h3>
                               <p className="text-xs text-muted mt-1">{desc}</p>
                               <div className="mt-3 flex items-center gap-2">
                                 <code className="text-xs font-mono bg-main/5 px-2 py-1 rounded border border-main truncate block max-w-full text-muted">
@@ -788,7 +806,7 @@ const Settings = () => {
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                         </div>
-                        <p className="text-sm text-emerald-300 font-semibold">{storageSuccess}</p>
+                        <p className="text-sm text-black font-semibold">{storageSuccess}</p>
                       </div>
                     </div>
                   )}

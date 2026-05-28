@@ -146,6 +146,9 @@ std::string ValidateStoragePath(const std::string& path, const std::string& purp
 bool IsProtectedSystemPath(const std::filesystem::path& p);
 bool TestDirectoryWriteAccess(const std::filesystem::path& p);
 
+// Directory size in bytes. Returns 0 on error or empty path.
+uint64_t GetDirectorySize(const std::filesystem::path& dir);
+
 bool IsAllowedBrowserPageUrl(const std::string& url);
 std::string GetBrowserPageFilePath(const std::string& url);
 std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,

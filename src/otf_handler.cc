@@ -3001,6 +3001,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                    otf::PathToUtf8(otf::GetAppCacheDir()));
       b.AddString("defaultDownloadsDir",
                    otf::PathToUtf8(otf::GetDownloadsDir()));
+      // Folder sizes in bytes
+      const auto active_cache = otf::GetActiveCacheDir();
+      const auto active_downloads = otf::GetActiveDownloadsDir();
+      b.AddRaw("cacheSize", std::to_string(otf::GetDirectorySize(active_cache)));
+      b.AddRaw("downloadsSize", std::to_string(otf::GetDirectorySize(active_downloads)));
       callback->Success(b.Build());
       return true;
     }
@@ -6918,13 +6923,13 @@ std::string OtfHandler::BuildDocPreviewLoadEvent(int tab_id) {
   std::string format = GetDocPreviewFormatForTab(tab_id);
 
   if (!local_path.empty()) {
+    mime_type = otf::GuessDocumentMimeType(local_path);
     auto cache_it = tab_doc_preview_render_cache_.find(tab_id);
     if (cache_it != tab_doc_preview_render_cache_.end() &&
         cache_it->second.file_path == local_path &&
         !cache_it->second.display_url.empty()) {
       display_url = cache_it->second.display_url;
     } else {
-      mime_type = otf::GuessDocumentMimeType(local_path);
       if (mime_type == "application/pdf") {
         auto file_bytes = otf::ReadFileBinary(local_path);
         if (file_bytes) {

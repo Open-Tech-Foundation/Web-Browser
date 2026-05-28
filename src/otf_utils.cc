@@ -1811,4 +1811,17 @@ std::string ValidateStoragePath(const std::string& path,
   return "";
 }
 
+uint64_t GetDirectorySize(const std::filesystem::path& dir) {
+  if (dir.empty()) return 0;
+  std::error_code ec;
+  if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) return 0;
+  uint64_t total = 0;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(dir, ec)) {
+    if (entry.is_regular_file(ec)) {
+      total += entry.file_size(ec);
+    }
+  }
+  return total;
+}
+
 } // namespace otf
