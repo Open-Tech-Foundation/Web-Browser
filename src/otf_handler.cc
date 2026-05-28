@@ -3094,6 +3094,31 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    // --- Clear browsing data ---
+    if (msg == "get-site-usage-list") {
+      std::vector<std::string> history_origins;
+      if (handler->store_) {
+        history_origins = handler->store_->GetDistinctOrigins();
+      }
+      callback->Success(otf::BuildSiteUsageJson(history_origins));
+      return true;
+    }
+
+    if (msg == "clear-all-browsing-data") {
+      CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
+      if (mgr) mgr->DeleteCookies("", "", nullptr);
+
+      CefRefPtr<CefRequestContext> ctx = CefRequestContext::GetGlobalContext();
+      ctx->ClearHttpCache(nullptr);
+      ctx->ClearCertificateExceptions(nullptr);
+      ctx->ClearHttpAuthCredentials(nullptr);
+
+      handler->store_->ClearAllSitePermissions();
+
+      callback->Success("");
+      return true;
+    }
+
     if (msg == "restart-browser") {
       if (!RestartBrowserProcess()) {
         callback->Failure(1, "Unable to restart browser");

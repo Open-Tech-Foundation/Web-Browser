@@ -55,6 +55,7 @@ struct WorkspaceTab {
   std::string favicon;
   bool was_active = false;
   bool is_image_preview = false;
+  bool is_doc_preview = false;
   int preview_page = 0;
   bool pinned = false;
 };
@@ -85,6 +86,7 @@ class OtfStore {
                           int workspace_id = 1);
   std::vector<HistoryEntry> GetHistory(int limit = 200,
                                        int workspace_id = 1) const;
+  std::vector<std::string> GetDistinctOrigins(int workspace_id = 0) const;
   bool DeleteHistoryItem(int id);
   bool ClearHistory(int workspace_id = 0);
   bool ClearBookmarks();

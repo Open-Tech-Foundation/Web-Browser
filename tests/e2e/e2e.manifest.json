@@ -38,7 +38,8 @@
       "parallel": false,
       "tests": [
         "downloads.test.js",
-        "image-preview.test.js"
+        "image-preview.test.js",
+        "doc-preview.test.js"
       ]
     },
     {
@@ -53,7 +54,8 @@
         "image-permission.test.js",
         "popup-scheme.test.js",
         "popup-intent.test.js",
-        "private-tab.test.js"
+        "private-tab.test.js",
+        "canvas-protection.test.js"
       ]
     }
   ]

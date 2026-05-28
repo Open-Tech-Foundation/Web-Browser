@@ -8,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <mutex>
 #include <sstream>
@@ -1822,6 +1823,77 @@ uint64_t GetDirectorySize(const std::filesystem::path& dir) {
     }
   }
   return total;
+}
+
+// Scans IndexedDB directory for per-origin storage sizes.
+// Returns a vector of {origin, sizeBytes} pairs.
+static std::vector<std::pair<std::string, uint64_t>> ScanIndexedDbOrigins() {
+  std::vector<std::pair<std::string, uint64_t>> results;
+  const auto db_dir = GetAppCacheDir() / "cef" / "IndexedDB";
+  std::error_code ec;
+  if (!std::filesystem::is_directory(db_dir, ec)) return results;
+  for (const auto& entry : std::filesystem::directory_iterator(db_dir, ec)) {
+    if (!entry.is_directory(ec)) continue;
+    const std::string name = entry.path().filename().string();
+    // Pattern: https_google.com_0.indexeddb.leveldb or similar
+    const size_t idx = name.rfind(".indexeddb.leveldb");
+    if (idx == std::string::npos) continue;
+    std::string prefix = name.substr(0, idx);
+    // Remove trailing _<digits> from the prefix to get the origin
+    // e.g. "https_google.com_0" -> "https://google.com"
+    size_t last_underscore = prefix.rfind('_');
+    if (last_underscore == std::string::npos) continue;
+    // Check if the part after last underscore is all digits (it's the schema version marker)
+    bool all_digits = true;
+    for (size_t i = last_underscore + 1; i < prefix.size(); ++i) {
+      if (!std::isdigit(static_cast<unsigned char>(prefix[i]))) { all_digits = false; break; }
+    }
+    std::string origin_part;
+    if (all_digits) {
+      origin_part = prefix.substr(0, last_underscore);
+    } else {
+      origin_part = prefix;
+    }
+    // Replace underscores in the scheme prefix (first _ after scheme)
+    // e.g. "https_google.com" -> "https://google.com"
+    size_t scheme_sep = origin_part.find('_');
+    if (scheme_sep == std::string::npos) continue;
+    std::string origin = origin_part.substr(0, scheme_sep) + "://" + origin_part.substr(scheme_sep + 1);
+    if (origin.empty()) continue;
+    const uint64_t size = GetDirectorySize(entry.path());
+    results.emplace_back(origin, size);
+  }
+  return results;
+}
+
+std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins) {
+  auto origins = ScanIndexedDbOrigins();
+
+  // Build a map from origin -> storageBytes
+  std::map<std::string, uint64_t> usage_map;
+  for (const auto& [origin, size] : origins) {
+    usage_map[origin] = size;
+  }
+  // Add extra origins (e.g. from history) with 0 storage if not already present
+  for (const auto& origin : extra_origins) {
+    if (usage_map.find(origin) == usage_map.end()) {
+      usage_map[origin] = 0;
+    }
+  }
+
+  std::string json = "[";
+  bool first = true;
+  for (const auto& [origin, size] : usage_map) {
+    if (!first) json += ",";
+    first = false;
+    json += JsonObjectBuilder()
+                .AddString("origin", origin)
+                .AddRaw("storageBytes", std::to_string(size))
+                .AddRaw("cookieCount", "0")
+                .Build();
+  }
+  json += "]";
+  return json;
 }
 
 } // namespace otf

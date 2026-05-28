@@ -258,3 +258,17 @@ else()
 endif()
 target_link_libraries(otf-browser-store-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBS})
 add_test(NAME otf-browser-store-tests COMMAND otf-browser-store-tests)
+
+add_executable(otf-browser-doc-preview-tests
+    tests/native/test_doc_preview.cc
+    src/otf_utils.cc
+)
+SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser-doc-preview-tests)
+target_include_directories(otf-browser-doc-preview-tests PRIVATE include)
+if(MSVC)
+    target_compile_options(otf-browser-doc-preview-tests PRIVATE /std:c++20)
+else()
+    target_compile_options(otf-browser-doc-preview-tests PRIVATE -std=c++20 -fpermissive -Wno-error)
+endif()
+target_link_libraries(otf-browser-doc-preview-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${VIPS_LIBS})
+add_test(NAME otf-browser-doc-preview-tests COMMAND otf-browser-doc-preview-tests)

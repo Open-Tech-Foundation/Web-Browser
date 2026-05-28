@@ -28,6 +28,7 @@ constexpr int kDownloadRequestBrowserViewId = 1010;
 constexpr int kLinkPreviewBrowserViewId = 1011;
 constexpr int kConsoleBrowserViewId = 1012;
 constexpr int kToastNotificationBrowserViewId = 1013;
+constexpr int kDocPreviewBrowserViewId = 1014;
 
 struct ConsoleEntry {
   int level;        // cef_log_severity_t value
@@ -41,6 +42,11 @@ enum class ImagePreviewMode {
   kNone = 0,
   kInline = 1,
   kDedicated = 2,
+};
+
+enum class DocPreviewMode {
+  kNone = 0,
+  kDedicated = 1,
 };
 
 // Core Tab Model for OTF Browser
@@ -94,6 +100,7 @@ class TabManager {
     image_preview_height_map_.erase(tab_id);
     image_preview_info_visible_map_.erase(tab_id);
     image_preview_mode_map_.erase(tab_id);
+    doc_preview_mode_map_.erase(tab_id);
     muted_map_.erase(tab_id);
     private_map_.erase(tab_id);
     pinned_map_.erase(tab_id);
@@ -462,6 +469,20 @@ class TabManager {
                                                : ImagePreviewMode::kNone;
   }
 
+  void SetDocPreviewMode(int tab_id, DocPreviewMode mode) {
+    if (mode == DocPreviewMode::kNone) {
+      doc_preview_mode_map_.erase(tab_id);
+    } else {
+      doc_preview_mode_map_[tab_id] = mode;
+    }
+  }
+
+  DocPreviewMode GetDocPreviewMode(int tab_id) const {
+    auto it = doc_preview_mode_map_.find(tab_id);
+    return it != doc_preview_mode_map_.end() ? it->second
+                                             : DocPreviewMode::kNone;
+  }
+
   std::vector<int> GetTabIdsForWorkspace(int workspace_id) const {
     std::vector<int> out;
     for (int id : tab_order_) {
@@ -554,6 +575,7 @@ class TabManager {
   std::map<int, int> image_preview_height_map_;
   std::map<int, bool> image_preview_info_visible_map_;
   std::map<int, ImagePreviewMode> image_preview_mode_map_;
+  std::map<int, DocPreviewMode> doc_preview_mode_map_;
   std::map<int, bool> muted_map_;
   std::map<int, bool> private_map_;
   std::map<int, bool> pinned_map_;

@@ -142,6 +142,11 @@ class OtfApp : public CefApp,
   void ShowImagePreviewOverlay();
   void HideImagePreviewOverlay();
   void RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab);
+  void CreateDocPreviewOverlay();
+  void PositionDocPreviewOverlay();
+  void ShowDocPreviewOverlay();
+  void HideDocPreviewOverlay();
+  void RestoreDocPreviewStateForTab(int tab_id, const WorkspaceTab& tab);
 
   static OtfApp* GetInstance();
   void ToggleFullscreen();
@@ -157,6 +162,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> appmenu_overlay_;
   CefRefPtr<CefOverlayController> bookmark_overlay_;
   CefRefPtr<CefOverlayController> image_preview_overlay_;
+  CefRefPtr<CefOverlayController> doc_preview_overlay_;
   CefRefPtr<CefOverlayController> link_preview_overlay_;
   CefRefPtr<CefOverlayController> toast_overlay_;
 
@@ -204,6 +210,12 @@ class OtfApp : public CefApp,
 
   IMPLEMENT_REFCOUNTING(OtfApp);
 };
+
+// Register/unregister file content for serving through the browser:// scheme.
+// Used by doc-preview to serve PDFs and other binary documents directly.
+void RegisterDocContent(const std::string& token,
+                        const std::string& file_path);
+void UnregisterDocContent(const std::string& token);
 
 } // namespace otf
 

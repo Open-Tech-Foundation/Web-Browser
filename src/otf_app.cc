@@ -378,6 +378,12 @@ std::string GuessMimeType(const std::string& path) {
   if (ends_with(".ttf")) return "font/ttf";
   if (ends_with(".otf")) return "font/otf";
   if (ends_with(".txt")) return "text/plain";
+  if (ends_with(".pdf")) return "application/pdf";
+  if (ends_with(".xml")) return "application/xml";
+  if (ends_with(".csv")) return "text/csv";
+  if (ends_with(".md")) return "text/markdown";
+  if (ends_with(".yaml") || ends_with(".yml")) return "text/yaml";
+  if (ends_with(".toml")) return "text/plain";
   return "application/octet-stream";
 }
 
@@ -463,6 +469,15 @@ std::string InjectBaseHref(const std::string& html, const std::string& base_href
 // Dev mode (--dev-ui-url set):
 //   The same URLs meta-refresh to the vite dev server, which serves the
 //   pre-bundle React source via HMR.
+
+// Static map for serving file content through the scheme handler.
+// Used by doc-content routes so PDFs and other binary docs can be served
+// directly without data: URIs (which don't work with CEF's PDF viewer).
+std::map<std::string, std::string>& GetDocContentMap() {
+  static std::map<std::string, std::string> instance;
+  return instance;
+}
+
 class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
  public:
   CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser> browser,
@@ -490,6 +505,10 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
       }
     }
 
+    // doc-content: serve file bytes for document preview (PDFs, etc.)
+    // This is now handled under the doc-preview authority via content/ prefix
+    // to avoid cross-origin issues with CEF's PDF viewer.
+
     CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
     const std::string dev_ui_url =
         (cmd && cmd->HasSwitch("dev-ui-url"))
@@ -498,6 +517,26 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     const bool is_image_preview_route = authority == "image-preview";
     const bool is_image_preview_asset =
         is_image_preview_route && path.rfind("assets/", 0) == 0;
+    const bool is_doc_preview_route = authority == "doc-preview";
+    const bool is_doc_preview_content =
+        is_doc_preview_route && path.rfind("content/", 0) == 0;
+    const bool is_doc_preview_asset =
+        is_doc_preview_route && path.rfind("assets/", 0) == 0;
+
+    // doc-preview content: serve file bytes for PDFs, etc. from same origin
+    // Must be checked before dev mode redirect to avoid loop.
+    if (is_doc_preview_content) {
+      const std::string token = path.substr(8); // skip "content/"
+      auto& content_map = GetDocContentMap();
+      auto it = content_map.find(token);
+      fprintf(stderr, "[DOCPREVIEW] content request: token=%s found=%d map_size=%zu\n",
+              token.c_str(), it != content_map.end(), content_map.size());
+      if (it != content_map.end()) {
+        fprintf(stderr, "[DOCPREVIEW] serving file: %s\n", it->second.c_str());
+        return MakeFileResponse(it->second);
+      }
+      return MakeNotFound();
+    }
 
     if (!dev_ui_url.empty()) {
       // Dev mode: hand off to the vite dev server. After the redirect the
@@ -508,6 +547,10 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
         target = dev_ui_url + "/" + path;
       } else if (is_image_preview_route) {
         target = dev_ui_url + "/imagepreview.html";
+      } else if (is_doc_preview_asset) {
+        target = dev_ui_url + "/" + path;
+      } else if (is_doc_preview_route) {
+        target = dev_ui_url + "/docpreview.html";
       } else if (path.empty()) {
         const std::string page = (authority == "shell") ? "index" : authority;
         target = dev_ui_url + "/" + page + ".html";
@@ -532,6 +575,11 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
       disk_path = ui_dir + "/" + path;
     } else if (is_image_preview_route) {
       disk_path = ui_dir + "/imagepreview.html";
+    } else if (is_doc_preview_asset) {
+      if (!IsSafeUiRelativePath(path)) return MakeNotFound();
+      disk_path = ui_dir + "/" + path;
+    } else if (is_doc_preview_route) {
+      disk_path = ui_dir + "/docpreview.html";
     } else if (path.empty()) {
       const std::string page = (authority == "shell") ? "index" : authority;
       disk_path = ui_dir + "/" + page + ".html";
@@ -548,6 +596,15 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
           "text/html",
           InjectBaseHref(html, "browser://image-preview/"));
     }
+    if (is_doc_preview_route && !is_doc_preview_asset && !is_doc_preview_content) {
+      const std::string html = LoadTextFile(disk_path);
+      if (html.empty()) {
+        return MakeNotFound();
+      }
+      return MakeStringResponse(
+          "text/html",
+          InjectBaseHref(html, "browser://doc-preview/"));
+    }
     return MakeFileResponse(disk_path);
   }
 
@@ -555,6 +612,18 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
 };
 
 }  // namespace
+
+void RegisterDocContent(const std::string& token,
+                        const std::string& file_path) {
+  fprintf(stderr, "[DOCPREVIEW] RegisterDocContent: token=%s path=%s\n",
+          token.c_str(), file_path.c_str());
+  GetDocContentMap()[token] = file_path;
+}
+
+void UnregisterDocContent(const std::string& token) {
+  fprintf(stderr, "[DOCPREVIEW] UnregisterDocContent: token=%s\n", token.c_str());
+  GetDocContentMap().erase(token);
+}
 
 OtfApp::OtfApp() {
   DCHECK(!g_app_instance);
@@ -702,6 +771,12 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bo
     tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
     tab_manager_.SetImagePreviewMode(tab_id, ImagePreviewMode::kDedicated);
   }
+  if (url == "browser://docpreview" ||
+      url.rfind("browser://doc-preview/", 0) == 0 ||
+      url.find("/docpreview.html") != std::string::npos) {
+    tab_manager_.SetSchemeUrl(tab_id, "browser://docpreview");
+    tab_manager_.SetDocPreviewMode(tab_id, DocPreviewMode::kDedicated);
+  }
   if (handler) {
     tab_manager_.SetWorkspaceId(
         tab_id, handler->IsGuestSessionActive() ? 0 : handler->active_workspace_id_);
@@ -728,6 +803,16 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
         tab.preview_local_path.empty() ? "browser://imagepreview" : tab.url;
     const int tab_id = CreateTab(preview_start_url, parent_id, false, tab.pinned);
     RestoreImagePreviewStateForTab(tab_id, tab);
+    return tab_id;
+  }
+  if (tab.is_doc_preview) {
+    if (!IsRestorableWorkspaceTab(tab)) {
+      return CreateTab("browser://newtab", parent_id);
+    }
+    const std::string preview_start_url =
+        tab.preview_local_path.empty() ? "browser://docpreview" : tab.url;
+    const int tab_id = CreateTab(preview_start_url, parent_id, false, tab.pinned);
+    RestoreDocPreviewStateForTab(tab_id, tab);
     return tab_id;
   }
   if (!IsRestorableWorkspaceTab(tab)) {
@@ -1662,6 +1747,97 @@ void OtfApp::HideImagePreviewOverlay() {
   }
 }
 
+void OtfApp::CreateDocPreviewOverlay() {
+  if (!window_) return;
+  std::string url = "browser://docpreview";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/docpreview.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 0));
+  view->SetID(kDocPreviewBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  doc_preview_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  PositionDocPreviewOverlay();
+}
+
+void OtfApp::PositionDocPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !doc_preview_overlay_ || !content_panel_ || !content_area_panel_) return;
+  CefRect area = content_area_panel_->GetBounds();
+  CefRect panel = content_panel_->GetBounds();
+  CefRect bounds = {area.x + panel.x, area.y + panel.y, panel.width, panel.height};
+  doc_preview_overlay_->SetBounds(bounds);
+}
+
+void OtfApp::ShowDocPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || !doc_preview_overlay_) return;
+  
+  HideAppMenuOverlay();
+  HideDownloadsOverlay();
+  HideCertificateOverlay();
+  HideBookmarkOverlay();
+  PositionDocPreviewOverlay();
+  doc_preview_overlay_->SetVisible(true);
+  
+  if (doc_preview_overlay_->GetContentsView()) {
+    doc_preview_overlay_->GetContentsView()->RequestFocus();
+  }
+}
+
+void OtfApp::HideDocPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (doc_preview_overlay_) {
+    doc_preview_overlay_->SetVisible(false);
+    FocusCurrentTabContent();
+  }
+}
+
+void OtfApp::RestoreDocPreviewStateForTab(int tab_id, const WorkspaceTab& tab) {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (!handler || tab_id < 0 || !tab.is_doc_preview) {
+    return;
+  }
+
+  const std::string source = tab.url;
+  if (source.empty()) {
+    return;
+  }
+
+  tab_manager_.SetSchemeUrl(tab_id, "browser://docpreview");
+  tab_manager_.SetDocPreviewMode(tab_id, DocPreviewMode::kDedicated);
+  tab_manager_.SetTitle(tab_id, tab.title.empty() ? source : tab.title);
+  tab_manager_.SetFindText(tab_id, "");
+
+  if (source.rfind("http://", 0) == 0 || source.rfind("https://", 0) == 0) {
+    tab_manager_.SetUrl(tab_id, source);
+    handler->SetDocPreviewUrlForTab(tab_id, source);
+  } else {
+    if (tab.preview_local_path.empty()) {
+      return;
+    }
+    const std::string local_path =
+        !tab.preview_local_path.empty() ? tab.preview_local_path : source;
+    const std::string file_name = std::filesystem::path(local_path).filename().string();
+    const std::string safe_name = otf::SanitizeFilename(file_name.empty() ? "document.txt" : file_name);
+    const std::string content_token = "restore/" + std::to_string(tab_id) + "/" + safe_name;
+    const std::string content_url = "browser://doc-preview/content/" + content_token;
+    const std::string public_url = "browser://doc-preview/restore/" + content_token;
+    otf::RegisterDocContent(content_token, local_path);
+    tab_manager_.SetUrl(tab_id, public_url);
+    handler->SetDocPreviewLocalFileForTab(tab_id, public_url, local_path);
+    handler->SetDocPreviewContentUrlForTab(tab_id, content_url);
+  }
+}
+
 void OtfApp::CreateConsoleOverlay() {
   if (!content_area_panel_ || !content_area_layout_) return;
   std::string url = "browser://console";
@@ -1853,11 +2029,20 @@ void OtfApp::OnContextInitialized() {
       }
       if (it != pending_workspace_restore_.end()) {
         pending_workspace_restore_first_ = *it;
-        pending_workspace_restore_first_is_preview_ = it->is_image_preview;
-        start_url =
-            (it->is_image_preview && it->preview_local_path.empty())
-                ? "browser://imagepreview"
-                : it->url;
+        pending_workspace_restore_first_is_preview_ = it->is_image_preview || it->is_doc_preview;
+        if (it->is_image_preview) {
+          start_url =
+              it->preview_local_path.empty()
+                  ? "browser://imagepreview"
+                  : it->url;
+        } else if (it->is_doc_preview) {
+          start_url =
+              it->preview_local_path.empty()
+                  ? "browser://docpreview"
+                  : it->url;
+        } else {
+          start_url = it->url;
+        }
         pending_workspace_restore_.erase(it);
       }
     }
@@ -1906,7 +2091,11 @@ void OtfApp::OnContextInitialized() {
     tab_manager_.SetPinned(tab_id, pending_workspace_restore_first_.pinned);
   }
   if (pending_workspace_restore_first_is_preview_) {
-    RestoreImagePreviewStateForTab(tab_id, pending_workspace_restore_first_);
+    if (pending_workspace_restore_first_.is_image_preview) {
+      RestoreImagePreviewStateForTab(tab_id, pending_workspace_restore_first_);
+    } else if (pending_workspace_restore_first_.is_doc_preview) {
+      RestoreDocPreviewStateForTab(tab_id, pending_workspace_restore_first_);
+    }
     pending_workspace_restore_first_is_preview_ = false;
   }
 

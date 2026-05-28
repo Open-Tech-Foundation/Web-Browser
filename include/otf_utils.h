@@ -149,6 +149,12 @@ bool TestDirectoryWriteAccess(const std::filesystem::path& p);
 // Directory size in bytes. Returns 0 on error or empty path.
 uint64_t GetDirectorySize(const std::filesystem::path& dir);
 
+// Scans IndexedDB and CacheStorage directories for per-origin storage usage.
+// Accepts additional origins (e.g. from history) that should appear in the
+// result even if they have no local site storage.
+// Returns a JSON array: [{origin, storageBytes, cookieCount}, ...]
+std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins = {});
+
 bool IsAllowedBrowserPageUrl(const std::string& url);
 std::string GetBrowserPageFilePath(const std::string& url);
 std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
