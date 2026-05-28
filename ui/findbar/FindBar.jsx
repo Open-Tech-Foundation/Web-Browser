@@ -90,6 +90,7 @@ const FindBar = () => {
   const [isFinal, setIsFinal] = useState(true);
   const [activeTabId, setActiveTabId] = useState(-1);
   const debounceRef = useRef(null);
+  const findSeqRef = useRef(0);
 
   const cancelPendingFind = useCallback(() => {
     if (debounceRef.current) {
@@ -108,6 +109,7 @@ const FindBar = () => {
         try {
           const ev = JSON.parse(json);
           if (ev.key === 'find-result') {
+            if ((ev.seq ?? 0) !== findSeqRef.current) return;
             setCount(ev.count ?? 0);
             setActive(ev.active ?? 0);
             setIsFinal(ev.final ?? true);
@@ -162,6 +164,7 @@ const FindBar = () => {
       return;
     }
     if (!findNext) setIsFinal(false);
+    const seq = ++findSeqRef.current;
     window.cefQuery({
       request: `findbar-find:${JSON.stringify({
         tabId: activeTabId,
@@ -169,6 +172,7 @@ const FindBar = () => {
         forward: !!fwd,
         matchCase: !!caseSensitive,
         findNext: !!findNext,
+        seq,
       })}`,
     });
   }, [activeTabId, cancelPendingFind, text]);
@@ -192,6 +196,7 @@ const FindBar = () => {
       const t = el.value.trim();
       debounceRef.current = null;
       if (t && tabIdAtSchedule >= 0) {
+        const seq = ++findSeqRef.current;
         window.cefQuery({
           request: `findbar-find:${JSON.stringify({
             tabId: tabIdAtSchedule,
@@ -199,6 +204,7 @@ const FindBar = () => {
             forward: true,
             matchCase: !!matchCase,
             findNext: false,
+            seq,
           })}`,
         });
       }
@@ -226,6 +232,7 @@ const FindBar = () => {
     const t = (inputRef.current?.value ?? text).trim();
     if (t && activeTabId >= 0) {
       setIsFinal(false);
+      const seq = ++findSeqRef.current;
       window.cefQuery({
         request: `findbar-find:${JSON.stringify({
           tabId: activeTabId,
@@ -233,6 +240,7 @@ const FindBar = () => {
           forward: true,
           matchCase: !!next,
           findNext: false,
+          seq,
         })}`,
       });
     }

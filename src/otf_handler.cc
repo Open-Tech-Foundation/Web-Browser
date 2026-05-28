@@ -857,13 +857,15 @@ std::string BuildFindResultEvent(int count,
                                  int active,
                                  int tab_id,
                                  const std::string& text,
-                                 bool final_update) {
+                                 bool final_update,
+                                 int seq = 0) {
   JsonObjectBuilder builder;
   builder.AddString("key", "find-result")
       .AddInt("count", count)
       .AddInt("active", active)
       .AddInt("tabId", tab_id)
-      .AddBool("final", final_update);
+      .AddBool("final", final_update)
+      .AddInt("seq", seq);
   if (!text.empty() || tab_id < 0) {
     builder.AddString("text", text);
   }
@@ -1136,6 +1138,7 @@ struct FindbarFindRequest {
   bool forward = true;
   bool match_case = false;
   bool find_next = false;
+  int seq = 0;
 };
 
 bool ParseFindbarFindRequest(const std::string& raw_json,
@@ -1162,6 +1165,7 @@ bool ParseFindbarFindRequest(const std::string& raw_json,
   request->forward = dict->GetBool("forward");
   request->match_case = dict->GetBool("matchCase");
   request->find_next = dict->GetBool("findNext");
+  if (dict->HasKey("seq")) request->seq = dict->GetInt("seq");
   return request->tab_id >= 0;
 }
 
@@ -3986,6 +3990,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         // Track pending so async OnFindResult can correlate and filter
         handler->pending_find_tab_  = tab_id;
         handler->pending_find_text_ = findbar_request.text;
+        handler->pending_find_seq_  = findbar_request.seq;
         b->GetHost()->Find(findbar_request.text, findbar_request.forward, findbar_request.match_case, findbar_request.find_next);
       }
       callback->Success("");
@@ -6426,7 +6431,7 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
 
   if (findbar_subscription_) {
     findbar_subscription_->Success(
-        BuildFindResultEvent(count, activeMatchOrdinal, tab_id, "", finalUpdate));
+        BuildFindResultEvent(count, activeMatchOrdinal, tab_id, "", finalUpdate, pending_find_seq_));
   }
 }
 

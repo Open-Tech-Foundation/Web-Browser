@@ -298,6 +298,7 @@ class OtfHandler : public CefClient,
   // Pending find text for async result correlation
   std::string pending_find_text_;
   int         pending_find_tab_ = -1;
+  int         pending_find_seq_ = 0;
   int         restore_find_target_ordinal_ = 0;
   bool        restore_find_in_progress_ = false;
 
