@@ -248,6 +248,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateAppMenuOverlay();
     app->CreateBookmarkOverlay();
     app->CreateImagePreviewOverlay();
+    app->CreateDocPreviewOverlay();
     app->CreateLinkPreviewOverlay();
     app->CreateToastOverlay();
     app->CreateConsoleOverlay();
@@ -540,10 +541,7 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
       const std::string token = path.substr(8); // skip "content/"
       auto& content_map = GetDocContentMap();
       auto it = content_map.find(token);
-      fprintf(stderr, "[DOCPREVIEW] content request: token=%s found=%d map_size=%zu\n",
-              token.c_str(), it != content_map.end(), content_map.size());
       if (it != content_map.end()) {
-        fprintf(stderr, "[DOCPREVIEW] serving file: %s\n", it->second.c_str());
         return MakeFileResponse(it->second);
       }
       return MakeNotFound();
@@ -625,14 +623,11 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
 }  // namespace
 
 void RegisterDocContent(const std::string& token,
-                        const std::string& file_path) {
-  fprintf(stderr, "[DOCPREVIEW] RegisterDocContent: token=%s path=%s\n",
-          token.c_str(), file_path.c_str());
+                         const std::string& file_path) {
   GetDocContentMap()[token] = file_path;
 }
 
 void UnregisterDocContent(const std::string& token) {
-  fprintf(stderr, "[DOCPREVIEW] UnregisterDocContent: token=%s\n", token.c_str());
   GetDocContentMap().erase(token);
 }
 
@@ -1021,6 +1016,70 @@ void OtfApp::SwitchTab(int tab_id) {
           }
         }
       }
+
+      std::string tab_doc_url = handler->GetDocPreviewUrlForTab(tab_id);
+      const DocPreviewMode doc_preview_mode = tab_manager_.GetDocPreviewMode(tab_id);
+      const bool is_dedicated_doc_preview_tab =
+          doc_preview_mode == DocPreviewMode::kDedicated;
+      if (is_dedicated_doc_preview_tab) {
+        HideDocPreviewOverlay();
+        std::string event = handler->BuildDocPreviewLoadEvent(tab_id);
+        if (!event.empty()) {
+          auto it = handler->tab_doc_preview_subscriptions_.find(tab_id);
+          if (it != handler->tab_doc_preview_subscriptions_.end() && it->second) {
+            it->second->Success(event);
+          }
+          CefRefPtr<CefBrowser> b = new_view->GetBrowser();
+          CefRefPtr<CefFrame> frame = b ? b->GetMainFrame() : nullptr;
+          if (frame) {
+            std::string js =
+                "if(window.__otfApplyDocPreview)window.__otfApplyDocPreview("
+                + event + ");";
+            frame->ExecuteJavaScript(js, frame->GetURL(), 0);
+          }
+        }
+      } else {
+        if (doc_preview_mode != DocPreviewMode::kInline || tab_doc_url.empty()) {
+          handler->ClearDocPreviewStateForTab(tab_id);
+          HideDocPreviewOverlay();
+          if (handler->doc_preview_subscription_) {
+            std::string event = JsonObjectBuilder()
+                .AddString("key", "load-doc")
+                .AddString("url", "")
+                .Build();
+            handler->doc_preview_subscription_->Success(event);
+          }
+          CefRefPtr<CefBrowserView> preview_view =
+              doc_preview_overlay_ ? doc_preview_overlay_->GetContentsView()->AsBrowserView() : nullptr;
+          CefRefPtr<CefBrowser> b = preview_view ? preview_view->GetBrowser() : nullptr;
+          CefRefPtr<CefFrame> frame = b ? b->GetMainFrame() : nullptr;
+          if (frame) {
+            std::string js =
+                "if(window.__otfApplyDocPreview)window.__otfApplyDocPreview("
+                + JsonObjectBuilder().AddString("key", "load-doc").AddString("url", "").Build()
+                + ");";
+            frame->ExecuteJavaScript(js, frame->GetURL(), 0);
+          }
+        } else {
+          ShowDocPreviewOverlay();
+          std::string event = handler->BuildDocPreviewLoadEvent(tab_id);
+          if (!event.empty()) {
+            if (handler->doc_preview_subscription_) {
+              handler->doc_preview_subscription_->Success(event);
+            }
+            CefRefPtr<CefBrowserView> preview_view =
+                doc_preview_overlay_ ? doc_preview_overlay_->GetContentsView()->AsBrowserView() : nullptr;
+            CefRefPtr<CefBrowser> b = preview_view ? preview_view->GetBrowser() : nullptr;
+            CefRefPtr<CefFrame> frame = b ? b->GetMainFrame() : nullptr;
+            if (frame) {
+              std::string js =
+                  "if(window.__otfApplyDocPreview)window.__otfApplyDocPreview("
+                  + event + ");";
+              frame->ExecuteJavaScript(js, frame->GetURL(), 0);
+            }
+          }
+        }
+      }
     }
 
     if (certificate_overlay_ && certificate_overlay_->IsVisible()) {
@@ -1107,6 +1166,8 @@ int OtfApp::CloseTab(int tab_id) {
   if (handler) {
     handler->tab_image_preview_subscriptions_.erase(tab_id);
     handler->SetImagePreviewUrlForTab(tab_id, "");
+    handler->tab_doc_preview_subscriptions_.erase(tab_id);
+    handler->ClearDocPreviewStateForTab(tab_id);
     handler->UnmarkTabJsDisabled(tab_id);
     handler->MaybeReleasePrivateContext();
   }
@@ -1790,14 +1851,33 @@ void OtfApp::ShowDocPreviewOverlay() {
   CEF_REQUIRE_UI_THREAD();
   OtfHandler* handler = OtfHandler::GetInstance();
   if (!handler || !doc_preview_overlay_) return;
-  
+
   HideAppMenuOverlay();
   HideDownloadsOverlay();
   HideCertificateOverlay();
   HideBookmarkOverlay();
   PositionDocPreviewOverlay();
+
+  // If the overlay previously navigated to a PDF content URL, reload it
+  // back to the doc preview UI so React can mount and receive events.
+  if (doc_preview_overlay_->GetContentsView()) {
+    CefRefPtr<CefBrowserView> preview_view =
+        doc_preview_overlay_->GetContentsView()->AsBrowserView();
+    if (preview_view) {
+      CefRefPtr<CefBrowser> browser = preview_view->GetBrowser();
+      if (browser) {
+        std::string url = browser->GetMainFrame()->GetURL().ToString();
+        if (url != "browser://docpreview" &&
+            url.find("/docpreview.html") == std::string::npos &&
+            url.rfind("browser://doc-preview/", 0) != 0) {
+          browser->GetMainFrame()->LoadURL("browser://docpreview");
+        }
+      }
+    }
+  }
+
   doc_preview_overlay_->SetVisible(true);
-  
+
   if (doc_preview_overlay_->GetContentsView()) {
     doc_preview_overlay_->GetContentsView()->RequestFocus();
   }

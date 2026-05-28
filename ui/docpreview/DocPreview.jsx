@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import TextViewer from './TextViewer';
 
 const formatBytes = (bytes) => {
   if (bytes < 0) return '';
@@ -9,43 +10,12 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-const guessLanguage = (mimeType, url) => {
-  if (mimeType === 'application/json') return 'json';
-  if (mimeType === 'application/xml' || mimeType === 'text/xml') return 'xml';
-  if (mimeType === 'text/html') return 'html';
-  if (mimeType === 'text/css') return 'css';
-  if (mimeType === 'text/javascript') return 'javascript';
-  if (mimeType === 'text/typescript') return 'typescript';
-  if (mimeType === 'text/x-python') return 'python';
-  if (mimeType === 'text/x-shellscript') return 'shell';
-  if (mimeType === 'text/x-sql') return 'sql';
-  if (mimeType === 'text/x-c') return 'c';
-  if (mimeType === 'text/x-rust') return 'rust';
-  if (mimeType === 'text/x-go') return 'go';
-  if (mimeType === 'text/x-java') return 'java';
-  if (mimeType === 'text/x-ruby') return 'ruby';
-  if (mimeType === 'text/x-lua') return 'lua';
-  if (mimeType === 'text/x-php') return 'php';
-  if (mimeType === 'text/x-tex') return 'tex';
-  if (mimeType === 'text/markdown') return 'markdown';
-  const ext = (url || '').split('.').pop().split('?')[0].toLowerCase();
-  const extMap = {
-    json: 'json', xml: 'xml', html: 'html', css: 'css', js: 'javascript',
-    ts: 'typescript', py: 'python', sh: 'shell', bash: 'shell', sql: 'sql',
-    c: 'c', cpp: 'c', h: 'c', hpp: 'c', rs: 'rust', go: 'go',
-    java: 'java', rb: 'ruby', lua: 'lua', php: 'php', tex: 'tex',
-    md: 'markdown', yaml: 'yaml', yml: 'yaml', toml: 'toml',
-  };
-  return extMap[ext] || 'text';
-};
-
 const DocPreview = () => {
   const [url, setUrl] = useState('');
   const [displayUrl, setDisplayUrl] = useState('');
   const [contentUrl, setContentUrl] = useState('');
   const [mimeType, setMimeType] = useState('text/plain');
   const [fileSize, setFileSize] = useState('');
-  const [formatLabel, setFormatLabel] = useState('');
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
   const [textContent, setTextContent] = useState('');
@@ -54,17 +24,34 @@ const DocPreview = () => {
   const previewTabIdRef = useRef(-1);
   const applyLoadDocRef = useRef(null);
   const pdfNavigatedRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 20;
 
   const applyLoadedDocMeta = (ev) => {
     if (!ev || ev.key !== 'load-doc') return;
     if (typeof ev.fileSizeBytes === 'number' && ev.fileSizeBytes >= 0) {
       setFileSize(formatBytes(ev.fileSizeBytes));
     }
-    if (typeof ev.format === 'string' && ev.format) {
-      setFormatLabel(ev.format);
-    }
     if (typeof ev.mimeType === 'string' && ev.mimeType) {
       setMimeType(ev.mimeType);
+    }
+  };
+
+  const handleClose = () => {
+    const sourceTabId = previewTabIdRef.current;
+    if (window.cefQuery) {
+      const request = sourceTabId >= 0
+        ? `close-docpreview:${sourceTabId}`
+        : 'close-docpreview';
+      window.cefQuery({ request });
+    }
+  };
+
+  const handleDownload = () => {
+    if (window.cefQuery) {
+      window.cefQuery({ request: 'download-doc:' + url });
+      setToast('Saving document...');
+      setTimeout(() => setToast(''), 2000);
     }
   };
 
@@ -72,7 +59,6 @@ const DocPreview = () => {
     if (!window.cefQuery) return;
 
     const applyLoadDoc = (ev) => {
-      console.log('[DOCPREVIEW] applyLoadDoc called with:', JSON.stringify(ev).substring(0, 500));
       if (!ev || ev.key !== 'load-doc') return;
       if (ev.error) {
         setError(ev.error);
@@ -94,13 +80,14 @@ const DocPreview = () => {
       } else {
         setFileSize('');
       }
-      setFormatLabel(typeof ev.format === 'string' ? ev.format : '');
 
       if (incomingDisplay && incomingDisplay.startsWith('data:') &&
           !incomingDisplay.startsWith('data:application/pdf;')) {
         try {
           const base64 = incomingDisplay.split(',')[1];
-          const decoded = atob(base64);
+          const binaryStr = atob(base64);
+          const bytes = Uint8Array.from(binaryStr, (c) => c.charCodeAt(0));
+          const decoded = new TextDecoder('utf-8').decode(bytes);
           setTextContent(decoded);
         } catch (_) {
           setTextContent('');
@@ -113,12 +100,10 @@ const DocPreview = () => {
 
     window.__otfApplyDocPreview = applyLoadDoc;
 
-    console.log('[DOCPREVIEW] subscribing to doc-preview-subscribe');
     const sub = window.cefQuery({
       request: 'doc-preview-subscribe',
       persistent: true,
       onSuccess: (json) => {
-        console.log('[DOCPREVIEW] subscription event:', json.substring(0, 300));
         try {
           const ev = JSON.parse(json);
           if (ev && ev.key === 'load-doc') {
@@ -132,26 +117,26 @@ const DocPreview = () => {
     let disposed = false;
     const scheduleRetry = () => {
       if (disposed || hasSnapshotRef.current || retryTimer) return;
+      if (retryCountRef.current >= MAX_RETRIES) return;
+      retryCountRef.current += 1;
       retryTimer = setTimeout(() => {
         retryTimer = null;
         refresh();
-      }, 250);
+      }, 500);
     };
     const refresh = () => {
       if (hasSnapshotRef.current) return;
       if (!window.cefQuery) return;
-      console.log('[DOCPREVIEW] refresh called');
       window.cefQuery({
         request: 'doc-preview-refresh',
         onSuccess: (json) => {
-          console.log('[DOCPREVIEW] refresh response:', json.substring(0, 300));
           try {
             const ev = JSON.parse(json);
             if (ev && ev.key === 'load-doc') {
               applyLoadDoc(ev);
-              if (!ev.displayUrl && !ev.contentUrl && !ev.error) scheduleRetry();
-            } else {
-              scheduleRetry();
+              if (!ev.displayUrl && !ev.contentUrl && !ev.error && ev.url) {
+                scheduleRetry();
+              }
             }
           } catch (_) {
             scheduleRetry();
@@ -164,9 +149,21 @@ const DocPreview = () => {
     document.addEventListener('visibilitychange', onVis);
     setTimeout(refresh, 0);
 
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && window.cefQuery) {
+        event.preventDefault();
+        const request = previewTabIdRef.current >= 0
+          ? `close-docpreview:${previewTabIdRef.current}`
+          : 'close-docpreview';
+        window.cefQuery({ request });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+
     return () => {
       disposed = true;
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('keydown', onKeyDown);
       if (retryTimer) clearTimeout(retryTimer);
       if (sub && sub.cancel) sub.cancel();
       window.__otfApplyDocPreview = null;
@@ -175,18 +172,18 @@ const DocPreview = () => {
 
   const isPdf = mimeType === 'application/pdf';
   const isText = !isPdf;
-  const lang = guessLanguage(mimeType, url);
 
   const renderContent = () => {
     if (!displayUrl && !contentUrl && !textContent) {
+      const isLoading = !!url && retryCountRef.current < MAX_RETRIES;
       return (
         <div style={emptyStyle}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128196;</div>
           <div style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>
-            No document loaded
+            {isLoading ? 'Loading document...' : 'No document loaded'}
           </div>
           <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '8px' }}>
-            Open a document from downloads to preview it here
+            {isLoading ? '' : 'Open a document from downloads to preview it here'}
           </div>
         </div>
       );
@@ -212,9 +209,7 @@ const DocPreview = () => {
 
     return (
       <div style={textContainerStyle}>
-        <pre style={preStyle}>
-          <code>{textContent}</code>
-        </pre>
+        <TextViewer content={textContent} mimeType={mimeType} fileName={url.split('/').pop().split('?')[0]} />
       </div>
     );
   };
@@ -226,8 +221,15 @@ const DocPreview = () => {
       <div style={titleBarStyle}>
         <span style={titleNameStyle}>{fileName}</span>
         <div style={titleRightStyle}>
-          <span style={formatBadgeStyle}>{formatLabel || lang.toUpperCase()}</span>
           {fileSize && <span style={sizeTextStyle}>{fileSize}</span>}
+          {url && (
+            <button onClick={handleDownload} style={btnSmallStyle} title="Save document">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            </button>
+          )}
+          <button onClick={handleClose} style={btnCloseSmallStyle} title="Close preview">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
         </div>
       </div>
       {renderContent()}
@@ -283,37 +285,31 @@ const emptyStyle = {
   color: 'rgba(255,255,255,0.6)',
 };
 
-const pdfFrameStyle = {
-  flex: 1,
-  width: '100%',
-  border: 'none',
+const btnSmallStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '24px',
+  height: '24px',
+  borderRadius: '4px',
+  border: '1px solid rgba(255, 255, 255, 0.15)',
+  background: 'rgba(255, 255, 255, 0.06)',
+  color: 'rgba(255, 255, 255, 0.7)',
+  cursor: 'pointer',
+  padding: 0,
+  transition: 'background 0.15s ease, color 0.15s ease',
+};
+
+const btnCloseSmallStyle = {
+  ...btnSmallStyle,
+  border: '1px solid rgba(239, 68, 68, 0.25)',
+  background: 'rgba(239, 68, 68, 0.08)',
+  color: '#fca5a5',
 };
 
 const textContainerStyle = {
   flex: 1,
-  overflow: 'auto',
-  padding: '16px',
-};
-
-const preStyle = {
-  margin: 0,
-  fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace",
-  fontSize: '13px',
-  lineHeight: '1.6',
-  color: '#e2e8f0',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-  tabSize: 2,
-};
-
-const formatBadgeStyle = {
-  padding: '2px 6px',
-  borderRadius: '4px',
-  background: 'rgba(255, 122, 0, 0.15)',
-  color: '#FF7A00',
-  fontWeight: '700',
-  fontSize: '10px',
-  letterSpacing: '0.5px',
+  overflow: 'hidden',
 };
 
 const sizeTextStyle = {

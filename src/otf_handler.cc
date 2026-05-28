@@ -182,6 +182,7 @@ const int MENU_ID_COPY_EMAIL = 10009;
 const int MENU_ID_TAB_NEW_PRIVATE = 10010;
 const int MENU_ID_TAB_PIN = 10011;
 const int MENU_ID_TAB_UNPIN = 10012;
+const int MENU_ID_PREVIEW_DOC = 10013;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -372,6 +373,95 @@ class DeferredDocPreviewPushTask : public CefTask {
  private:
   int tab_id_;
   IMPLEMENT_REFCOUNTING(DeferredDocPreviewPushTask);
+};
+
+class DeferredDocFetchTask : public CefTask {
+ public:
+  DeferredDocFetchTask(const std::string& url, int tab_id)
+      : url_(url), tab_id_(tab_id) {}
+
+  void Execute() override {
+    if (url_.empty() || tab_id_ < 0) return;
+
+    CefRefPtr<CefRequest> request = CefRequest::Create();
+    request->SetURL(url_);
+    request->SetMethod("GET");
+
+    CefRefPtr<FetchDocCallback> callback =
+        new FetchDocCallback(url_, tab_id_);
+    CefRefPtr<CefURLRequest> url_request = CefURLRequest::Create(
+        request, callback, nullptr);
+  }
+
+  private:
+  class FetchDocCallback : public CefURLRequestClient {
+   public:
+    FetchDocCallback(const std::string& url, int tab_id)
+        : url_(url), tab_id_(tab_id) {}
+
+    void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+      OtfHandler* handler = OtfHandler::GetInstance();
+      if (!handler || tab_id_ < 0) return;
+
+      if (response_bytes_.empty()) {
+        handler->SetDocPreviewUrlForTab(tab_id_, url_);
+      } else {
+        char temp_path[] = "/tmp/otf_doc_fetch_XXXXXX";
+        int fd = mkstemp(temp_path);
+        if (fd >= 0) {
+          ssize_t written = write(fd, response_bytes_.data(), response_bytes_.size());
+          (void)written;
+          close(fd);
+          const std::string name = url_.substr(url_.find_last_of('/') + 1);
+          const std::string safe_name = name.empty() ? "document.txt" : name;
+          const std::string content_token =
+              "fetch/" + std::to_string(tab_id_) + "/" + safe_name;
+          const std::string content_url =
+              "browser://doc-preview/content/" + content_token;
+          otf::RegisterDocContent(content_token, temp_path);
+          handler->SetDocPreviewLocalFileForTab(
+              tab_id_, url_, temp_path);
+          handler->SetDocPreviewContentUrlForTab(tab_id_, content_url);
+        }
+      }
+
+      CefPostTask(TID_UI, new DeferredDocPreviewPushTask(tab_id_));
+    }
+
+    void OnUploadProgress(CefRefPtr<CefURLRequest> request,
+                          int64_t current,
+                          int64_t total) override {}
+
+    void OnDownloadProgress(CefRefPtr<CefURLRequest> request,
+                            int64_t current,
+                            int64_t total) override {}
+
+    void OnDownloadData(CefRefPtr<CefURLRequest> request,
+                        const void* data,
+                        size_t data_length) override {
+      const char* p = static_cast<const char*>(data);
+      response_bytes_.insert(response_bytes_.end(), p, p + data_length);
+    }
+
+    bool GetAuthCredentials(bool isProxy,
+                            const CefString& host,
+                            int port,
+                            const CefString& realm,
+                            const CefString& scheme,
+                            CefRefPtr<CefAuthCallback> callback) override {
+      return false;
+    }
+
+    std::string url_;
+    int tab_id_;
+    std::vector<char> response_bytes_;
+
+    IMPLEMENT_REFCOUNTING(FetchDocCallback);
+  };
+
+  std::string url_;
+  int tab_id_;
+  IMPLEMENT_REFCOUNTING(DeferredDocFetchTask);
 };
 
 class DeferredTabRedirectTask : public CefTask {
@@ -2098,22 +2188,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         int tab_id = ResolveRealTabIdForBrowser(browser, handler->tab_manager_);
-        fprintf(stderr, "[DOCPREVIEW] doc-preview-subscribe: resolved_tab_id=%d\n", tab_id);
         if (tab_id != -1) {
           handler->tab_doc_preview_subscriptions_[tab_id] = callback;
         } else {
           handler->doc_preview_subscription_ = callback;
           tab_id = app->GetCurrentTabId();
-          fprintf(stderr, "[DOCPREVIEW] doc-preview-subscribe: using current_tab_id=%d\n", tab_id);
         }
 
         std::string event = handler->BuildDocPreviewLoadEvent(tab_id);
-        fprintf(stderr, "[DOCPREVIEW] doc-preview-subscribe: event_empty=%d event_len=%zu\n",
-                event.empty(), event.size());
-        if (!event.empty()) {
-          fprintf(stderr, "[DOCPREVIEW] doc-preview-subscribe: event=%.200s...\n", event.c_str());
-          callback->Success(event);
-        }
+        callback->Success(event.empty() ? "{}" : event);
       }
       return true;
     }
@@ -2124,12 +2207,134 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (tab_id == -1 && app) {
         tab_id = app->GetCurrentTabId();
       }
-      fprintf(stderr, "[DOCPREVIEW] doc-preview-refresh: tab_id=%d\n", tab_id);
       std::string event = (handler && tab_id != -1)
                               ? handler->BuildDocPreviewLoadEvent(tab_id)
                               : std::string();
-      fprintf(stderr, "[DOCPREVIEW] doc-preview-refresh: event_empty=%d\n", event.empty());
       callback->Success(event.empty() ? "{}" : event);
+      return true;
+    }
+
+    if (msg == "hide-docpreview" || msg.rfind("hide-docpreview:", 0) == 0) {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->HideDocPreviewOverlay();
+        int tab_id = -1;
+        if (msg.rfind("hide-docpreview:", 0) == 0) {
+          const auto tab_id_opt =
+              ParseIntStrict(std::string_view(msg).substr(std::strlen("hide-docpreview:")));
+          if (tab_id_opt) {
+            tab_id = *tab_id_opt;
+          }
+        }
+        if (tab_id == -1) {
+          tab_id = app->GetCurrentTabId();
+        }
+        if (handler) {
+          handler->ClearDocPreviewStateForTab(tab_id);
+        }
+      }
+      callback->Success("");
+      return true;
+    }
+
+    if (msg == "close-docpreview" || msg.rfind("close-docpreview:", 0) == 0) {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app || !handler) {
+        callback->Success("");
+        return true;
+      }
+      int tab_id = -1;
+      if (msg.rfind("close-docpreview:", 0) == 0) {
+        const auto tab_id_opt =
+            ParseIntStrict(std::string_view(msg).substr(std::strlen("close-docpreview:")));
+        if (tab_id_opt) {
+          tab_id = *tab_id_opt;
+        }
+      }
+      if (tab_id == -1) {
+        tab_id = ResolveRealTabIdForBrowser(browser, handler->tab_manager_);
+      }
+      if (tab_id == -1 && app) {
+        tab_id = app->GetCurrentTabId();
+      }
+      const bool is_dedicated_preview_tab =
+          handler->tab_manager_ &&
+          tab_id != -1 &&
+          handler->tab_manager_->GetDocPreviewMode(tab_id) ==
+              DocPreviewMode::kDedicated;
+      if (is_dedicated_preview_tab) {
+        handler->CloseTabAndNotify(tab_id);
+      } else {
+        handler->ClearDocPreviewStateForTab(tab_id);
+        app->HideDocPreviewOverlay();
+      }
+      callback->Success("");
+      return true;
+    }
+
+    if (msg.rfind("download-doc:", 0) == 0) {
+      std::string download_url = msg.substr(13);
+      int tab_id = -1;
+      std::string local_path;
+      std::string mime_type;
+      if (download_url.rfind("browser://doc-preview/", 0) == 0 || download_url.empty()) {
+        if (handler && handler->tab_manager_) {
+          tab_id = handler->tab_manager_->GetId(browser);
+          std::string mapped_url = handler->GetDocPreviewUrlForTab(tab_id);
+          if (!mapped_url.empty()) {
+            download_url = mapped_url;
+          }
+          local_path = handler->GetDocPreviewLocalFileForTab(tab_id);
+          if (!local_path.empty()) {
+            mime_type = otf::GuessDocumentMimeType(local_path);
+          }
+        }
+      }
+      if (!local_path.empty()) {
+        std::error_code ec;
+        const std::filesystem::path source_path(local_path);
+        const std::string suggested_name =
+            source_path.filename().empty()
+                ? "download.txt"
+                : SanitizeFilename(source_path.filename().string());
+        const std::string target_path = otf::BuildDownloadPath(suggested_name);
+        std::filesystem::copy_file(local_path, target_path,
+                                   std::filesystem::copy_options::none, ec);
+        if (ec) {
+          callback->Failure(0, "Could not save document file");
+          return true;
+        }
+        if (handler->store_) {
+          const auto file_size = std::filesystem::file_size(local_path, ec);
+          const int download_id = handler->store_->CreateDownload(
+              download_url, local_path, target_path, suggested_name,
+              mime_type.empty() ? "application/octet-stream" : mime_type,
+              "completed");
+          if (download_id > 0) {
+            PersistedDownload download;
+            download.id = download_id;
+            download.url = download_url;
+            download.original_url = local_path;
+            download.target_path = target_path;
+            download.filename = suggested_name;
+            download.total_bytes = ec ? 0 : static_cast<int64_t>(file_size);
+            download.received_bytes = ec ? 0 : static_cast<int64_t>(file_size);
+            download.status = "completed";
+            download.mime_type = mime_type.empty() ? "application/octet-stream" : mime_type;
+            handler->store_->UpdateDownload(download);
+            handler->NotifyDownloadsChanged();
+            handler->NotifyDownloadBadge();
+          }
+        }
+        callback->Success("");
+        return true;
+      }
+      if (download_url.rfind("file://", 0) == 0) {
+        callback->Failure(1, "file scheme is disabled");
+        return true;
+      }
+      browser->GetHost()->StartDownload(download_url);
+      callback->Success("");
       return true;
     }
 
@@ -4181,11 +4386,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                 "browser://doc-preview/download/" +
                 std::to_string(*download_id) + "/" + name;
             const std::string mime_type = otf::GuessDocumentMimeType(path);
-            fprintf(stderr, "[DOCPREVIEW] open-download: id=%u path=%s token=%s content_url=%s\n",
-                    *download_id, path.c_str(), content_token.c_str(), content_url.c_str());
             otf::RegisterDocContent(content_token, path);
             int new_id = app->CreateTab(public_url);
-            fprintf(stderr, "[DOCPREVIEW] open-download: created tab %d\n", new_id);
             handler->SetDocPreviewLocalFileForTab(new_id, public_url, path);
             handler->SetDocPreviewContentUrlForTab(new_id, content_url);
             if (handler->tab_manager_) {
@@ -4479,8 +4681,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 // Returns a data: URI with the specified contents.
 std::string GetDataURI(const std::string& data, const std::string& mime_type) {
   return "data:" + mime_type + ";base64," +
-         CefURIEncode(CefBase64Encode(data.data(), data.size()), false)
-             .ToString();
+         CefBase64Encode(data.data(), data.size()).ToString();
 }
 
 std::string TrimTrailingSlash(std::string value) {
@@ -5946,6 +6147,13 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
     model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_IMAGE, "Preview Image");
   }
 
+  if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    if (otf::IsSupportedDocumentUrl(link_url)) {
+      model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_DOC, "Preview Document");
+    }
+  }
+
   const bool is_editable = (params->GetTypeFlags() & CM_TYPEFLAG_EDITABLE) != 0;
   if (ui_browser_ && browser->IsSame(ui_browser_) && !is_editable &&
       params->GetLinkUrl().empty() && search_text.empty() &&
@@ -6084,6 +6292,24 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
         this->SetImagePreviewUrlForTab(tab_id, image_url);
         app->ShowImagePreviewOverlay();
         CefPostTask(TID_UI, new DeferredImagePreviewPushTask(tab_id));
+      }
+    }
+    return true;
+  }
+
+  if (command_id == MENU_ID_PREVIEW_DOC) {
+    std::string doc_url = params->GetLinkUrl().ToString();
+    if (!doc_url.empty()) {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        int tab_id = app->GetCurrentTabId();
+        if (tab_manager_) {
+          tab_manager_->SetSchemeUrl(tab_id, "");
+          tab_manager_->SetDocPreviewMode(tab_id, DocPreviewMode::kInline);
+        }
+        this->SetDocPreviewUrlForTab(tab_id, doc_url);
+        app->ShowDocPreviewOverlay();
+        CefPostTask(TID_IO, new DeferredDocFetchTask(doc_url, tab_id));
       }
     }
     return true;
@@ -6683,6 +6909,13 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
         wt.preview_local_path = info.preview_local_path;
         wt.preview_page = info.preview_page;
         id = app->CreateRestoredTab(wt);
+      } else if (info.is_doc_preview) {
+        WorkspaceTab wt;
+        wt.url = info.url;
+        wt.title = info.title;
+        wt.is_doc_preview = true;
+        wt.preview_local_path = info.preview_local_path;
+        id = app->CreateRestoredTab(wt);
       } else if (!info.url.empty() && !otf::IsLocalFilesystemPathLike(info.url) &&
                  otf::IsAllowedStartupUrl(info.url)) {
         id = app->CreateTab(info.url);
@@ -6937,17 +7170,30 @@ std::string OtfHandler::GetDocPreviewFormatForTab(int tab_id) const {
   return it != tab_doc_preview_formats_.end() ? it->second : "";
 }
 
+void OtfHandler::ClearDocPreviewStateForTab(int tab_id) {
+  if (tab_id < 0) {
+    return;
+  }
+  if (tab_manager_) {
+    tab_manager_->SetDocPreviewMode(tab_id, DocPreviewMode::kNone);
+    if (tab_manager_->GetUrl(tab_id) != "browser://docpreview") {
+      tab_manager_->SetSchemeUrl(tab_id, "");
+    }
+  }
+  tab_doc_preview_subscriptions_.erase(tab_id);
+  SetDocPreviewUrlForTab(tab_id, "");
+  SetDocPreviewContentUrlForTab(tab_id, "");
+  tab_doc_preview_render_cache_.erase(tab_id);
+}
+
 std::string OtfHandler::BuildDocPreviewLoadEvent(int tab_id) {
   std::string url = GetDocPreviewUrlForTab(tab_id);
   if (url.empty()) {
-    fprintf(stderr, "[DOCPREVIEW] BuildDocPreviewLoadEvent: tab_id=%d url=EMPTY\n", tab_id);
     return "";
   }
 
   const std::string local_path = GetDocPreviewLocalFileForTab(tab_id);
   const std::string content_url = GetDocPreviewContentUrlForTab(tab_id);
-  fprintf(stderr, "[DOCPREVIEW] BuildDocPreviewLoadEvent: tab_id=%d url=%s local_path=%s content_url=%s\n",
-          tab_id, url.c_str(), local_path.c_str(), content_url.c_str());
   std::string display_url;
   std::string mime_type;
   int64_t file_size_bytes = GetDocPreviewFileSizeForTab(tab_id);
@@ -6975,8 +7221,7 @@ std::string OtfHandler::BuildDocPreviewLoadEvent(int tab_id) {
         if (file_bytes) {
           std::string content(file_bytes->begin(), file_bytes->end());
           display_url = "data:text/plain;base64," +
-                        CefURIEncode(CefBase64Encode(content.data(), content.size()), false)
-                            .ToString();
+                        CefBase64Encode(content.data(), content.size()).ToString();
           file_size_bytes = static_cast<int64_t>(content.size());
           tab_doc_preview_render_cache_[tab_id] =
               DocPreviewRenderCache{local_path, display_url};
@@ -7013,8 +7258,6 @@ std::string OtfHandler::BuildDocPreviewLoadEvent(int tab_id) {
                                     : -1)
       .AddString("format", format)
       .Build();
-  fprintf(stderr, "[DOCPREVIEW] BuildDocPreviewLoadEvent: RESULT display_url_len=%zu content_url=%s mime=%s\n",
-          display_url.size(), content_url.c_str(), mime_type.c_str());
   return result;
 }
 
@@ -7044,9 +7287,12 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
       info.favicon = tab_manager_->GetFaviconUrl(tab_id);
       info.workspace_id = tab_manager_->GetWorkspaceId(tab_id);
       info.is_image_preview = is_image_preview;
+      info.is_doc_preview = is_doc_preview;
       if (is_image_preview) {
         info.preview_local_path = GetImagePreviewLocalFileForTab(tab_id);
         info.preview_page = GetImagePreviewPageForTab(tab_id);
+      } else if (is_doc_preview) {
+        info.preview_local_path = GetDocPreviewLocalFileForTab(tab_id);
       }
       recently_closed_tabs_.push_front(std::move(info));
       if (recently_closed_tabs_.size() > kMaxClosedTabs) {

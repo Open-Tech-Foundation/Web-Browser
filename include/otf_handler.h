@@ -57,6 +57,7 @@ class OtfHandler : public CefClient,
     std::string favicon;
     int workspace_id = 0;
     bool is_image_preview = false;
+    bool is_doc_preview = false;
     std::string preview_local_path;
     int preview_page = 0;
   };
@@ -319,6 +320,7 @@ class OtfHandler : public CefClient,
   int64_t GetDocPreviewFileSizeForTab(int tab_id) const;
   void SetDocPreviewFormatForTab(int tab_id, const std::string& format);
   std::string GetDocPreviewFormatForTab(int tab_id) const;
+  void ClearDocPreviewStateForTab(int tab_id);
   std::string BuildDocPreviewLoadEvent(int tab_id);
 
   // Per-tab find state owned by tab_manager_ (text + case)

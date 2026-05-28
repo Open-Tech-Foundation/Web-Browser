@@ -46,7 +46,8 @@ enum class ImagePreviewMode {
 
 enum class DocPreviewMode {
   kNone = 0,
-  kDedicated = 1,
+  kInline = 1,
+  kDedicated = 2,
 };
 
 // Core Tab Model for OTF Browser

@@ -53,31 +53,14 @@ function serialTest(name, options, fn) {
 const docPreviewStateExpression = `(() => {
   const text = document.body?.innerText || '';
   const iframe = document.querySelector('iframe');
-  const pre = document.querySelector('pre');
+  const monaco = document.querySelector('.monaco-editor');
   const embed = document.querySelector('embed[type="application/pdf"]');
   const object = document.querySelector('object[type="application/pdf"]');
   return {
     text,
     hasIframe: !!iframe,
-    hasPre: !!pre,
+    hasMonaco: !!monaco,
     hasPdfViewer: !!embed || !!object || text.includes('%PDF'),
-    preContent: pre?.textContent || '',
-  };
-})()`;
-
-// After navigation to the PDF content URL, the built-in PDF viewer takes over.
-// Check for the PDF viewer's embedded viewer or the raw PDF content.
-const pdfViewerExpression = `(() => {
-  const text = document.body?.innerText || '';
-  const embed = document.querySelector('embed[type="application/pdf"]');
-  const object = document.querySelector('object[type="application/pdf"]');
-  const plugin = document.querySelector('#plugin');
-  return {
-    text: text.substring(0, 200),
-    hasEmbed: !!embed,
-    hasObject: !!object,
-    hasPlugin: !!plugin,
-    url: window.location.href,
   };
 })()`;
 
@@ -224,17 +207,17 @@ serialTest('doc preview opens JSON from downloads',
           (t.url || '').includes('docpreview.html') ||
           (t.url || '').startsWith('browser://doc-preview/'),
         docPreviewStateExpression,
-        (s) => s.text.includes('JSON') || s.hasPre || s.preContent.includes('key'),
+        (s) => s.text.includes('JSON') || s.hasMonaco || s.text.includes('key'),
         20000,
       );
 
-      // Verify the preview loaded with text content
+      // Verify the preview loaded with Monaco editor
       const state = await previewCdp.evaluate(docPreviewStateExpression);
       console.log('[DOC-PREVIEW E2E] Preview state:', JSON.stringify(state));
 
-      // JSON should be rendered as text in a <pre> element
-      assert.ok(state.hasPre || state.preContent.includes('key'),
-        `JSON preview should show pre element with content, got: ${JSON.stringify(state)}`);
+      // JSON should be rendered in Monaco editor
+      assert.ok(state.hasMonaco || state.text.includes('key'),
+        `JSON preview should show Monaco editor, got: ${JSON.stringify(state)}`);
     } finally {
       if (previewCdp) previewCdp.close();
       if (downloadsCdp) downloadsCdp.close();
