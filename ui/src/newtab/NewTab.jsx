@@ -15,6 +15,7 @@ const PrivateBadge = () => (
 const NewTab = () => {
   const [tabId, setTabId] = useState(null);
   const [isPrivate, setIsPrivate] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
   const [time, setTime] = useState(new Date());
   const [appearanceMode, setAppearanceMode] = useState('auto');
 
@@ -75,6 +76,10 @@ const NewTab = () => {
         request: 'get-tab-private',
         onSuccess: (res) => setIsPrivate(res === 'true')
       });
+      window.cefQuery({
+        request: 'is-guest-session',
+        onSuccess: (value) => setIsGuest(value === 'true')
+      });
     }
   }, []);
 
@@ -130,7 +135,7 @@ const NewTab = () => {
           </div>
         </div>
 
-        <SearchHero tabId={tabId} isPrivate={isPrivate} />
+        <SearchHero tabId={tabId} isPrivate={isPrivate} isGuest={isGuest} />
         <QuickLinks isPrivate={isPrivate} />
       </div>
       

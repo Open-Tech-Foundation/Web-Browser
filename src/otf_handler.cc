@@ -1933,10 +1933,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg == "downloads-subscribe") {
-      handler->downloads_subscription_ = callback;
+      if (!handler->guest_session_active_) {
+        handler->downloads_subscription_ = callback;
+      }
       callback->Success(JsonObjectBuilder()
                             .AddString("key", "downloads-update")
-                            .AddRaw("downloads", handler->GetDownloadsJson())
+                            .AddRaw("downloads",
+                                    handler->guest_session_active_ ? "[]"
+                                                                   : handler->GetDownloadsJson())
                             .Build());
       return true;
     }
@@ -2425,6 +2429,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.rfind("create-workspace:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Workspaces are disabled in guest sessions");
+        return true;
+      }
       if (!handler->store_) { callback->Failure(1, "store unavailable"); return true; }
       std::string name = msg.substr(17);
       if (name.empty()) name = "Workspace";
@@ -2444,6 +2452,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.rfind("rename-workspace:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Workspaces are disabled in guest sessions");
+        return true;
+      }
       const std::string payload = msg.substr(17);
       const size_t colon = payload.find(':');
       if (colon == std::string::npos) { callback->Failure(1, "bad payload"); return true; }
@@ -2472,6 +2484,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.rfind("delete-workspace:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Workspaces are disabled in guest sessions");
+        return true;
+      }
       const auto id_opt = ParseIntStrict(std::string_view(msg).substr(17));
       if (!id_opt) { callback->Failure(1, "bad id"); return true; }
       const int target = *id_opt;
@@ -2652,7 +2668,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg == "get-settings") {
-      callback->Success(otf::LoadSettingsJson());
+      callback->Success(handler->guest_session_active_ ? "{}" : otf::LoadSettingsJson());
       return true;
     }
 
@@ -2682,6 +2698,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("set-settings:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Settings are disabled in guest sessions");
+        return true;
+      }
       std::string normalized_json;
       if (otf::SaveSettingsJson(msg.substr(13), &normalized_json)) {
         callback->Success("");
@@ -2696,6 +2716,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("reset-browser-data:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "Resetting browser data is disabled in guest sessions");
+        return true;
+      }
       ResetRequest reset_request;
       if (!ParseResetRequest(msg.substr(19), &reset_request)) {
         callback->Failure(1, "Invalid reset payload");
@@ -2904,6 +2928,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("delete-history-item:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "This action is disabled in guest sessions");
+        return true;
+      }
       const auto id = ParseIntStrict(std::string_view(msg).substr(20));
       if (!id) { callback->Failure(1, "invalid id"); return true; }
       if (handler->store_) {
@@ -2923,7 +2951,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg == "toggle-bookmark-current") {
       OtfApp* app = OtfApp::GetInstance();
-      if (app && handler->tab_manager_ && handler->store_) {
+      if (app && !handler->guest_session_active_ && handler->tab_manager_ && handler->store_) {
         const int tab_id = app->GetCurrentTabId();
         const std::string url = NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
         if (IsPersistableWebUrl(url) && !handler->IsGuestTab(tab_id)) {
@@ -2947,6 +2975,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("is-bookmarked-url:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("false");
+        return true;
+      }
       const std::string encoded = msg.substr(18);
       const std::string url = NormalizeBookmarkUrl(CefURIDecode(encoded, true, UU_NORMAL).ToString());
       const bool bookmarked = handler->store_ && !url.empty() && handler->store_->IsBookmarked(url);
@@ -2955,6 +2987,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("remove-bookmark:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "This action is disabled in guest sessions");
+        return true;
+      }
       const auto id = ParseIntStrict(std::string_view(msg).substr(16));
       if (!id) { callback->Failure(1, "invalid id"); return true; }
       if (handler->store_) {
@@ -2994,6 +3030,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     }
 
     if (msg.find("update-bookmark:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Failure(1, "This action is disabled in guest sessions");
+        return true;
+      }
       size_t cursor = 16;
       size_t id_end = msg.find(':', cursor);
       if (id_end == std::string::npos) {
@@ -3560,6 +3600,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("ok");
       return true;
     } else if (msg.rfind("clear-permissions-for-site:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("ok");
+        return true;
+      }
       const std::string origin = NormalizeOrigin(msg.substr(27));
       if (handler->store_) {
         handler->store_->ClearSitePermissions(origin);
@@ -3643,6 +3687,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("ok");
       return true;
     } else if (msg.rfind("always-allow-popup:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("ok");
+        return true;
+      }
       const std::string payload = msg.substr(19);
       size_t last_colon = payload.rfind(':');
       if (last_colon != std::string::npos && last_colon > 0) {
@@ -3687,6 +3735,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("ok");
       return true;
     } else if (msg.rfind("always-allow-download:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("ok");
+        return true;
+      }
       const std::string origin = NormalizeOrigin(msg.substr(22));
       if (!origin.empty() && handler->store_) {
         handler->store_->SetSitePermission(origin, "downloads", "allow");
@@ -3702,6 +3754,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("ok");
       return true;
     } else if (msg.rfind("clear-all-for-site:", 0) == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("ok");
+        return true;
+      }
       const std::string origin = NormalizeOrigin(msg.substr(19));
       if (handler->store_) {
         handler->store_->ClearSitePermissions(origin);
@@ -3816,6 +3872,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg.find("open-download:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("");
+        return true;
+      }
       const auto download_id = ParseUint32Strict(std::string_view(msg).substr(14));
       if (!download_id) { callback->Failure(1, "invalid id"); return true; }
       auto it = handler->downloads_.find(*download_id);
@@ -3848,6 +3908,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg.find("show-download-in-folder:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("");
+        return true;
+      }
       const auto download_id = ParseUint32Strict(std::string_view(msg).substr(24));
       if (!download_id) { callback->Failure(1, "invalid id"); return true; }
       auto it = handler->downloads_.find(*download_id);
@@ -3856,6 +3920,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
     } else if (msg == "clear-finished-downloads") {
+      if (handler->guest_session_active_) {
+        callback->Success("");
+        return true;
+      }
       for (auto it = handler->downloads_.begin(); it != handler->downloads_.end();) {
         if (it->second.is_complete || it->second.is_canceled || it->second.is_interrupted) {
           handler->download_callbacks_.erase(it->first);
@@ -3982,13 +4050,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       callback->Success("");
     } else if (msg.rfind("save-search-hist:", 0) == 0) {
       const std::string query = msg.substr(17);
-      if (handler->store_ && !query.empty()) {
+      if (!handler->guest_session_active_ && handler->store_ && !query.empty()) {
         handler->store_->AddSearchHistory(query);
       }
       callback->Success("");
     } else if (msg.rfind("get-search-suggestions:", 0) == 0) {
       const std::string prefix = msg.substr(23);
-      if (handler->store_ && !prefix.empty()) {
+      if (handler->guest_session_active_) {
+        callback->Success("[]");
+      } else if (handler->store_ && !prefix.empty()) {
         auto suggestions = handler->store_->GetSearchSuggestions(prefix, 10);
         std::string json = "[";
         for (size_t i = 0; i < suggestions.size(); ++i) {
@@ -4564,11 +4634,14 @@ void OtfHandler::NotifyDownloadsChanged() {
 
 void OtfHandler::NotifyDownloadBadge() {
   int active_count = 0;
-  const int total_count = static_cast<int>(downloads_.size());
-  for (const auto& [id, item] : downloads_) {
-    if (item.is_in_progress && !item.is_complete && !item.is_canceled &&
-        !item.is_interrupted) {
-      ++active_count;
+  const int total_count =
+      guest_session_active_ ? 0 : static_cast<int>(downloads_.size());
+  if (!guest_session_active_) {
+    for (const auto& [id, item] : downloads_) {
+      if (item.is_in_progress && !item.is_complete && !item.is_canceled &&
+          !item.is_interrupted) {
+        ++active_count;
+      }
     }
   }
   SendEvent(JsonObjectBuilder()

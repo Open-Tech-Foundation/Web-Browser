@@ -21,7 +21,7 @@ const EngineLogo = ({ id, name, isPrivate }) => {
   );
 };
 
-const SearchHero = ({ tabId, isPrivate }) => {
+const SearchHero = ({ tabId, isPrivate, isGuest }) => {
   const cached = tabId != null ? stateByTab[tabId] : null;
   const [query, setQuery] = useState(cached ? cached.query : '');
   const [engine, setEngine] = useState(() => {
@@ -90,7 +90,7 @@ const SearchHero = ({ tabId, isPrivate }) => {
   }, []);
 
   const fetchSuggestions = useCallback((value) => {
-    if (!value || !value.trim() || !window.cefQuery) {
+    if (isGuest || !value || !value.trim() || !window.cefQuery) {
       setSuggestions([]);
       return;
     }
@@ -106,7 +106,7 @@ const SearchHero = ({ tabId, isPrivate }) => {
       },
       onFailure: () => setSuggestions([]),
     });
-  }, []);
+  }, [isGuest]);
 
   const triggerSuggestions = useCallback((value) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -120,7 +120,7 @@ const SearchHero = ({ tabId, isPrivate }) => {
   const doNavigate = useCallback((input) => {
     setSuggestions([]);
     setSelectedIdx(-1);
-    if (window.cefQuery) {
+    if (window.cefQuery && !isGuest) {
       window.cefQuery({ request: `save-search-hist:${input}` });
     }
     const navigateTo = (url) => {
@@ -131,7 +131,7 @@ const SearchHero = ({ tabId, isPrivate }) => {
       onSuccess: navigateTo,
       onFailure: () => navigateTo(resolveUrl(input, engine, customEngines))
     });
-  }, [engine, customEngines]);
+  }, [engine, customEngines, isGuest]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {

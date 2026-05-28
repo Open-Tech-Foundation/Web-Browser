@@ -315,7 +315,7 @@ const App = () => {
   const handleNavigate = (input) => {
     if (state.activeTabId !== null) {
       // Save raw user input as search history for address bar suggestions.
-      if (input && window.cefQuery) {
+      if (input && window.cefQuery && !guestSession) {
         window.cefQuery({ request: `save-search-hist:${input}` });
       }
 
