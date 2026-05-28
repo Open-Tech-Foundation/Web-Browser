@@ -230,17 +230,25 @@ const SPAWNERS = {
 };
 
 // ── Comparison ────────────────────────────────────────────────────────────
+// Properties Chromium itself does not expose in data: iframe globals
+// (BatteryManager / Keyboard constructors). These are not policy-removable
+// — the platform never adds them in that realm — and the APIs are unusable
+// there anyway, so we treat them as N/A rather than a leak.
+const DATA_IFRAME_NA = new Set(['typeofBatteryManager', 'typeofKeyboard']);
+
 // cellState returns one of: 'baseline' | 'match' | 'mismatch' | 'na' | 'absent'.
 //   baseline → main column
 //   match    → equal to baseline
 //   mismatch → differs from baseline (fingerprint leak)
-//   na       → property is DOM-only and this context is a worker
+//   na       → property is DOM-only and this context is a worker, or the
+//              property is platform-unavailable in this realm
 //   absent   → context failed to spawn (whole row is null)
 const cellState = (ctx, prop, values, baseline) => {
   const row = values[ctx.id];
   if (!row) return 'absent';
   if (ctx.id === 'main') return 'baseline';
   if (prop.kind === 'dom' && ctx.kind === 'worker') return 'na';
+  if (ctx.id === 'iframe-data' && DATA_IFRAME_NA.has(prop.key)) return 'na';
   const got = row[prop.key];
   const want = baseline[prop.key];
   return got === want ? 'match' : 'mismatch';

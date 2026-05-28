@@ -6324,9 +6324,15 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
       url.rfind("chrome-untrusted://", 0) == 0 ||
       url.rfind("devtools://", 0) == 0 ||
       url.rfind("javascript:", 0) == 0 ||
-      url.rfind("data:", 0) == 0 ||
-      url.rfind("blob:", 0) == 0 ||
       url.rfind("about:srcdoc", 0) == 0) {
+    return true;
+  }
+
+  // data: and blob: are blocked at the top level (address-bar phishing
+  // surface) but allowed in subframes so the antifingerprint policy can be
+  // exercised across those realms.
+  if (is_main_frame &&
+      (url.rfind("data:", 0) == 0 || url.rfind("blob:", 0) == 0)) {
     return true;
   }
 

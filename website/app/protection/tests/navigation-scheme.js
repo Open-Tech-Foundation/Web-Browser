@@ -5,7 +5,7 @@ export default {
     id: 'navigation-scheme',
     label: 'Dangerous navigation scheme blocking',
     entropy: 'security',
-    description: 'javascript:, data:, file: — whether iframe src and <a> click are blocked.',
+    description: 'javascript:, file: — whether iframe src and <a> click are blocked. data:/blob: iframes are intentionally allowed so antifingerprint policy reaches those realms (top-level data:/blob: navigation is still blocked).',
   }],
   async run(ctx) {
     const runIframeProbe = (url, token, timeoutMs = 2000) => new Promise((resolve) => {
@@ -27,12 +27,10 @@ export default {
       setTimeout(() => { cleanup(); resolve('blocked'); }, timeoutMs);
     });
 
-    const dataToken = 'nav-data-' + Date.now() + '-' + Math.random();
     const jsToken = 'nav-js-' + Date.now() + '-' + Math.random();
     const fileToken = 'nav-file-' + Date.now() + '-' + Math.random();
 
-    const [dataIframe, jsIframe, fileIframe] = await Promise.all([
-      runIframeProbe(`data:text/html,<script>parent.postMessage({token:"${dataToken}",result:"loaded"},"*")<\/script>`, dataToken),
+    const [jsIframe, fileIframe] = await Promise.all([
       runIframeProbe(`javascript:void(parent.postMessage({token:"${jsToken}",result:"executed"},"*"))`, jsToken),
       runIframeProbe('file:///etc/passwd', fileToken),
     ]);
@@ -47,20 +45,17 @@ export default {
       if (window[canary] === 'pwned') anchorJsBlocked = false;
     } catch (_) {}
 
-    const allBlocked = dataIframe !== 'allowed' && jsIframe !== 'allowed' &&
-      fileIframe !== 'allowed' && anchorJsBlocked;
+    const allBlocked = jsIframe !== 'allowed' && fileIframe !== 'allowed' && anchorJsBlocked;
     const allowed = [];
-    if (dataIframe === 'allowed') allowed.push('iframe data:');
     if (jsIframe === 'allowed') allowed.push('iframe javascript:');
     if (fileIframe === 'allowed') allowed.push('iframe file:');
     if (!anchorJsBlocked) allowed.push('anchor javascript:');
-    const status = allBlocked ? 'ok' : allowed.length <= 2 ? 'warn' : 'fail';
+    const status = allBlocked ? 'ok' : allowed.length <= 1 ? 'warn' : 'fail';
 
     ctx.set('navigation-scheme', status,
       allBlocked ? 'All dangerous navigation schemes blocked' : `${allowed.length} scheme(s) allowed: ${allowed.join(', ')}`,
-      `iframe data:: ${dataIframe} | iframe javascript:: ${jsIframe} | iframe file:: ${fileIframe} | javascript anchor: ${anchorJsBlocked ? 'blocked' : 'allowed'}`,
+      `iframe javascript:: ${jsIframe} | iframe file:: ${fileIframe} | javascript anchor: ${anchorJsBlocked ? 'blocked' : 'allowed'}`,
       [
-        ['iframe data:', dataIframe],
         ['iframe javascript:', jsIframe],
         ['iframe file:', fileIframe],
         ['<a> javascript: click', anchorJsBlocked ? 'blocked' : 'allowed'],

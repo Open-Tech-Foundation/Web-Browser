@@ -154,14 +154,25 @@ CefRefPtr<CefImage> LoadOtfWindowIcon() {
 
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
   const std::string url = frame->GetURL().ToString();
-  // Skip about:blank, data:, blob:, and empty URLs. Each iframe has its own
-  // V8 realm, so parent prototype patches do NOT carry over. about:blank is
-  // excluded because it is often created as an empty placeholder and then
-  // written to by the parent; injecting there is unnecessary and can produce
-  // "Blocked script execution" errors in sandboxed frames. about:srcdoc is
-  // explicitly NOT excluded — it has its own realm and carries real script
-  // content that needs the protection.
+  // Inherited-URL frames (about:blank, data:, blob:, empty) each get their own
+  // V8 realm — parent prototype patches do NOT carry over. Walk ancestors; if
+  // any is an http(s) document we'd otherwise protect, inject here too so
+  // antifingerprint policy covers opaque-origin children. Top-level inherited
+  // frames (no protected ancestor) are skipped — those are placeholders that
+  // get written to by the parent and would produce "Blocked script execution"
+  // errors in sandboxed contexts.
   if (IsInheritedFrameUrl(url)) {
+    CefRefPtr<CefFrame> ancestor = frame->GetParent();
+    while (ancestor) {
+      const std::string a_url = ancestor->GetURL().ToString();
+      if (StartsWith(a_url, "http://") || StartsWith(a_url, "https://")) {
+        return true;
+      }
+      if (!IsInheritedFrameUrl(a_url)) {
+        return false;
+      }
+      ancestor = ancestor->GetParent();
+    }
     return false;
   }
   // about:srcdoc frames have their own V8 realm (not shared with the parent)
