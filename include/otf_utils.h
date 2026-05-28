@@ -118,6 +118,34 @@ bool NormalizeSettingsJson(const std::string& raw_json, std::string* normalized_
 std::string LoadSettingsJson();
 bool SaveSettingsJson(const std::string& raw_json, std::string* normalized_json);
 
+// -- Configurable storage paths ------------------------------------------------
+
+// Call once at startup to freeze the runtime-active storage paths.
+void LockStoragePaths();
+bool StoragePathsLocked();
+
+// Runtime-active paths (frozen at LockStoragePaths time).
+std::filesystem::path GetActiveDataDir();
+std::filesystem::path GetActiveCacheDir();
+std::filesystem::path GetActiveDownloadsDir();
+
+// User-configured paths from settings.json (may differ from active paths).
+std::filesystem::path GetConfiguredCacheDir();
+std::filesystem::path GetConfiguredDownloadsDir();
+
+// Pending changes persistence.
+std::string GetPendingPathsFilePath();
+std::string LoadPendingPathsJson();
+bool SavePendingPathsJson(const std::string& json);
+
+// Called from main.cc before CefInitialize.
+void ApplyPendingPathsOnStartup();
+
+// Path validation -- returns empty string on success, error message on failure.
+std::string ValidateStoragePath(const std::string& path, const std::string& purpose);
+bool IsProtectedSystemPath(const std::filesystem::path& p);
+bool TestDirectoryWriteAccess(const std::filesystem::path& p);
+
 bool IsAllowedBrowserPageUrl(const std::string& url);
 std::string GetBrowserPageFilePath(const std::string& url);
 std::string GetBrowserPageDevUrl(const std::string& dev_ui_url,
@@ -174,6 +202,8 @@ double ZoomReset();
 // ignoring query string and fragment.
 bool IsTiffUrl(const std::string& url);
 bool IsSupportedImageUrl(const std::string& url);
+bool IsSupportedDocumentUrl(const std::string& url);
+std::string GuessDocumentMimeType(const std::string& url);
 
 // Decode a local TIFF file using libvips (supporting page index) and convert it into a PNG Base64 data URL.
 bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& out_png_base64, int& out_page_count);

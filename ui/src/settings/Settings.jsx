@@ -114,6 +114,11 @@ const Settings = () => {
   const [startupUrlError, setStartupUrlError] = useState('');
   const [httpsOnly, setHttpsOnly] = useState(false);
 
+  const [storagePaths, setStoragePaths] = useState(null);
+  const [storageError, setStorageError] = useState('');
+  const [storageSuccess, setStorageSuccess] = useState('');
+  const [rowErrors, setRowErrors] = useState({});
+
   const [appearanceMode, setAppearanceMode] = useState('auto');
   const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '', cef: '' });
 
@@ -223,6 +228,14 @@ const Settings = () => {
           } catch (e) {
             console.error('Failed to parse settings:', e);
           }
+        }
+      });
+      window.cefQuery({
+        request: 'get-storage-paths',
+        onSuccess: (response) => {
+          try {
+            setStoragePaths(JSON.parse(response));
+          } catch (_) {}
         }
       });
     }
@@ -378,6 +391,7 @@ const Settings = () => {
     { id: 'appearance', label: 'Appearance', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg> },
     { id: 'privacy', label: 'Privacy', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> },
     { id: 'security', label: 'Security', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> },
+    { id: 'storage', label: 'Config', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg> },
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 9h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" /><path d="M5 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M15 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /></svg> },
     { id: 'reset', label: 'Reset Settings', icon: <Icons.Reset /> },
     { id: 'about', label: 'About', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> },
@@ -678,6 +692,132 @@ const Settings = () => {
                       </button>
                     ))}
                   </div>
+                </section>
+              </>
+            )}
+
+            {activeMenu === 'storage' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Config</h1>
+                </header>
+
+                <section>
+                  <div className="space-y-4">
+                    {[
+                      { key: 'dataDir', label: 'Browser Data', desc: 'Settings, databases, and profile data. Cannot be changed.', readonly: true },
+                      { key: 'cacheDir', label: 'Cache', desc: 'Temporary internet files and cached content.' },
+                      { key: 'downloadsDir', label: 'Downloads', desc: 'Where downloaded files are saved.' },
+                    ].map(({ key, label, desc, readonly }) => {
+                      const active = storagePaths ? storagePaths[`active${key.charAt(0).toUpperCase() + key.slice(1)}`] : '';
+                      const configured = storagePaths ? storagePaths[`configured${key.charAt(0).toUpperCase() + key.slice(1)}`] : '';
+                      const pending = storagePaths ? storagePaths[`pending${key.charAt(0).toUpperCase() + key.slice(1)}`] : null;
+                      const displayPath = pending || configured || active;
+                      const hasPending = pending != null && pending !== '';
+                      const localError = rowErrors[key] || '';
+                      return (
+                        <div key={key} className={`p-6 bg-card/50 border rounded-2xl transition-all ${hasPending ? 'border-orange-500/50' : localError ? 'border-red-500/50' : 'border-main'}`}>
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-grow min-w-0">
+                              <h3 className="text-base font-semibold text-main">{label}</h3>
+                              <p className="text-xs text-muted mt-1">{desc}</p>
+                              <div className="mt-3 flex items-center gap-2">
+                                <code className="text-xs font-mono bg-main/5 px-2 py-1 rounded border border-main truncate block max-w-full text-muted">
+                                  {displayPath}
+                                </code>
+                                {hasPending && (
+                                  <span className="shrink-0 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-500 rounded-full border border-orange-500/20">
+                                    Pending restart
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {!readonly && (
+                              <button
+                                onClick={() => {
+                                  setRowErrors(prev => ({ ...prev, [key]: '' }));
+                                  setStorageSuccess('');
+                                  window.cefQuery({
+                                    request: 'select-folder',
+                                    onSuccess: (selected) => {
+                                      if (selected && selected !== 'cancelled') {
+                                        window.cefQuery({
+                                          request: `set-storage-path:${JSON.stringify({ path: selected, purpose: key === 'cacheDir' ? 'cache' : 'downloads' })}`,
+                                          onSuccess: () => {
+                                            setRowErrors(prev => ({ ...prev, [key]: '' }));
+                                            setStorageSuccess(`${label} location changed successfully. Changes will apply after restart.`);
+                                            window.cefQuery({
+                                              request: 'get-storage-paths',
+                                              onSuccess: (r) => {
+                                                try { setStoragePaths(JSON.parse(r)); } catch (_) {}
+                                              }
+                                            });
+                                          },
+                                          onFailure: (code, msg) => {
+                                            const errMsg = msg || 'Failed to change path.';
+                                            setRowErrors(prev => ({ ...prev, [key]: errMsg }));
+                                            setTimeout(() => setRowErrors(prev => ({ ...prev, [key]: '' })), 6000);
+                                          }
+                                        });
+                                      }
+                                    },
+                                    onFailure: () => {}
+                                  });
+                                }}
+                                className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10 cursor-pointer"
+                              >
+                                Change
+                              </button>
+                            )}
+                          </div>
+                          {localError && (
+                            <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-xl animate-in fade-in duration-300">
+                              <p className="text-xs text-red-400 font-medium">{localError}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {storageSuccess && (
+                    <div className="mt-4 p-5 bg-emerald-500/15 border border-emerald-500/40 rounded-2xl shadow-[0_0_20px_-8px_rgba(16,185,129,0.3)] animate-in fade-in duration-300">
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/30">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </div>
+                        <p className="text-sm text-emerald-300 font-semibold">{storageSuccess}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {storagePaths && (storagePaths.pendingCacheDir || storagePaths.pendingDownloadsDir) && (
+                    <div className="mt-8 p-6 bg-orange-500/10 border border-orange-500/20 rounded-3xl flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/20">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-main mb-1">Restart required</h3>
+                        <p className="text-xs text-muted leading-relaxed">
+                          Some storage location changes will take effect after you restart the browser.
+                        </p>
+                        <button
+                          onClick={() => {
+                            if (window.cefQuery) {
+                              window.cefQuery({ request: 'restart-browser' });
+                            }
+                          }}
+                          className="mt-3 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10 cursor-pointer"
+                        >
+                          Restart Now
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </section>
               </>
             )}

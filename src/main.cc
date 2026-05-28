@@ -70,11 +70,21 @@ static int RunApp(int argc, char* argv[]) {
     return exit_code;
   }
 
+  // Apply any pending storage path changes before CEF initializes.
+  otf::ApplyPendingPathsOnStartup();
+
   CefSettings settings;
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
 
+  // Determine cache path: use user-configured cacheDir if set, otherwise default.
+  std::filesystem::path app_cache;
+  const auto configured_cache = otf::GetConfiguredCacheDir();
+  if (!configured_cache.empty()) {
+    app_cache = configured_cache;
+  } else {
+    app_cache = otf::GetAppCacheDir();
+  }
   const std::filesystem::path app_data = otf::GetAppDataDir();
-  const std::filesystem::path app_cache = otf::GetAppCacheDir();
 
   LOG(INFO) << "[otf] app data dir : " << app_data.string();
   LOG(INFO) << "[otf] app cache dir: " << app_cache.string();
@@ -90,6 +100,9 @@ static int RunApp(int argc, char* argv[]) {
     CefString(&settings.root_cache_path).FromString(cef_cache.string());
 #endif
   }
+
+  // Freeze runtime storage paths so mid-session changes don't take effect.
+  otf::LockStoragePaths();
 
   CefInitialize(main_args, settings, app.get(), nullptr);
   CefRunMessageLoop();

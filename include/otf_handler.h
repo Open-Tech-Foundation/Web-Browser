@@ -46,6 +46,11 @@ class OtfHandler : public CefClient,
     bool is_tiff = false;
   };
 
+  struct DocPreviewRenderCache {
+    std::string file_path;
+    std::string display_url;
+  };
+
   struct ClosedTabInfo {
     std::string url;
     std::string title;
@@ -229,6 +234,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> certificate_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> bookmark_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> image_preview_subscription_;
+  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> doc_preview_subscription_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> console_subscription_;
   // The cleardata popup ships its origin to the renderer via a restore
   // producer attached to the PopupOverlay. The producer reads this field,
@@ -250,6 +256,7 @@ class OtfHandler : public CefClient,
   // originating cefQuery callback.
   CefRefPtr<DevToolsBridge> devtools_bridge_;
   std::map<int, CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback>> tab_image_preview_subscriptions_;
+  std::map<int, CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback>> tab_doc_preview_subscriptions_;
 
   std::map<int, std::string> tab_image_preview_urls_;
   // Trusted local files selected from persisted download records. The
@@ -293,6 +300,26 @@ class OtfHandler : public CefClient,
   // Also refreshes the stored page_count from the decode result. Returns ""
   // if the tab has no preview url.
   std::string BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_nonce = true);
+
+  // ── Doc preview state per tab ──
+  std::map<int, std::string> tab_doc_preview_urls_;
+  std::map<int, std::string> tab_doc_preview_local_files_;
+  std::map<int, std::string> tab_doc_preview_content_urls_;
+  std::map<int, int64_t> tab_doc_preview_file_sizes_;
+  std::map<int, std::string> tab_doc_preview_formats_;
+  std::map<int, DocPreviewRenderCache> tab_doc_preview_render_cache_;
+  void SetDocPreviewUrlForTab(int tab_id, const std::string& url);
+  void SetDocPreviewLocalFileForTab(int tab_id, const std::string& public_url,
+                                    const std::string& file_path);
+  void SetDocPreviewContentUrlForTab(int tab_id, const std::string& content_url);
+  std::string GetDocPreviewUrlForTab(int tab_id) const;
+  std::string GetDocPreviewLocalFileForTab(int tab_id) const;
+  std::string GetDocPreviewContentUrlForTab(int tab_id) const;
+  void SetDocPreviewFileSizeForTab(int tab_id, int64_t file_size_bytes);
+  int64_t GetDocPreviewFileSizeForTab(int tab_id) const;
+  void SetDocPreviewFormatForTab(int tab_id, const std::string& format);
+  std::string GetDocPreviewFormatForTab(int tab_id) const;
+  std::string BuildDocPreviewLoadEvent(int tab_id);
 
   // Per-tab find state owned by tab_manager_ (text + case)
   // Pending find text for async result correlation

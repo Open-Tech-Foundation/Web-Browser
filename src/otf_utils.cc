@@ -20,6 +20,7 @@
 #include <pwd.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/statvfs.h>
 #endif
 
 #include "include/cef_parser.h"
@@ -97,7 +98,7 @@ bool IsLoopbackHost(const std::string& host) {
          lower_host == "::1";
 }
 
-std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode, const std::vector<CustomSearchEngine>& custom_engines) {
+std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode, const std::vector<CustomSearchEngine>& custom_engines, const std::string& cache_dir = {}, const std::string& download_dir = {}) {
   std::string urls_json = "[";
   for (size_t i = 0; i < startup_urls.size(); ++i) {
     if (i > 0) urls_json += ",";
@@ -112,7 +113,7 @@ std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id
     builder.AddNull("searchEngine");
   }
 
-  return builder
+  auto result = builder
       .AddBool("historyEnabled", history_enabled)
       .AddBool("downloadsEnabled", downloads_enabled)
       .AddString("startupBehavior", startup_behavior)
@@ -120,8 +121,14 @@ std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id
       .AddBool("httpsOnly", https_only)
       .AddBool("blockInsecure", block_insecure)
       .AddString("appearanceMode", appearance_mode)
-      .AddRaw("customSearchEngines", BuildCustomEnginesJson(custom_engines))
-      .Build();
+      .AddRaw("customSearchEngines", BuildCustomEnginesJson(custom_engines));
+  if (!cache_dir.empty()) {
+    result.AddString("cacheDir", cache_dir);
+  }
+  if (!download_dir.empty()) {
+    result.AddString("downloadDir", download_dir);
+  }
+  return result.Build();
 }
 
 bool IsAllowedStartupBehavior(const std::string& startup_behavior) {
@@ -545,7 +552,7 @@ std::string SanitizeFilename(const std::string& filename) {
 }
 
 std::string BuildDownloadPath(const std::string& suggested_name) {
-  std::filesystem::path downloads_dir = GetDownloadsDir();
+  std::filesystem::path downloads_dir = GetActiveDownloadsDir();
   if (downloads_dir.empty()) {
     downloads_dir = std::filesystem::temp_directory_path();
   }
@@ -788,7 +795,7 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     if (key != "searchEngine" && key != "historyEnabled" && key != "downloadsEnabled" && 
         key != "startupBehavior" && key != "startupUrls" && key != "httpsOnly" && 
         key != "blockInsecure" && key != "appearanceMode" &&
-        key != "customSearchEngines") {
+        key != "customSearchEngines" && key != "cacheDir" && key != "downloadDir") {
       return false;
     }
   }
@@ -906,12 +913,18 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     }
   }
 
+  std::string cache_dir, download_dir;
+  if (dict->HasKey("cacheDir") && dict->GetType("cacheDir") == VTYPE_STRING)
+    cache_dir = dict->GetString("cacheDir");
+  if (dict->HasKey("downloadDir") && dict->GetType("downloadDir") == VTYPE_STRING)
+    download_dir = dict->GetString("downloadDir");
+
   if (normalized_json) {
     *normalized_json = BuildSettingsJson(search_engine, history_enabled,
                                         downloads_enabled, startup_behavior,
                                         startup_urls, https_only,
                                         block_insecure, appearance_mode,
-                                        custom_engines);
+                                        custom_engines, cache_dir, download_dir);
   }
   return true;
 }
@@ -1370,6 +1383,71 @@ bool IsSupportedImageUrl(const std::string& url) {
          ends_with(path, ".avif") || IsTiffUrl(path);
 }
 
+bool IsSupportedDocumentUrl(const std::string& url) {
+  size_t end = url.find_first_of("?#");
+  std::string path = (end == std::string::npos) ? url : url.substr(0, end);
+  std::transform(path.begin(), path.end(), path.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  auto ends_with = [](const std::string& s, const char* suf) {
+    size_t n = std::strlen(suf);
+    return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
+  };
+  return ends_with(path, ".pdf") || ends_with(path, ".txt") ||
+         ends_with(path, ".json") || ends_with(path, ".xml") ||
+         ends_with(path, ".csv") || ends_with(path, ".md") ||
+         ends_with(path, ".js") || ends_with(path, ".ts") ||
+         ends_with(path, ".py") || ends_with(path, ".html") ||
+         ends_with(path, ".css") || ends_with(path, ".yaml") ||
+         ends_with(path, ".yml") || ends_with(path, ".toml") ||
+         ends_with(path, ".sh") || ends_with(path, ".bash") ||
+         ends_with(path, ".log") || ends_with(path, ".ini") ||
+         ends_with(path, ".cfg") || ends_with(path, ".conf") ||
+         ends_with(path, ".c") || ends_with(path, ".cpp") ||
+         ends_with(path, ".h") || ends_with(path, ".hpp") ||
+         ends_with(path, ".rs") || ends_with(path, ".go") ||
+         ends_with(path, ".java") || ends_with(path, ".rb") ||
+         ends_with(path, ".sql") || ends_with(path, ".r") ||
+         ends_with(path, ".lua") || ends_with(path, ".php") ||
+         ends_with(path, ".swift") || ends_with(path, ".kt") ||
+         ends_with(path, ".tex") || path == "makefile" ||
+         path == "Makefile" || path == "GNUmakefile";
+}
+
+std::string GuessDocumentMimeType(const std::string& url) {
+  size_t end = url.find_first_of("?#");
+  std::string path = (end == std::string::npos) ? url : url.substr(0, end);
+  auto ends_with = [&](std::string_view suffix) {
+    return path.size() >= suffix.size() &&
+           path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
+  };
+  if (ends_with(".pdf")) return "application/pdf";
+  if (ends_with(".json")) return "application/json";
+  if (ends_with(".xml")) return "application/xml";
+  if (ends_with(".html")) return "text/html";
+  if (ends_with(".css")) return "text/css";
+  if (ends_with(".csv")) return "text/csv";
+  if (ends_with(".yaml") || ends_with(".yml")) return "text/yaml";
+  if (ends_with(".toml")) return "text/plain";
+  if (ends_with(".md")) return "text/markdown";
+  if (ends_with(".js")) return "text/javascript";
+  if (ends_with(".ts")) return "text/typescript";
+  if (ends_with(".py")) return "text/x-python";
+  if (ends_with(".sh") || ends_with(".bash")) return "text/x-shellscript";
+  if (ends_with(".sql")) return "text/x-sql";
+  if (ends_with(".c") || ends_with(".cpp") || ends_with(".h") || ends_with(".hpp"))
+    return "text/x-c";
+  if (ends_with(".rs")) return "text/x-rust";
+  if (ends_with(".go")) return "text/x-go";
+  if (ends_with(".java")) return "text/x-java";
+  if (ends_with(".rb")) return "text/x-ruby";
+  if (ends_with(".lua")) return "text/x-lua";
+  if (ends_with(".php")) return "text/x-php";
+  if (ends_with(".tex")) return "text/x-tex";
+  if (ends_with(".log") || ends_with(".ini") || ends_with(".cfg") || ends_with(".conf"))
+    return "text/plain";
+  return "text/plain";
+}
+
 bool DecodeTiffToPngBase64(const std::string& tiff_path, int page, std::string& out_png_base64, int& out_page_count) {
   if (!EnsureVipsInit()) return false;
   VipsImage* in = vips_image_new_from_file(tiff_path.c_str(), "page", page, NULL);
@@ -1402,6 +1480,335 @@ ImagePreviewPayload BuildImagePreviewPayload(const std::string& url, int page) {
   // Local file access is intentionally disabled for browser content. Remote
   // TIFFs are decoded by the renderer-driven async path.
   return payload;
+}
+
+// ---------------------------------------------------------------------------
+// Configurable storage paths
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::filesystem::path& ActiveDataDir() {
+  static std::filesystem::path p;
+  return p;
+}
+std::filesystem::path& ActiveCacheDir() {
+  static std::filesystem::path p;
+  return p;
+}
+std::filesystem::path& ActiveDownloadsDir() {
+  static std::filesystem::path p;
+  return p;
+}
+bool& PathsLocked() {
+  static bool locked = false;
+  return locked;
+}
+
+// Reads a single string value from settings.json by key. Returns empty string
+// if the key is missing, null, or not a string.
+std::string ReadSettingsString(const std::string& key) {
+  std::string raw = LoadSettingsJson();
+  CefRefPtr<CefValue> root = CefParseJSON(raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) return {};
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey(key) || dict->GetType(key) != VTYPE_STRING) return {};
+  return dict->GetString(key);
+}
+
+}  // namespace
+
+void LockStoragePaths() {
+  if (PathsLocked()) return;
+  ActiveDataDir() = GetAppDataDir();
+
+  const auto configured_cache = GetConfiguredCacheDir();
+  ActiveCacheDir() = configured_cache.empty() ? GetAppCacheDir() : configured_cache;
+
+  const auto configured_downloads = GetConfiguredDownloadsDir();
+  ActiveDownloadsDir() = configured_downloads.empty() ? std::filesystem::path(GetDownloadsDir()) : configured_downloads;
+
+  PathsLocked() = true;
+}
+
+bool StoragePathsLocked() {
+  return PathsLocked();
+}
+
+std::filesystem::path GetActiveDataDir() {
+  if (PathsLocked() && !ActiveDataDir().empty()) return ActiveDataDir();
+  return GetAppDataDir();
+}
+
+std::filesystem::path GetActiveCacheDir() {
+  if (PathsLocked() && !ActiveCacheDir().empty()) return ActiveCacheDir();
+  return GetAppCacheDir();
+}
+
+std::filesystem::path GetActiveDownloadsDir() {
+  if (PathsLocked() && !ActiveDownloadsDir().empty()) return ActiveDownloadsDir();
+  return GetDownloadsDir();
+}
+
+std::filesystem::path GetConfiguredCacheDir() {
+  std::string s = ReadSettingsString("cacheDir");
+  if (s.empty()) return {};
+  return Utf8Path(s);
+}
+
+std::filesystem::path GetConfiguredDownloadsDir() {
+  std::string s = ReadSettingsString("downloadDir");
+  if (s.empty()) return {};
+  return Utf8Path(s);
+}
+
+std::string GetPendingPathsFilePath() {
+  const auto dir = GetAppDataDir();
+  if (dir.empty()) return "";
+  return PathToUtf8(dir / "pending_paths.json");
+}
+
+std::string LoadPendingPathsJson() {
+  const std::string fspath = GetPendingPathsFilePath();
+  if (fspath.empty()) return "{}";
+  std::string content = ReadFileText(fspath);
+  if (content.empty()) return "{}";
+  CefRefPtr<CefValue> root = CefParseJSON(content, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) return "{}";
+  return content;
+}
+
+bool SavePendingPathsJson(const std::string& json) {
+  CefRefPtr<CefValue> root = CefParseJSON(json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) return false;
+  const std::string fspath = GetPendingPathsFilePath();
+  if (fspath.empty()) return false;
+  std::filesystem::create_directories(std::filesystem::path(fspath).parent_path());
+  return WriteFileText(fspath, json);
+}
+
+void ApplyPendingPathsOnStartup() {
+  // Read pending_paths.json, merge cacheDir/downloadDir into settings.json,
+  // then delete the pending file. This runs before LockStoragePaths() so
+  // the new values become the active ones.
+  const std::string pending_raw = LoadPendingPathsJson();
+  if (pending_raw == "{}") return;
+
+  CefRefPtr<CefValue> pending_root =
+      CefParseJSON(pending_raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!pending_root || pending_root->GetType() != VTYPE_DICTIONARY) return;
+  CefRefPtr<CefDictionaryValue> pending_dict = pending_root->GetDictionary();
+  if (!pending_dict) return;
+
+  // Read current settings
+  const std::string settings_raw = LoadSettingsJson();
+  CefRefPtr<CefValue> settings_root =
+      CefParseJSON(settings_raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!settings_root || settings_root->GetType() != VTYPE_DICTIONARY) return;
+  CefRefPtr<CefDictionaryValue> settings_dict = settings_root->GetDictionary();
+  if (!settings_dict) return;
+
+  bool changed = false;
+  if (pending_dict->HasKey("cacheDir") &&
+      pending_dict->GetType("cacheDir") == VTYPE_STRING) {
+    settings_dict->SetString("cacheDir", pending_dict->GetString("cacheDir"));
+    changed = true;
+  }
+  if (pending_dict->HasKey("downloadDir") &&
+      pending_dict->GetType("downloadDir") == VTYPE_STRING) {
+    settings_dict->SetString("downloadDir", pending_dict->GetString("downloadDir"));
+    changed = true;
+  }
+
+  if (!changed) return;
+
+  // Write updated settings
+  CefRefPtr<CefValue> out_root = CefValue::Create();
+  out_root->SetDictionary(settings_dict);
+  CefString json_str = CefWriteJSON(out_root, JSON_WRITER_DEFAULT);
+  if (!json_str.empty()) {
+    const std::string out_json = json_str.ToString();
+    std::string normalized;
+    if (NormalizeSettingsJson(out_json, &normalized)) {
+      const auto fspath = GetAppDataDir() / "settings.json";
+      if (!fspath.empty()) {
+        WriteFileText(PathToUtf8(fspath), normalized);
+      }
+    }
+  }
+
+  // Delete pending file
+  const std::string pending_fspath = GetPendingPathsFilePath();
+  if (!pending_fspath.empty()) {
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(pending_fspath), ec);
+  }
+}
+
+// Path validation -----------------------------------------------------------
+
+bool IsProtectedSystemPath(const std::filesystem::path& p) {
+  if (p.empty()) return true;
+  std::error_code ec;
+  std::filesystem::path resolved = std::filesystem::weakly_canonical(p, ec);
+  if (ec) return true;
+
+#if defined(_WIN32)
+  // Windows protected locations
+  const auto resolved_str = resolved.wstring();
+  // System root (C:\Windows, etc.)
+  WCHAR sysdir[MAX_PATH];
+  if (GetSystemDirectoryW(sysdir, MAX_PATH) &&
+      resolved_str.find(std::wstring(sysdir)) == 0)
+    return true;
+  // Program Files
+  WCHAR progfiles[MAX_PATH];
+  if (SHGetFolderPathW(nullptr, CSIDL_PROGRAM_FILES, nullptr, 0, progfiles) == S_OK &&
+      resolved_str.find(std::wstring(progfiles)) == 0)
+    return true;
+  WCHAR progfilesx86[MAX_PATH];
+  if (SHGetFolderPathW(nullptr, CSIDL_PROGRAM_FILESX86, nullptr, 0, progfilesx86) == S_OK &&
+      resolved_str.find(std::wstring(progfilesx86)) == 0)
+    return true;
+  // System32
+  WCHAR sysnative[MAX_PATH];
+  if (GetSystemDirectoryW(sysnative, MAX_PATH) &&
+      resolved_str.find(std::wstring(sysnative)) == 0)
+    return true;
+  // Drive root
+  if (resolved_str.size() <= 3 && resolved_str.back() == L'\\')
+    return true;
+#else
+  const auto resolved_str = resolved.string();
+  // Root filesystem
+  if (resolved_str == "/") return true;
+  // Standard Unix system dirs
+  const std::vector<std::string> protected_dirs = {
+    "/bin", "/sbin", "/usr", "/etc", "/lib", "/lib64",
+    "/proc", "/sys", "/dev", "/boot", "/opt", "/var"
+  };
+  for (const auto& d : protected_dirs) {
+    if (resolved_str == d || resolved_str.rfind(d + "/", 0) == 0)
+      return true;
+  }
+  // Home dir is also protected (unless it's the only option for downloads)
+  // We allow home subdirectories but not the home dir itself
+  const std::string home = GetHomeDir();
+  if (!home.empty() && PathToUtf8(resolved) == home) return true;
+#endif
+  return false;
+}
+
+bool TestDirectoryWriteAccess(const std::filesystem::path& p) {
+  if (p.empty()) return false;
+  std::error_code ec;
+  std::filesystem::create_directories(p, ec);
+  if (ec) return false;
+  // Create and delete a test file to verify write access
+  auto test_file = p / ".otf_write_test_XXXXXX";
+  // Use a deterministic name since we can't use mkstemp with fstream
+  test_file = p / ".otf_write_test";
+  {
+    std::ofstream f(test_file);
+    if (!f.is_open()) return false;
+    f << "test";
+  }
+  std::filesystem::remove(test_file, ec);
+  return true;
+}
+
+std::string ValidateStoragePath(const std::string& path,
+                                const std::string& purpose) {
+  if (path.empty()) return "Path cannot be empty.";
+
+  std::error_code ec;
+  std::filesystem::path resolved = std::filesystem::weakly_canonical(
+      std::filesystem::absolute(Utf8Path(path), ec), ec);
+  if (ec) return "Path is invalid or cannot be resolved.";
+
+  // Must be absolute
+  if (!resolved.is_absolute()) return "Path must be absolute.";
+
+  // Check for symlinks
+  if (std::filesystem::is_symlink(resolved)) {
+    return "Symbolic links are not allowed for storage paths.";
+  }
+
+  // Check if path exists and is a directory
+  if (std::filesystem::exists(resolved, ec) && !std::filesystem::is_directory(resolved, ec)) {
+    return "Path exists but is not a directory.";
+  }
+
+  // Check protected system locations
+  if (IsProtectedSystemPath(resolved)) {
+    return "This location is protected and cannot be used as a storage directory.";
+  }
+
+  // Check app installation directory
+  const std::string exec_dir = GetExecutableDir();
+  if (!exec_dir.empty()) {
+    const auto exec_path = Utf8Path(exec_dir);
+    if (PathToUtf8(resolved) == exec_dir ||
+        PathToUtf8(resolved.lexically_normal()).rfind(PathToUtf8(exec_path.lexically_normal()) + "/", 0) == 0) {
+      return "Cannot use the application installation directory.";
+    }
+  }
+
+  // Check write access
+  if (!TestDirectoryWriteAccess(resolved)) {
+    return "Cannot write to this directory. Check permissions.";
+  }
+
+  // Check overlap with browser data directory
+  const auto data_dir = GetActiveDataDir();
+  if (purpose == "cache" && !data_dir.empty()) {
+    const auto data_str = PathToUtf8(data_dir.lexically_normal());
+    const auto cache_str = PathToUtf8(resolved.lexically_normal());
+    if (cache_str == data_str ||
+        cache_str.rfind(data_str + "/", 0) == 0) {
+      return "Cache directory cannot overlap with the browser data directory.";
+    }
+    // Also check the reverse: data dir inside cache
+    if (data_str.rfind(cache_str + "/", 0) == 0) {
+      return "Cache directory cannot contain the browser data directory.";
+    }
+  }
+
+  // Check overlap with cache directory for downloads
+  if (purpose == "downloads") {
+    const auto cache_dir = GetActiveCacheDir();
+    if (!cache_dir.empty()) {
+      const auto cache_str = PathToUtf8(cache_dir.lexically_normal());
+      const auto dl_str = PathToUtf8(resolved.lexically_normal());
+      if (!cache_str.empty() && dl_str.rfind(cache_str + "/", 0) == 0) {
+        return "Downloads directory cannot be inside the cache directory.";
+      }
+    }
+  }
+
+  // Check free disk space (Linux/macOS: statvfs, Windows: GetDiskFreeSpaceEx)
+  // Require at least 100 MB free for cache, 50 MB for downloads
+  const uint64_t required_bytes = (purpose == "cache") ? 100ULL * 1024 * 1024 : 50ULL * 1024 * 1024;
+#if defined(_WIN32)
+  ULARGE_INTEGER free_bytes;
+  if (GetDiskFreeSpaceExW(resolved.c_str(), &free_bytes, nullptr, nullptr)) {
+    if (free_bytes.QuadPart < static_cast<LONGLONG>(required_bytes)) {
+      return std::string("Not enough free disk space. At least ") +
+             (purpose == "cache" ? "100 MB" : "50 MB") + " required.";
+    }
+  }
+#else
+  struct statvfs vfs;
+  if (statvfs(resolved.c_str(), &vfs) == 0) {
+    const uint64_t free = static_cast<uint64_t>(vfs.f_frsize) * vfs.f_bavail;
+    if (free < required_bytes) {
+      return std::string("Not enough free disk space. At least ") +
+             (purpose == "cache" ? "100 MB" : "50 MB") + " required.";
+    }
+  }
+#endif
+
+  return "";
 }
 
 } // namespace otf
