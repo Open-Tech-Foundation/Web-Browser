@@ -12,6 +12,22 @@ const PrivateBadge = () => (
   </svg>
 );
 
+const getDomain = (url) => {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    return u.hostname;
+  } catch {
+    return '';
+  }
+};
+
+const getTabTooltip = (tab) => {
+  const title = tab.title || 'New Tab';
+  const domain = getDomain(tab.url);
+  return domain ? `${title}\n${domain}` : title;
+};
+
 const getTabIcon = (tab) => {
   const url = tab.url || '';
   const title = (tab.title || '').toLowerCase();
@@ -175,6 +191,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           <a 
             key={tab.id}
             href={`tab-context-menu:${tab.id}`}
+            title={getTabTooltip(tab)}
             onClick={(e) => {
               e.preventDefault();
               onSwitch(tab.id);
