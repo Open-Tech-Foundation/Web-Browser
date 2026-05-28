@@ -1,7 +1,7 @@
 import { signal } from "@opentf/web";
 
 // Per-row state. Status: 'idle' | 'running' | 'ok' | 'warn' | 'fail'
-//                       | 'pending-gesture' | 'pending-reload'.
+//                       | 'pending-gesture' | 'pending-reload' | 'pending-restart'.
 // `rows` is an array of [key, value] pairs rendered as a definition list
 // when the row is expanded. `extra` lets a module attach renderer-specific
 // payloads (e.g. canvas/webgl preview hooks) without bloating the store.
@@ -18,7 +18,7 @@ export const rowsMeta = signal({});            // id -> { label, entropy, catego
 export const rowsState = signal({});           // id -> { status, summary, detail, rows, extra }
 export const expanded = signal({});            // id -> bool
 
-export const runState = signal('idle');        // 'idle' | 'running' | 'done' | 'awaiting-reload'
+export const runState = signal('idle');        // 'idle' | 'running' | 'done' | 'awaiting-reload' | 'awaiting-restart' | 'ready-to-compare'
 export const filter = signal('all');           // 'all' | 'failures' | 'warnings' | 'high' | 'medium' | 'low' | 'security'
 
 export const registerRow = (id, meta) => {

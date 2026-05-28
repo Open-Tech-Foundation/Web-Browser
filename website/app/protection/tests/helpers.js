@@ -12,6 +12,28 @@ const MAX_SESSIONS = 5;
 // Maintains a ring buffer of per-session hashes in localStorage.
 // sessionStorage holds an "already recorded this session" flag so a reload
 // of the same page doesn't push a duplicate entry.
+// Returns { history, isFirstSession } so callers can show a restart prompt.
+// Returns current restart-test state based on localStorage/sessionStorage.
+// 'idle'             — no data stored yet
+// 'awaiting-restart' — this session recorded, waiting for browser restart
+// 'ready-to-compare' — browser was restarted, previous session data exists
+export const getRestartState = () => {
+  const keys = Object.values(storageKeys);
+  const hasData = keys.some((key) => {
+    try { return JSON.parse(localStorage.getItem(key) || '[]').length > 0; } catch (_) { return false; }
+  });
+  if (!hasData) return 'idle';
+  const sessionRecorded = keys.some((key) => sessionStorage.getItem(key + ':session') !== null);
+  return sessionRecorded ? 'awaiting-restart' : 'ready-to-compare';
+};
+
+export const clearRestartHistory = () => {
+  for (const key of Object.values(storageKeys)) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key + ':session');
+  }
+};
+
 export const trackSessionHistory = (key, hash) => {
   const sessionFlag = key + ':session';
   let history = [];
@@ -24,7 +46,7 @@ export const trackSessionHistory = (key, hash) => {
     if (history.length > MAX_SESSIONS) history = history.slice(-MAX_SESSIONS);
     localStorage.setItem(key, JSON.stringify(history));
   }
-  return history;
+  return { history, isFirstSession: history.length === 1 };
 };
 
 export const hashText = async (text) => {

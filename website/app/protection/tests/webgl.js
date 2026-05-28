@@ -50,7 +50,7 @@ export default {
       return;
     }
     const hash = await renderHash(gl);
-    const history = trackSessionHistory(storageKeys.webgl, hash);
+    const { history, isFirstSession } = trackSessionHistory(storageKeys.webgl, hash);
     const uniqueSessionHashes = new Set(history).size;
     const sessionCount = history.length;
     const allUnique = uniqueSessionHashes === sessionCount;
@@ -89,15 +89,19 @@ export default {
       'gl.readPixels returns raw GPU pixel data — not perturbed by the canvas noise policy.',
       [['changed methods', changedMethods.join(', ') || 'none']]);
 
-    const renderedStatus = sessionCount < 2
-      ? (changedMethods.length > 0 ? 'ok' : 'warn')
-      : allUnique ? 'ok' : 'fail';
+    const renderedStatus = isFirstSession
+      ? 'pending-restart'
+      : sessionCount < 2
+        ? (changedMethods.length > 0 ? 'ok' : 'warn')
+        : allUnique ? 'ok' : 'fail';
     ctx.set('webgl-render-output', renderedStatus,
-      sessionCount < 2
-        ? (changedMethods.length > 0 ? 'Rendered output varies across contexts' : 'Awaiting second session for baseline')
-        : allUnique
-          ? `All ${sessionCount} sessions produced different WebGL hashes`
-          : 'Duplicate WebGL hash across sessions',
+      isFirstSession
+        ? 'Restart your browser and re-run to compare across sessions'
+        : sessionCount < 2
+          ? (changedMethods.length > 0 ? 'Rendered output varies across contexts' : 'Awaiting second session for baseline')
+          : allUnique
+            ? `All ${sessionCount} sessions produced different WebGL hashes`
+            : 'Duplicate WebGL hash across sessions',
       `Unique session hashes: ${uniqueSessionHashes}/${sessionCount}, changed context methods: ${changedMethods.length}`,
       [
         ['session history (newest last)', history.join(', ')],

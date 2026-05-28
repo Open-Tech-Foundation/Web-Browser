@@ -1,12 +1,8 @@
-import { registerRow, setStatus, setExtra, setRow, runState } from "./store.js";
+import { registerRow, setStatus, setExtra, setRow, runState, rowsState } from "./store.js";
 import modules from "./tests/index.js";
+import { getRestartState, clearRestartHistory } from "./tests/helpers.js";
 
 // ── Test context handed to each module's run(ctx) ─────────────────────────
-// Modules call:
-//   ctx.set(id, status, summary, detail, rows?)  — write a row's result
-//   ctx.setRows(id, rows)                        — update only the detail rows
-//   ctx.setExtra(id, anything)                   — attach renderer-specific
-//                                                  payload (e.g. canvas hooks)
 const makeCtx = () => ({
   set: setStatus,
   setRows: (id, rows) => setRow(id, { rows }),
@@ -14,8 +10,8 @@ const makeCtx = () => ({
 });
 
 // Reload protocol — used by tests that need to compare a value across two
-// fresh page loads (currently the audio test). A module marks itself with
-// `needsReload: true` and uses ctx.reloadState to drive the dance.
+// fresh page loads (audio, math, layout). A module marks itself with
+// `needsReload: true` and implements capture() + run().
 const RELOAD_KEY = 'otfProtectionReload';
 
 export const reloadStateFor = (moduleName) => {
@@ -39,15 +35,13 @@ export const consumeAutoResume = () => {
 };
 
 // ── Registration ──────────────────────────────────────────────────────────
-// Called once at mount. Walks each module and registers every produced row
-// in the store so the UI can render them with idle status.
 export const registerAll = () => {
   for (const mod of modules) {
     for (const row of mod.produces) {
       registerRow(row.id, {
         label: row.label,
-        entropy: row.entropy,           // 'high' | 'medium' | 'low' | 'security'
-        category: mod.category,         // 'privacy' | 'security'
+        entropy: row.entropy,
+        category: mod.category,
         module: mod.module,
         description: row.description || '',
       });
@@ -56,17 +50,11 @@ export const registerAll = () => {
 };
 
 // ── Orchestration ─────────────────────────────────────────────────────────
-// Tests split into three buckets:
-//   gesture — must run synchronously inside a click handler so transient
-//             user activation is still valid (e.g. queryLocalFonts).
-//   reload  — needs a two-phase capture across a page reload.
-//   normal  — async, runs in parallel (Promise.allSettled).
 const markRunning = (mod) => {
   for (const row of mod.produces) setStatus(row.id, 'running', 'Running…', '');
 };
 
 const runGesture = (ctx) => {
-  // MUST be called synchronously from the click handler.
   for (const mod of modules.filter((m) => m.needsGesture)) {
     markRunning(mod);
     try { mod.run(ctx); } catch (error) {
@@ -88,17 +76,28 @@ const runOne = async (mod, ctx) => {
   }
 };
 
-export const startSuite = async ({ onReloadNeeded } = {}) => {
+// isAutoResume: true when called from maybeAutoResume after a mid-suite page
+// reload (for audio/math/layout tests). In that case we must NOT clear restart
+// history — the canvas/webgl baseline from earlier in this session is still needed.
+export const startSuite = async ({ onReloadNeeded, isAutoResume = false } = {}) => {
   const ctx = makeCtx();
+
+  // Clear restart history only when starting a genuinely new cycle:
+  //   - not an auto-resume (mid-suite page reload for reload tests)
+  //   - not a comparison run (browser was restarted, previous session data is the baseline)
+  if (!isAutoResume && getRestartState() !== 'ready-to-compare') {
+    clearRestartHistory();
+  }
+
   runState.value = 'running';
   runGesture(ctx);
+
+  // Normal tests (canvas, webgl, etc.) and reload tests run independently.
+  // Restart-pending rows from canvas/webgl do NOT block the reload tests.
   const normal = modules.filter((m) => !m.needsGesture && !m.needsReload);
   await Promise.allSettled(normal.map((m) => runOne(m, ctx)));
 
   const reloadModules = modules.filter((m) => m.needsReload);
-
-  // Phase 1: capture ALL reload modules that don't have a saved value yet,
-  // then do a single page reload for all of them at once.
   const toCaptureNow = reloadModules.filter((m) => reloadStateFor(m.module).get() === null);
 
   if (toCaptureNow.length > 0) {
@@ -123,7 +122,7 @@ export const startSuite = async ({ onReloadNeeded } = {}) => {
           for (const mod of toCaptureNow) reloadStateFor(mod.module).set(null);
           consumeAutoResume();
           for (const mod of reloadModules) await runOne(mod, ctx);
-          runState.value = 'done';
+          runState.value = _finalState();
           return;
         }
       }
@@ -131,22 +130,26 @@ export const startSuite = async ({ onReloadNeeded } = {}) => {
       return;
     }
 
-    // All captures failed: fall back to single-shot for these modules.
     for (const mod of toCaptureNow) await runOne(mod, ctx);
   }
 
-  // Phase 2: run all reload modules — those with a saved value compare across
-  // loads; those without (failed capture) fall back in their own run().
   for (const mod of reloadModules) await runOne(mod, ctx);
 
-  runState.value = 'done';
+  runState.value = _finalState();
 };
 
-// Hook called after registerAll on every mount. If the previous session
-// scheduled a reload, kick the suite back off so the user doesn't have to
-// click Start again.
+// After all tests complete, determine the final runState:
+// if any row is pending-restart the user still needs to restart the browser.
+const _finalState = () => {
+  const restartPending = Object.values(rowsState.value)
+    .some((s) => s.status === 'pending-restart');
+  return restartPending ? 'awaiting-restart' : 'done';
+};
+
+// Called on every mount. If the runner triggered a page reload mid-suite,
+// auto-resume so the user doesn't have to click Start again.
 export const maybeAutoResume = async (callbacks) => {
   if (!consumeAutoResume()) return false;
-  await startSuite(callbacks);
+  await startSuite({ ...callbacks, isAutoResume: true });
   return true;
 };

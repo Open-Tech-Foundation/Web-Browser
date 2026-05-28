@@ -102,6 +102,14 @@ export const protectionStyles = `
 #protection-container .row-icon.running { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
 #protection-container .row-icon.pending-gesture { background: var(--info); }
 #protection-container .row-icon.pending-reload { background: var(--info); }
+#protection-container .row-icon.pending-restart { background: var(--warn); }
+
+#protection-container .restart-banner {
+  background: #fff4d1; border: 1px solid #d8be62; padding: 12px 16px;
+  border-radius: 6px; margin: 16px 0;
+}
+#protection-container .restart-banner strong { display: block; margin-bottom: 4px; }
+#protection-container .restart-banner small { color: var(--muted); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 #protection-container .row-meta { min-width: 0; }

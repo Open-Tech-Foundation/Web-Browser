@@ -84,7 +84,7 @@ export default {
       contextProbes[0][name] !== contextProbes[1][name]);
     const probeError = contextProbes.find((p) => p && p.error)?.error;
     const uniqueAttempts = new Set(hashes).size;
-    const history = trackSessionHistory(storageKeys.canvas, hash);
+    const { history, isFirstSession } = trackSessionHistory(storageKeys.canvas, hash);
     const uniqueSessionHashes = new Set(history).size;
     const sessionCount = history.length;
     const allUnique = uniqueSessionHashes === sessionCount;
@@ -100,15 +100,19 @@ export default {
         ['changed methods', changedMethods.join(', ') || 'none'],
       ]);
 
-    const status = sessionCount < 2
-      ? (contextChanged ? 'ok' : 'warn')
-      : allUnique ? 'ok' : 'fail';
+    const status = isFirstSession
+      ? 'pending-restart'
+      : sessionCount < 2
+        ? (contextChanged ? 'ok' : 'warn')
+        : allUnique ? 'ok' : 'fail';
     ctx.set('canvas-fingerprint', status,
-      sessionCount < 2
-        ? (contextChanged ? 'Changes across automated fresh contexts' : 'Awaiting second session for baseline')
-        : allUnique
-          ? `All ${sessionCount} sessions produced different canvas hashes`
-          : 'Duplicate canvas hash across sessions — noise may be stable',
+      isFirstSession
+        ? 'Restart your browser and re-run to compare across sessions'
+        : sessionCount < 2
+          ? (contextChanged ? 'Changes across automated fresh contexts' : 'Awaiting second session for baseline')
+          : allUnique
+            ? `All ${sessionCount} sessions produced different canvas hashes`
+            : 'Duplicate canvas hash across sessions — noise may be stable',
       `Unique session hashes: ${uniqueSessionHashes}/${sessionCount}, changed context methods: ${changedMethods.length}`,
       [
         ['session history (newest last)', history.join(', ')],

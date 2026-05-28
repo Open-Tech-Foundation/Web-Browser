@@ -5,7 +5,7 @@ import {
   toggleExpanded, computeScore,
 } from "./store.js";
 import { registerAll, startSuite, maybeAutoResume } from "./runner.js";
-import { drawFingerprintScene } from "./tests/helpers.js";
+import { drawFingerprintScene, getRestartState } from "./tests/helpers.js";
 import { playTestTone, onSpeakerStateChange, getSpeakerState } from "./tests/media-test.js";
 
 // Filter chips: 'all' | 'failures' | 'warnings' | 'high' | 'medium' | 'low' | 'security'.
@@ -41,12 +41,14 @@ const statusGlyph = (status) =>
   : status === 'warn' ? '!'
   : status === 'pending-gesture' ? '?'
   : status === 'pending-reload' ? '↻'
+  : status === 'pending-restart' ? '↺'
   : status === 'running' ? '…'
   : '·';
 
 // Reload-banner signal — flipped on by the runner via onReloadNeeded.
 // Resolves on user choice; the runner waits on the resulting Promise.
 const reloadPrompt = signal(null);   // { modules: [...], resolve } | null
+
 
 const buildJsonReport = () => {
   const tests = rowIds.value.map((id) => {
@@ -84,22 +86,29 @@ export default function ProtectionPage() {
   onMount(() => {
     registerAll();
     onSpeakerStateChange((s) => { speakerState.value = { ...s }; });
+    // Restore restart-test state from storage so a page refresh or browser
+    // restart doesn't silently lose the pending/ready state.
+    const restartState = getRestartState();
+    if (restartState !== 'idle') runState.value = restartState;
     // If the runner reloaded us mid-suite, pick up where we left off.
     maybeAutoResume({
       onReloadNeeded: (mod) => new Promise((resolve) => {
         reloadPrompt.value = { modules: mod, resolve };
       }),
+      onRestartNeeded: () => { /* runState already set to awaiting-restart */ },
     });
   });
 
   const startSuiteWithGesture = () => {
-    if (runState.value === 'running' || runState.value === 'awaiting-reload') return;
+    if (runState.value === 'running' || runState.value === 'awaiting-reload' || runState.value === 'awaiting-restart') return;
+
     // Modules with needsGesture must run inside this click frame so transient
     // user activation is still valid. startSuite handles the dispatch.
     startSuite({
       onReloadNeeded: (mod) => new Promise((resolve) => {
         reloadPrompt.value = { modules: mod, resolve };
       }),
+      onRestartNeeded: () => { /* runState already set to awaiting-restart */ },
     }).catch((err) => console.error('Suite error:', err));
   };
 
@@ -132,6 +141,8 @@ export default function ProtectionPage() {
     const s = runState.value;
     return s === 'running' ? 'Running…'
       : s === 'awaiting-reload' ? 'Reload pending…'
+      : s === 'awaiting-restart' ? 'Waiting for restart…'
+      : s === 'ready-to-compare' ? 'Re-run to Compare'
       : s === 'done' ? 'Re-run Test Suite'
       : 'Start Test Suite';
   };
@@ -152,7 +163,8 @@ export default function ProtectionPage() {
           <div className="header-actions">
             <button
               onClick={startSuiteWithGesture}
-              className={runState.value === 'running' || runState.value === 'awaiting-reload' ? 'is-disabled' : ''}
+              className={runState.value === 'running' || runState.value === 'awaiting-reload' || runState.value === 'awaiting-restart' ? 'is-disabled' : ''}
+
             >
               {startLabel()}
             </button>
@@ -175,6 +187,24 @@ export default function ProtectionPage() {
                 <button onClick={acceptReload}>Continue</button>
                 <button className="secondary" onClick={declineReload}>Skip</button>
               </div>
+            </div>
+          ) : null}
+          {runState.value === 'awaiting-restart' ? (
+            <div className="restart-banner">
+              <strong>Restart your browser to complete these tests.</strong>
+              <small>
+                Session data has been saved. Close and reopen your browser, return to this page,
+                and click "Re-run to Compare" to compare canvas and WebGL fingerprints across sessions.
+              </small>
+            </div>
+          ) : null}
+          {runState.value === 'ready-to-compare' ? (
+            <div className="restart-banner">
+              <strong>Browser restarted — ready to compare.</strong>
+              <small>
+                Previous session data is available. Click "Re-run to Compare" to run the test suite
+                and see whether canvas and WebGL fingerprints rotated across browser restarts.
+              </small>
             </div>
           ) : null}
           {exportJson.value ? (

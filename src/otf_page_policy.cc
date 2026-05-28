@@ -197,6 +197,20 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
     } catch (_) {}
   };
 
+  // Per-page-load canvas seed.  Generated once per page context so all
+  // canvas readbacks (getImageData, readPixels, toDataURL, etc.) within a
+  // single page load use identical noise — stable for same-page consistency
+  // checks — while still rotating on every page reload and browser restart.
+  const __otfCanvasSeed = (() => {
+    try {
+      const a = new Uint32Array(1);
+      crypto.getRandomValues(a);
+      return a[0] || 0xdeadbeef;
+    } catch (_) {
+      return (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
+    }
+  })();
+
   // Screen: expose a stable common profile instead of exact device dimensions.
   const screenProfile = __OTF_SCREEN_PROFILE__;
   const defineGetter = (target, name, value) => {
@@ -405,11 +419,10 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
   (() => {
   'use strict';
 
-  // --- per-session+origin seed -------------------------------------------
-  // Stable within a session (survives "render twice and compare"),
-  // different across sessions and across origins (no cross-site linking).
+  // --- per-page+origin seed -------------------------------------------
+  // Stable within a page load (survives "render twice and compare"),
+  // different across page loads, origins, and browser launches.
   const sessionSeed = (() => {
-    // one random 32-bit value generated once per page-context
     const a = new Uint32Array(1);
     crypto.getRandomValues(a);
     return a[0];
@@ -499,7 +512,7 @@ std::string BuildPagePolicyScript(const std::string& screen_profile_json) {
 )JS"
 R"JS(
 
-  // Layout metrics: normalize font probes with stable per-session noise.
+  // Layout metrics: normalize font probes with stable per-page-load noise.
   const layoutNoiseSeed = (() => {
     try {
       const values = new Uint32Array(1);
@@ -1128,23 +1141,38 @@ R"JS(
   });
 
   // Canvas: protect readback/export surfaces used for fingerprinting.
-  // Tiny additive noise (±2 per channel) drawn fresh per call. Additive
-  // perturbation is preferred over XOR because XOR is reversible and, with
-  // a stable seed, the output itself becomes a stable per-session fingerprint
-  // signal. Fresh randomness per call also breaks linkability across reads
-  // of the same canvas.
+  // Tiny additive noise (±2 per channel) drawn from a deterministic PRNG
+  // seeded per (page-load, origin, buffer-size).  Using a stable per-page
+  // seed means multiple reads of the same canvas within one page load return
+  // identical perturbed values (passing same-page consistency checks) while
+  // the noise pattern rotates on every reload and browser restart.
   const perturbPixelBuffer = (data) => {
     try {
       if (!data || typeof data.length !== 'number') return data;
+      // Mix the per-page canvas seed with the origin and buffer length so
+      // same-size canvases on different origins still get different noise.
+      const origin = (typeof location !== 'undefined') ? (location.origin || '') : '';
+      let s = __otfCanvasSeed >>> 0;
+      for (let c = 0; c < origin.length; c++) {
+        s = Math.imul(s ^ origin.charCodeAt(c), 0x01000193) >>> 0;
+      }
+      s = (s ^ (data.length >>> 0)) >>> 0;
+      const rand = () => {
+        s = (s + 0x6D2B79F5) >>> 0;
+        let t = s;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
       for (let i = 0; i < data.length; i += 4) {
-        let r = data[i] + ((Math.random() * 5) | 0) - 2;
+        let r = data[i] + ((rand() * 5) | 0) - 2;
         data[i] = r < 0 ? 0 : r > 255 ? 255 : r;
         if (i + 1 < data.length) {
-          let g = data[i + 1] + ((Math.random() * 5) | 0) - 2;
+          let g = data[i + 1] + ((rand() * 5) | 0) - 2;
           data[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
         }
         if (i + 2 < data.length) {
-          let b = data[i + 2] + ((Math.random() * 5) | 0) - 2;
+          let b = data[i + 2] + ((rand() * 5) | 0) - 2;
           data[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
         }
       }
