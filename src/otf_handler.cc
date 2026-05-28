@@ -5549,7 +5549,9 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
     model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_IMAGE, "Preview Image");
   }
 
-  if (params->GetLinkUrl().empty() && search_text.empty() &&
+  const bool is_editable = (params->GetTypeFlags() & CM_TYPEFLAG_EDITABLE) != 0;
+  if (ui_browser_ && browser->IsSame(ui_browser_) && !is_editable &&
+      params->GetLinkUrl().empty() && search_text.empty() &&
       !(params->HasImageContents() && !params->GetSourceUrl().empty())) {
     model->Clear();
   }
