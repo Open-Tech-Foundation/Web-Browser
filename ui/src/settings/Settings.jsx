@@ -714,10 +714,10 @@ const Settings = () => {
                 <section>
                   <div className="space-y-4">
                     {[
-                      { key: 'dataDir', label: 'Browser Data', desc: 'Settings, databases, and profile data. Cannot be changed.', readonly: true },
+                      { key: 'dataDir', label: 'Browser Data', desc: 'Settings, databases, and profile data.', readonly: true, footnote: 'This location is browser-managed and cannot be changed.' },
                       { key: 'cacheDir', label: 'Cache', desc: 'Temporary internet files and cached content.' },
                       { key: 'downloadsDir', label: 'Downloads', desc: 'Where downloaded files are saved.' },
-                    ].map(({ key, label, desc, readonly }) => {
+                    ].map(({ key, label, desc, readonly, footnote }) => {
                       const active = storagePaths ? storagePaths[`active${key.charAt(0).toUpperCase() + key.slice(1)}`] : '';
                       const configured = storagePaths ? storagePaths[`configured${key.charAt(0).toUpperCase() + key.slice(1)}`] : '';
                       const pending = storagePaths ? storagePaths[`pending${key.charAt(0).toUpperCase() + key.slice(1)}`] : null;
@@ -791,6 +791,14 @@ const Settings = () => {
                           {localError && (
                             <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-xl animate-in fade-in duration-300">
                               <p className="text-xs text-red-400 font-medium">{localError}</p>
+                            </div>
+                          )}
+                          {footnote && (
+                            <div className="mt-3 p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-start gap-2.5">
+                              <svg className="w-4 h-4 mt-0.5 shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+                              </svg>
+                              <p className="text-[11px] text-main leading-relaxed">{footnote}</p>
                             </div>
                           )}
                         </div>
