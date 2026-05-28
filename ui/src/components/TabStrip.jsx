@@ -169,6 +169,14 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
     viewport.scrollBy({ left: direction * Math.max(160, viewport.clientWidth * 0.75), behavior: 'smooth' });
   };
 
+  const handleWheel = (e) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    e.preventDefault();
+    viewport.scrollBy({ left: e.deltaY, behavior: 'auto' });
+  };
+
   return (
     <div className="flex items-end h-[29px] bg-slate-300/50 dark:bg-[#020617] overflow-hidden">
       {isOverflowing && canScrollLeft && (
@@ -186,7 +194,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           </div>
         </button>
       )}
-      <div ref={viewportRef} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-1 flex items-end flex-nowrap">
+      <div ref={viewportRef} onWheel={handleWheel} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-1 flex items-end flex-nowrap">
         {sortedTabs.map((tab, index) => (
           <a 
             key={tab.id}
