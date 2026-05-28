@@ -54,7 +54,9 @@ const AppMenu = () => {
   return (
     <div className="w-full h-full p-2 bg-transparent box-border">
       <div className="w-full h-full bg-white dark:bg-[#0a0a0c] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl p-5 flex flex-col overflow-hidden relative">
-        <div className="grid grid-cols-3 gap-4 relative z-10">
+
+        <SectionHeader label="Data" />
+        <div className="grid grid-cols-3 gap-4 relative z-10 mb-4">
           <AppMenuItem
             name="Downloads"
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v11"/><path d="m7 9 5 5 5-5"/><path d="M5 21h14"/></svg>}
@@ -70,11 +72,24 @@ const AppMenu = () => {
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>}
             onClick={() => handleNavigate('browser://history')}
           />
+        </div>
+
+        <SectionHeader label="Tools" />
+        <div className="grid grid-cols-3 gap-4 relative z-10 mb-4">
           <AppMenuItem
             name="Console"
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>}
             onClick={() => handleAction('toggle-console')}
           />
+          <AppMenuItem
+            name="Find"
+            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
+            onClick={() => handleAction('show-findbar')}
+          />
+        </div>
+
+        <SectionHeader label="Privacy" />
+        <div className="grid grid-cols-3 gap-4 relative z-10">
           <AppMenuItem
             name="Private Tab"
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 13h20"/><path d="M5 13l1.5-5.5A2 2 0 0 1 8.4 6h7.2a2 2 0 0 1 1.9 1.5L19 13"/><circle cx="7" cy="16" r="2.5"/><circle cx="17" cy="16" r="2.5"/><path d="M9.5 16h5"/></svg>}
@@ -86,16 +101,16 @@ const AppMenu = () => {
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V7l-8-4Z"/><path d="M9 12h6"/></svg>}
             onClick={() => handleAction('create-guest-session')}
           />
-          <AppMenuItem
-            name="Find"
-            icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
-            onClick={() => handleAction('show-findbar')}
-          />
         </div>
+
       </div>
     </div>
   );
 };
+
+const SectionHeader = ({ label }) => (
+  <div className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.15em] mb-2 ml-0.5">{label}</div>
+);
 
 const AppMenuItem = ({ name, icon, onClick, accent = 'orange' }) => (
   <button 
