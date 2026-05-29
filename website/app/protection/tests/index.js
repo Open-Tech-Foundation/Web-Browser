@@ -13,6 +13,7 @@ import fingerprintSurfaces from "./fingerprint-surfaces.js";
 import audio from "./audio.js";
 import mathFingerprint from "./math-fingerprint.js";
 import localFontApi from "./local-font-api.js";
+import webrtc from "./webrtc.js";
 import webgpu from "./webgpu.js";
 import navigationScheme from "./navigation-scheme.js";
 import realmCoverage from "./realm-coverage.js";
@@ -32,6 +33,7 @@ export default [
   audio,            // needsReload
   mathFingerprint,  // needsReload
   localFontApi,     // needsGesture
+  webrtc,
   // Security modules
   webgpu,
   navigationScheme,
