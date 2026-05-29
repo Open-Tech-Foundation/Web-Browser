@@ -26,7 +26,6 @@ const DocPreview = () => {
   const hasSnapshotRef = useRef(false);
   const previewTabIdRef = useRef(-1);
   const applyLoadDocRef = useRef(null);
-  const pdfNavigatedRef = useRef(false);
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 20;
 
@@ -209,20 +208,29 @@ const DocPreview = () => {
     }
 
     if (isPdf) {
-      // PDFs can't use data: URIs (blocked by page security policy) or
-      // cross-origin iframes. Navigate the whole tab to the content URL
-      // so CEF's built-in PDF viewer takes over.
-      if (contentUrl && !pdfNavigatedRef.current) {
-        pdfNavigatedRef.current = true;
-        window.location.href = contentUrl;
+      // Render the PDF in a SAME-ORIGIN iframe (contentUrl is
+      // browser://doc-preview/content/…, same origin as this page) so CEF's
+      // built-in PDF viewer takes over *inside* the preview app. Navigating the
+      // whole overlay to the content URL instead would replace this React app —
+      // dropping the title bar/close button and the load-doc subscription, and
+      // stranding the single shared overlay on the first PDF for every tab.
+      // (data: URIs are blocked by the page CSP, so the iframe uses the URL.)
+      if (!contentUrl) {
+        return (
+          <div style={emptyStyle}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128196;</div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>
+              Loading PDF...
+            </div>
+          </div>
+        );
       }
       return (
-        <div style={emptyStyle}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128196;</div>
-          <div style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>
-            Loading PDF...
-          </div>
-        </div>
+        <iframe
+          src={contentUrl}
+          title={fileName}
+          style={{ flex: 1, width: '100%', height: '100%', border: 'none', background: '#525659' }}
+        />
       );
     }
 
