@@ -33,25 +33,135 @@ function levelTextColor(level) {
 }
 
 const TABLE_SENTINEL = '__OTF_TABLE__:';
+const LOG_SENTINEL = '__OTF_LOG__:';
 
 function parseMessage(message) {
-  if (!message) return { summary: '', lines: [], table: null };
+  if (!message) return { summary: '', lines: [], table: null, logArgs: null };
   if (message.startsWith(TABLE_SENTINEL)) {
     try {
       const table = JSON.parse(message.slice(TABLE_SENTINEL.length));
-      return { summary: '[table]', lines: [], table };
+      return { summary: '[table]', lines: [], table, logArgs: null };
+    } catch {}
+  }
+  if (message.startsWith(LOG_SENTINEL)) {
+    try {
+      const parsed = JSON.parse(message.slice(LOG_SENTINEL.length));
+      if (parsed && Array.isArray(parsed.args)) {
+        return { summary: '', lines: [], table: null, logArgs: parsed.args };
+      }
     } catch {}
   }
   const parts = message.split('\n');
   const summary = parts[0];
   const lines = parts.slice(1).filter(Boolean);
-  return { summary, lines, table: null };
+  return { summary, lines, table: null, logArgs: null };
 }
 
 // Keep backward compat alias used by MessageModal
 function parseStackTrace(message) {
   const { summary, lines } = parseMessage(message);
   return { summary, lines };
+}
+
+function LogValue({ value, depth = 0, defaultOpen }) {
+  const initialOpen = defaultOpen !== undefined ? defaultOpen : depth < 1;
+  const [open, setOpen] = useState(initialOpen);
+  const collapsibleStyle = { cursor: 'pointer', color: '#94a3b8', userSelect: 'none' };
+  if (!value || typeof value !== 'object') {
+    return <span style={{ color: '#94a3b8' }}>?</span>;
+  }
+  switch (value.t) {
+    case 'null':      return <span style={{ color: '#64748b' }}>null</span>;
+    case 'undefined': return <span style={{ color: '#64748b' }}>undefined</span>;
+    case 'boolean':   return <span style={{ color: '#fbbf24' }}>{String(value.v)}</span>;
+    case 'number':    return <span style={{ color: '#60a5fa' }}>{String(value.v)}</span>;
+    case 'bigint':    return <span style={{ color: '#60a5fa' }}>{value.v}</span>;
+    case 'string':    return <span style={{ color: '#86efac' }}>{JSON.stringify(value.v)}</span>;
+    case 'symbol':    return <span style={{ color: '#c084fc' }}>{value.v}</span>;
+    case 'function':  return <span style={{ color: '#c084fc' }}>ƒ {value.v}()</span>;
+    case 'date':      return <span style={{ color: '#fbbf24' }}>Date({value.v})</span>;
+    case 'regexp':    return <span style={{ color: '#f97316' }}>{value.v}</span>;
+    case 'circular':  return <span style={{ color: '#ef4444' }}>[Circular]</span>;
+    case 'error': {
+      const e = value.v || {};
+      return (
+        <span>
+          <span style={collapsibleStyle} onClick={() => setOpen(o => !o)}>
+            {open ? '▾' : '▸'} <span style={{ color: '#ef4444' }}>{e.name || 'Error'}: {e.message}</span>
+          </span>
+          {open && e.stack && (
+            <pre style={{ margin: '2px 0 2px 14px', fontSize: '10px', color: '#64748b', whiteSpace: 'pre-wrap' }}>
+              {e.stack}
+            </pre>
+          )}
+        </span>
+      );
+    }
+    case 'array':
+    case 'object':
+    case 'map':
+    case 'set': {
+      const isArr = value.t === 'array';
+      const isMap = value.t === 'map';
+      const isSet = value.t === 'set';
+      const openCh = isArr || isSet ? '[' : '{';
+      const closeCh = isArr || isSet ? ']' : '}';
+      const label = value.ctor || (isArr ? 'Array' : isMap ? 'Map' : isSet ? 'Set' : 'Object');
+      const count = value.len !== undefined ? value.len
+        : isArr || isSet ? (value.v ? value.v.length : 0)
+        : isMap ? (value.v ? value.v.length : 0)
+        : (value.v ? Object.keys(value.v).length : 0);
+      let entries = [];
+      if (isArr) entries = (value.v || []).map((v, i) => [i, v]);
+      else if (isMap) entries = (value.v || []);
+      else if (isSet) entries = (value.v || []).map((v, i) => [i, v]);
+      else entries = Object.entries(value.v || {});
+      return (
+        <span>
+          <span style={collapsibleStyle} onClick={() => setOpen(o => !o)}>
+            {open ? '▾' : '▸'} <span style={{ color: '#cbd5e1' }}>{label}</span>
+            <span style={{ color: '#64748b' }}>({count})</span> {openCh}
+          </span>
+          {open && (
+            <div style={{ paddingLeft: '14px', borderLeft: '1px solid rgba(255,255,255,0.05)' }}>
+              {entries.map(([k, v], i) => (
+                <div key={i} style={{ display: 'flex', gap: '6px' }}>
+                  <span style={{ color: '#64748b', flexShrink: 0 }}>
+                    {isMap ? <LogValue value={k} depth={depth + 1} /> : String(k)}:
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <LogValue value={v} depth={depth + 1} />
+                  </span>
+                </div>
+              ))}
+              {value.truncated && <div style={{ color: '#64748b' }}>… truncated</div>}
+            </div>
+          )}
+          {!open && <span style={{ color: '#64748b' }}> … </span>}
+          <span style={{ color: '#94a3b8' }}>{closeCh}</span>
+        </span>
+      );
+    }
+    default:
+      return <span style={{ color: '#94a3b8' }}>?</span>;
+  }
+}
+
+function LogArgsView({ args }) {
+  return (
+    <div style={{
+      fontFamily: 'ui-monospace, "Cascadia Code", Consolas, monospace',
+      fontSize: '11px',
+      lineHeight: '1.5',
+      color: '#cbd5e1',
+    }}>
+      {args.map((a, i) => (
+        <div key={i} style={{ marginBottom: i < args.length - 1 ? '2px' : 0 }}>
+          <LogValue value={a} depth={0} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function TableView({ table }) {
@@ -279,8 +389,29 @@ function ConsoleRow({ entry, onClick }) {
   const color = levelColor(entry.level);
   const bg = levelBg(entry.level);
   const src = formatSource(entry.source, entry.line);
-  const { summary, lines, table } = parseMessage(entry.message);
+  const { summary, lines, table, logArgs } = parseMessage(entry.message);
   const hasStack = lines.length > 0;
+
+  if (logArgs) {
+    return (
+      <div style={{
+        padding: '4px 8px',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        background: bg,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+          <LevelBadge level={entry.level} />
+          {entry.timestamp_ms > 0 && (
+            <span style={{ color: '#475569', fontSize: '10px', fontFamily: 'ui-monospace, monospace' }}>
+              {formatTime(entry.timestamp_ms)}
+            </span>
+          )}
+          {src && <span style={{ color: '#475569', fontSize: '10px', marginLeft: 'auto', fontFamily: 'ui-monospace, monospace' }} title={`${entry.source}:${entry.line}`}>{src}</span>}
+        </div>
+        <LogArgsView args={logArgs} />
+      </div>
+    );
+  }
 
   if (table) {
     return (

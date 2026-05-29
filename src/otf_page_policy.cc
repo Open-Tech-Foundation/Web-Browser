@@ -1969,6 +1969,97 @@ R"JS(
         }
       };
     }
+
+    // Wrap console.log/info/warn/error/debug so non-primitive args travel to
+    // our panel as a structured tree (CEF's OnConsoleMessage otherwise flattens
+    // objects to "[object Object]"). Primitive-only calls pass through unchanged.
+    const __OTF_LOG_SENTINEL = '__OTF_LOG__:';
+    const __otf_orig_log = {
+      log: console.log, info: console.info, warn: console.warn,
+      error: console.error, debug: console.debug,
+    };
+    const __otf_MAX_DEPTH = 10;
+    const __otf_MAX_KEYS = 200;
+    function __otf_encode(value, depth, seen) {
+      if (value === null) return { t: 'null' };
+      const tp = typeof value;
+      if (tp === 'undefined') return { t: 'undefined' };
+      if (tp === 'boolean') return { t: 'boolean', v: value };
+      if (tp === 'number') return { t: 'number', v: Number.isFinite(value) ? value : String(value) };
+      if (tp === 'string') return { t: 'string', v: value };
+      if (tp === 'bigint') return { t: 'bigint', v: String(value) + 'n' };
+      if (tp === 'symbol') return { t: 'symbol', v: String(value) };
+      if (tp === 'function') return { t: 'function', v: (value.name || '(anonymous)') };
+      if (seen.has(value)) return { t: 'circular' };
+      if (depth >= __otf_MAX_DEPTH) {
+        return { t: Array.isArray(value) ? 'array' : 'object', truncated: true, v: Array.isArray(value) ? [] : {} };
+      }
+      seen.add(value);
+      try {
+        if (Array.isArray(value)) {
+          const cap = Math.min(value.length, __otf_MAX_KEYS);
+          const items = [];
+          for (let i = 0; i < cap; i++) items.push(__otf_encode(value[i], depth + 1, seen));
+          return { t: 'array', v: items, len: value.length, truncated: value.length > cap };
+        }
+        if (value instanceof Date) return { t: 'date', v: value.toISOString() };
+        if (value instanceof RegExp) return { t: 'regexp', v: String(value) };
+        if (value instanceof Error) {
+          return { t: 'error', v: { name: value.name, message: value.message, stack: value.stack || '' } };
+        }
+        if (typeof Map !== 'undefined' && value instanceof Map) {
+          const entries = []; let i = 0;
+          for (const [k, v] of value) {
+            if (i++ >= __otf_MAX_KEYS) break;
+            entries.push([__otf_encode(k, depth + 1, seen), __otf_encode(v, depth + 1, seen)]);
+          }
+          return { t: 'map', v: entries, len: value.size, truncated: value.size > entries.length };
+        }
+        if (typeof Set !== 'undefined' && value instanceof Set) {
+          const items = []; let i = 0;
+          for (const v of value) {
+            if (i++ >= __otf_MAX_KEYS) break;
+            items.push(__otf_encode(v, depth + 1, seen));
+          }
+          return { t: 'set', v: items, len: value.size, truncated: value.size > items.length };
+        }
+        let keys;
+        try { keys = Object.keys(value); } catch (_) { keys = []; }
+        const cap = Math.min(keys.length, __otf_MAX_KEYS);
+        const props = {};
+        for (let i = 0; i < cap; i++) {
+          const k = keys[i];
+          try { props[k] = __otf_encode(value[k], depth + 1, seen); }
+          catch (e) { props[k] = { t: 'error', v: { name: 'AccessError', message: String(e), stack: '' } }; }
+        }
+        const ctorName = (value.constructor && value.constructor.name) || '';
+        const out = { t: 'object', v: props, truncated: keys.length > cap };
+        if (ctorName && ctorName !== 'Object') out.ctor = ctorName;
+        return out;
+      } finally {
+        seen.delete(value);
+      }
+    }
+    function __otf_wrapLog(level) {
+      const orig = __otf_orig_log[level];
+      if (typeof orig !== 'function') return;
+      console[level] = function(...args) {
+        const hasComplex = args.some(a => a !== null && (typeof a === 'object' || typeof a === 'function'));
+        if (!hasComplex) {
+          try { return orig.apply(console, args); } catch (_) { return; }
+        }
+        try {
+          const seen = new WeakSet();
+          const payload = JSON.stringify({
+            args: args.map(a => __otf_encode(a, 0, seen)),
+          });
+          return orig.call(console, __OTF_LOG_SENTINEL + payload);
+        } catch (_) {
+          try { return orig.apply(console, args); } catch (_) { return; }
+        }
+      };
+    }
+    ['log', 'info', 'warn', 'error', 'debug'].forEach(__otf_wrapLog);
   })();
 
   }  // applyPagePolicy
