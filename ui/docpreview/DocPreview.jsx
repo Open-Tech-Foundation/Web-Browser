@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import TextViewer from './TextViewer';
 import CsvViewer from './CsvViewer';
+import MarkdownViewer from './MarkdownViewer';
 
 const formatBytes = (bytes) => {
   if (bytes < 0) return '';
@@ -180,6 +181,7 @@ const DocPreview = () => {
   const isPdf = mimeType === 'application/pdf';
   const fileName = url.split('/').pop().split('?')[0] || '';
   const isCsv = mimeType === 'text/csv' || fileName.toLowerCase().endsWith('.csv');
+  const isMarkdown = mimeType === 'text/markdown' || fileName.toLowerCase().endsWith('.md');
 
   const renderContent = () => {
     if (!displayUrl && !contentUrl && !textContent) {
@@ -228,6 +230,14 @@ const DocPreview = () => {
       return <CsvViewer content={textContent} fileName={fileName} />;
     }
 
+    if (isMarkdown) {
+      return (
+        <div style={textContainerStyle}>
+          <MarkdownViewer content={textContent} fileName={fileName} />
+        </div>
+      );
+    }
+
     return (
       <div style={textContainerStyle}>
         <TextViewer content={textContent} mimeType={mimeType} fileName={fileName} />
@@ -271,6 +281,7 @@ const containerStyle = {
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
+  overflow: 'hidden',
   background: '#1a1a2e',
   color: '#e2e8f0',
   position: 'relative',
