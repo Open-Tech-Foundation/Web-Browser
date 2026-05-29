@@ -2,9 +2,31 @@
 
 #undef NDEBUG
 #include <cassert>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 
 namespace {
+
+// Redirect app-data lookups to an isolated, empty directory. otf_utils' search
+// helpers reach settings via LoadSettingsJson() -> CefParseJSON(), which aborts
+// ("CefValue ... invalid version -1") in a standalone unit binary where CEF is
+// never initialized. Pointing OTF_TEST_HOME at an empty dir means no
+// settings.json exists, so LoadSettingsJson() returns the in-memory default and
+// the CEF parser is never invoked. Also keeps tests off the real user profile.
+void IsolateAppDataHome() {
+  namespace fs = std::filesystem;
+  const fs::path temp_home = fs::temp_directory_path() / "otf-json-bridge-test";
+  fs::remove_all(temp_home);
+  fs::create_directories(temp_home);
+#if defined(_WIN32)
+  _putenv_s("OTF_TEST_HOME", temp_home.string().c_str());
+  _putenv_s("OTF_DEV_MODE", "");
+#else
+  setenv("OTF_TEST_HOME", temp_home.string().c_str(), 1);
+  unsetenv("OTF_DEV_MODE");
+#endif
+}
 
 void TestJsonEscaping() {
   const std::string input = std::string("quote\" slash\\ line\n tab\t ctrl") +
@@ -92,6 +114,7 @@ void TestSearchEngines() {
 }  // namespace
 
 int main() {
+  IsolateAppDataHome();
   TestJsonEscaping();
   TestJsonObjectBuilder();
   TestStrictParsers();
