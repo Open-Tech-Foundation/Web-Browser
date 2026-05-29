@@ -82,8 +82,25 @@ function CsvViewer({ content, fileName }) {
     if (parsed.length === 0) return { headers: [], rows: [], allRows: [] };
 
     const normalized = normalizeRows(parsed);
-    const rawHeaders = normalized[0];
-    const dataRows = normalized.slice(1).filter((r) => r.some((c) => c.trim() !== ''));
+
+    // Skip comment rows at the top (first cell starts with #)
+    let headerIndex = 0;
+    while (
+      headerIndex < normalized.length &&
+      normalized[headerIndex].length > 0 &&
+      normalized[headerIndex][0].trim().startsWith('#')
+    ) {
+      headerIndex++;
+    }
+
+    if (headerIndex >= normalized.length) {
+      return { headers: [], rows: [], allRows: [] };
+    }
+
+    const rawHeaders = normalized[headerIndex];
+    const dataRows = normalized
+      .slice(headerIndex + 1)
+      .filter((r) => r.some((c) => c.trim() !== ''));
 
     return { headers: rawHeaders, rows: dataRows, allRows: dataRows };
   }, [content]);
