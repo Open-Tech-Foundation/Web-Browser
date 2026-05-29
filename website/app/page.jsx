@@ -14,7 +14,7 @@ function copyOneLiner(e) {
       const btn = e?.currentTarget || e?.target;
       if (btn) {
         const orig = btn.innerHTML;
-        btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied';
         btn.style.backgroundColor = '#22c55e';
         btn.style.color = '#fff';
         btn.style.borderColor = '#22c55e';
@@ -151,7 +151,7 @@ export default function HomePage() {
                   <span className="text-xs font-bold uppercase tracking-widest" style="color: var(--muted);">Quick Install (one-liner)</span>
                   <button
                     onClick={copyOneLiner}
-                    className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border transition-colors cursor-pointer"
                     style="border-color: var(--border); color: var(--muted);"
                   >
                     Copy
