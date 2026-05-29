@@ -142,13 +142,11 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
 
     const viewport = viewportRef.current;
     if (viewport) {
-      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-      const viewportRect = viewport.getBoundingClientRect();
-      const allRightVisible = Array.from(tabRefs.current.values()).every(
-        (el) => !el || el.getBoundingClientRect().left <= viewportRect.right + 5
-      );
-      if (allRightVisible && maxScrollLeft > 1) {
+      const lastTab = sortedTabs[sortedTabs.length - 1];
+      if (activeTab.id === lastTab.id && !lastTab.pinned) {
+        const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
         viewport.scrollLeft = maxScrollLeft;
+        measureOverflow();
       }
     }
   }, [tabs]);
