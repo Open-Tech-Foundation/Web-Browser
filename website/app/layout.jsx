@@ -46,7 +46,7 @@ export default function RootLayout({ children }) {
             <div className="hidden md:flex items-center gap-8 text-sm font-medium" style="color: var(--muted);">
               <a 
                 href="/protection" 
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[var(--accent)]/10 font-bold text-black dark:text-white hover:bg-[var(--accent)]/20 transition-colors"
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full font-bold hover:bg-[var(--accent)]/20 transition-colors" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--foreground);"
               >
                 <svg 
                   className="w-5 h-5" 
