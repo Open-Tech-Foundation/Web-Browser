@@ -154,25 +154,33 @@ CefRefPtr<CefImage> LoadOtfWindowIcon() {
 
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
   const std::string url = frame->GetURL().ToString();
-  // Inherited-URL frames (about:blank, data:, blob:, empty) each get their own
-  // V8 realm — parent prototype patches do NOT carry over. Walk ancestors; if
-  // any is an http(s) document we'd otherwise protect, inject here too so
-  // antifingerprint policy covers opaque-origin children. Top-level inherited
-  // frames (no protected ancestor) are skipped — those are placeholders that
-  // get written to by the parent and would produce "Blocked script execution"
-  // errors in sandboxed contexts.
-  if (IsInheritedFrameUrl(url)) {
+  // data: / blob: subframes get their own V8 realm — parent prototype patches
+  // do NOT carry over. Walk ancestors; if any is an http(s) document we'd
+  // otherwise protect, inject here too so antifingerprint policy covers those
+  // opaque-origin children.
+  //
+  // about:blank is deliberately NOT included: anti-bot systems (e.g. Cloudflare
+  // Turnstile) create sandboxed about:blank iframes without 'allow-scripts' to
+  // extract pristine APIs, and any injection attempt there triggers a
+  // "Blocked script execution" violation that bubbles up via the parent's
+  // securitypolicyviolation event — a clear tamper signal. We accept the
+  // coverage gap on legitimately scripted about:blank frames in exchange for
+  // not advertising ourselves to anti-bot probes.
+  if (StartsWith(url, "data:") || StartsWith(url, "blob:")) {
     CefRefPtr<CefFrame> ancestor = frame->GetParent();
     while (ancestor) {
       const std::string a_url = ancestor->GetURL().ToString();
       if (StartsWith(a_url, "http://") || StartsWith(a_url, "https://")) {
         return true;
       }
-      if (!IsInheritedFrameUrl(a_url)) {
+      if (!StartsWith(a_url, "data:") && !StartsWith(a_url, "blob:")) {
         return false;
       }
       ancestor = ancestor->GetParent();
     }
+    return false;
+  }
+  if (IsInheritedFrameUrl(url)) {
     return false;
   }
   // about:srcdoc frames have their own V8 realm (not shared with the parent)
@@ -2383,13 +2391,29 @@ void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
       frame->ExecuteJavaScript(policy_script, frame_url, 0);
     }
   }
-  renderer_side_router_->OnContextCreated(browser, frame, context);
+  // CefMessageRouterRendererSide injects the `cefQuery` JS function into
+  // every frame's V8 context. In a sandboxed iframe without 'allow-scripts'
+  // that injection is blocked by Chromium and logged as a CSP/sandbox
+  // violation — a detectable signal for anti-bot systems (e.g. Cloudflare
+  // Turnstile's pristine-realm probe iframe). cefQuery is only used by our
+  // browser:// UI surfaces, never by content frames at about:blank / data:
+  // / blob:, so skipping the router setup for inherited-URL frames is safe.
+  const std::string frame_url = frame->GetURL().ToString();
+  if (!IsInheritedFrameUrl(frame_url)) {
+    renderer_side_router_->OnContextCreated(browser, frame, context);
+  }
 }
 
 void OtfApp::OnContextReleased(CefRefPtr<CefBrowser> browser,
                                 CefRefPtr<CefFrame> frame,
                                 CefRefPtr<CefV8Context> context) {
-  renderer_side_router_->OnContextReleased(browser, frame, context);
+  // Mirror the skip in OnContextCreated — if we never registered the router
+  // for this frame, releasing it would be a no-op at best and a bookkeeping
+  // mismatch at worst.
+  const std::string frame_url = frame->GetURL().ToString();
+  if (!IsInheritedFrameUrl(frame_url)) {
+    renderer_side_router_->OnContextReleased(browser, frame, context);
+  }
 }
 
 bool OtfApp::OnProcessMessageReceived(
