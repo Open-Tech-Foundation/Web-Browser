@@ -39,8 +39,25 @@ const DocPreview = () => {
     }
   };
 
+  // Drop the (possibly large) document from this view's heap. The overlay is a
+  // single shared browser that is hidden/reused rather than remounted, so
+  // without this a closed 5 MB doc's text/data-URI (and its Monaco model) would
+  // linger and make the next open janky.
+  const resetPreviewState = () => {
+    setUrl('');
+    setDisplayUrl('');
+    setContentUrl('');
+    setTextContent('');
+    setMimeType('text/plain');
+    setFileSize('');
+    setError('');
+    setIsLoading(false);
+    hasSnapshotRef.current = false;
+  };
+
   const handleClose = () => {
     const sourceTabId = previewTabIdRef.current;
+    resetPreviewState();
     if (window.cefQuery) {
       const request = sourceTabId >= 0
         ? `close-docpreview:${sourceTabId}`
@@ -157,12 +174,9 @@ const DocPreview = () => {
     setTimeout(refresh, 0);
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && window.cefQuery) {
+      if (event.key === 'Escape') {
         event.preventDefault();
-        const request = previewTabIdRef.current >= 0
-          ? `close-docpreview:${previewTabIdRef.current}`
-          : 'close-docpreview';
-        window.cefQuery({ request });
+        handleClose();
       }
     };
     window.addEventListener('keydown', onKeyDown);

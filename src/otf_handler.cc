@@ -6469,12 +6469,30 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
       OtfApp* app = OtfApp::GetInstance();
       if (app) {
         int tab_id = app->GetCurrentTabId();
+        // Reset any prior preview content for this tab so the overlay shows the
+        // loading state immediately instead of the previously-viewed document
+        // while a new (possibly large) doc downloads. Free the old in-memory
+        // bytes too.
+        const std::string prev_content = GetDocPreviewContentUrlForTab(tab_id);
+        static const std::string kContentPrefix =
+            "browser://doc-preview/content/";
+        if (prev_content.rfind(kContentPrefix, 0) == 0) {
+          otf::UnregisterDocContent(prev_content.substr(kContentPrefix.size()));
+        }
+        SetDocPreviewContentUrlForTab(tab_id, "");
+        SetDocPreviewFileSizeForTab(tab_id, -1);
+        SetDocPreviewFormatForTab(tab_id, "");
+        tab_doc_preview_render_cache_.erase(tab_id);
+
         if (tab_manager_) {
           tab_manager_->SetSchemeUrl(tab_id, "");
           tab_manager_->SetDocPreviewMode(tab_id, DocPreviewMode::kInline);
         }
         this->SetDocPreviewUrlForTab(tab_id, doc_url);
         app->ShowDocPreviewOverlay();
+        // Immediate content-less push → the overlay resets to its loading
+        // indicator now, before the fetch completes (mirrors image preview).
+        CefPostTask(TID_UI, new DeferredDocPreviewPushTask(tab_id));
         CefPostTask(TID_IO, new DeferredDocFetchTask(doc_url, tab_id));
       }
     }
