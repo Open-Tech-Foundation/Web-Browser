@@ -63,6 +63,47 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Comparison Table ──────────────────────────────────────────────── */}
+      <section className="py-12 px-6 max-w-5xl mx-auto w-full">
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-extrabold mb-1 tracking-tight" style="color: var(--foreground);">How We Compare</h2>
+          <p className="max-w-xl mx-auto text-sm" style="color: var(--muted);">
+            A transparent look at what OTF Browser does and doesn't do.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse" style={{ minWidth: 640 }}>
+            <thead>
+              <tr className="border-b" style="border-color: var(--border);">
+                <th className="text-left py-2 px-3 font-bold" style="color: var(--foreground);">Capability</th>
+                <th className="text-center py-2 px-3 font-bold" style="color: var(--accent);">OTF Browser</th>
+                <th className="text-center py-2 px-3 font-bold" style="color: var(--muted);">Mainstream Browsers</th>
+                <th className="text-center py-2 px-3 font-bold" style="color: var(--muted);">Modern Feature-Focused Browsers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ['Extension Support', '❌ Not supported', '✅ Supported', '✅ Supported'],
+                ['DRM-Protected Content', '❌ Not supported', '✅ Supported', '✅ Support DRM for services such as Netflix, Disney+, Prime Video, etc.'],
+                ['Service Workers', '❌ Not supported', '✅ Supported', '✅ Supported for PWAs, offline functionality, push notifications, and background sync'],
+                ['Ad Blocking (Default)', '❌ Not enabled by default', '❌ Generally not enabled by default', '✅ Often included by default or prominently available'],
+                ['Developer Tools', '❌ Not available', '✅ Built-in DevTools', '✅ Built-in DevTools'],
+                ['Multiple Profiles', '❌ Single user + Guest mode only', '✅ Supported', '✅ Supported'],
+                ['UI Customization', '❌ Not supported', '⚠️ Limited to moderate customization', '✅ Various customization options (themes, toolbar layout, appearance settings, etc.)'],
+                ['Built-in VPN', '❌ Not available', '⚠️ Usually not included by default', '✅ Available in several modern browsers (e.g., Vivaldi, Opera, Brave VPN)'],
+              ].map(([cap, custom, mainstream, featureFocused]) => (
+                <tr key={cap} className="border-b" style="border-color: var(--border);">
+                  <td className="py-1.5 px-3 font-semibold whitespace-nowrap" style="color: var(--foreground);">{cap}</td>
+                  <td className="py-1.5 px-3 text-left" style="color: var(--accent);">{custom}</td>
+                  <td className="py-1.5 px-3 text-left" style="color: var(--muted);">{mainstream}</td>
+                  <td className="py-1.5 px-3 text-left" style="color: var(--muted);">{featureFocused}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {/* ── Download Section ──────────────────────────────────────────────── */}
       <section className="py-20 px-6 max-w-7xl mx-auto w-full">
         <div className="text-center mb-12">
