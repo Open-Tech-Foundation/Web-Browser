@@ -9,7 +9,7 @@
     "build": "bun run build:ui && bun run build:cpp",
     "build:ui": "bun x vite build ui",
     "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
-    "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser-native-tests otf-browser-extra-tests otf-browser-url-policy-tests otf-browser-json-bridge-tests otf-browser-tab-manager-tests otf-browser-store-tests && ctest --output-on-failure",
+    "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser-native-tests otf-browser-extra-tests otf-browser-url-policy-tests otf-browser-json-bridge-tests otf-browser-tab-manager-tests otf-browser-store-tests otf-browser-doc-preview-tests && ctest --output-on-failure",
     "test:js": "bun test ui/src/shared/search.test.js",
     "test:e2e": "bun scripts/run-e2e-suite.js",
     "test:e2e:file": "scripts/run-e2e.sh",
