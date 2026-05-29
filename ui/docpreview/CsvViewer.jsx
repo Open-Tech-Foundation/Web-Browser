@@ -327,42 +327,10 @@ function CsvViewer({ content, fileName }) {
   return (
     <div className="flex flex-col h-full w-full bg-bg-main text-text-main overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-main bg-bg-card/50 backdrop-blur-sm shrink-0 gap-3">
-        <div className="flex items-center gap-2">
-          {/* Row count */}
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-main border border-border-main text-text-muted text-[11px] font-semibold tracking-wide">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-            {sortedRows.length.toLocaleString()} rows
-          </div>
-          {/* Column count */}
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-main border border-border-main text-text-muted text-[11px] font-semibold tracking-wide">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <line x1="3" y1="9" x2="21" y2="9" />
-              <line x1="9" y1="21" x2="9" y2="9" />
-            </svg>
-            {headers.length} columns
-          </div>
-          {/* Comment lines count */}
-          {commentLines.length > 0 && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-main border border-border-main text-text-muted text-[11px] font-semibold tracking-wide">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-              {commentLines.length} comments
-            </div>
-          )}
-        </div>
-
+      <div className="flex items-center justify-end gap-4 px-6 py-3 border-b border-border-main bg-bg-card/50 backdrop-blur-sm shrink-0">
         {/* Search */}
-        <div className="relative shrink-0">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
+        <div className="relative w-80">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -371,12 +339,12 @@ function CsvViewer({ content, fileName }) {
             placeholder="Search rows..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-52 pl-8 pr-7 py-1.5 rounded-lg bg-bg-main border border-border-main text-text-main text-xs placeholder:text-text-muted/60 focus:outline-none focus:border-brand-orange/40 focus:ring-1 focus:ring-brand-orange/20 transition-all"
+            className="w-full pl-10 pr-8 py-2 rounded-full bg-bg-main border border-border-main text-text-main text-sm placeholder:text-text-muted/60 focus:outline-none focus:border-brand-orange/40 focus:ring-1 focus:ring-brand-orange/20 transition-all"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-text-muted hover:text-text-main hover:bg-border-main transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full text-text-muted hover:text-text-main hover:bg-border-main transition-colors"
               title="Clear search"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -389,84 +357,97 @@ function CsvViewer({ content, fileName }) {
       </div>
 
       {/* Table container */}
-      <div ref={containerRef} className="flex-1 overflow-auto custom-scrollbar relative" onScroll={handleScroll}>
-        <div style={{ height: totalHeight + HEADER_HEIGHT, width: Math.max(totalWidth, '100%'), position: 'relative' }}>
-          {/* Sticky Header */}
-          <div
-            className="sticky top-0 z-20 flex items-center bg-bg-card border-b-2 border-brand-orange/30"
-            style={{ height: HEADER_HEIGHT }}
-          >
-            {headers.map((h, i) => (
-              <div
-                key={i}
-                className="relative flex items-center px-3 h-full text-[11px] font-bold tracking-wider uppercase text-text-muted select-none cursor-pointer hover:text-text-main hover:bg-bg-main/50 transition-colors group"
-                style={{ width: colWidths[i] || DEFAULT_COL_WIDTH, flexShrink: 0 }}
-                onClick={() => handleSort(i)}
-                title={`Sort by ${h}`}
-              >
-                <span className="truncate flex-1">{h}</span>
-                {sortCol === i && (
-                  <span className="ml-1.5 text-brand-orange text-[10px]">
-                    {sortDir === 'asc' ? '▲' : '▼'}
-                  </span>
-                )}
-                {/* Resize handle */}
+      <div className="flex-1 min-h-0 p-6">
+        <div className="h-full rounded-xl border border-border-main bg-bg-card overflow-hidden shadow-sm flex flex-col">
+          <div className="flex-1 min-h-0 overflow-hidden relative">
+            <div ref={containerRef} className="absolute inset-0 overflow-auto custom-scrollbar" onScroll={handleScroll}>
+              <div style={{ height: totalHeight + HEADER_HEIGHT, width: Math.max(totalWidth, '100%'), position: 'relative' }}>
+                {/* Sticky Header */}
                 <div
-                  className="absolute right-0 top-1/2 -translate-y-1/2 h-2/3 w-1.5 cursor-col-resize flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  onMouseDown={(e) => startResize(e, i)}
-                  onDoubleClick={(e) => { e.stopPropagation(); autoFitColumn(i); }}
-                  title="Drag to resize, double-click to auto-fit"
+                  className="sticky top-0 z-20 flex items-center bg-bg-card border-b-2 border-brand-orange/30"
+                  style={{ height: HEADER_HEIGHT }}
                 >
-                  <div className="w-px h-full bg-text-muted/30" />
+                  {headers.map((h, i) => (
+                    <div
+                      key={i}
+                      className="relative flex items-center px-3 h-full text-[11px] font-bold tracking-wider uppercase text-text-muted select-none cursor-pointer hover:text-text-main hover:bg-bg-main/50 transition-colors group"
+                      style={{ width: colWidths[i] || DEFAULT_COL_WIDTH, flexShrink: 0 }}
+                      onClick={() => handleSort(i)}
+                      title={`Sort by ${h}`}
+                    >
+                      <span className="truncate flex-1">{h}</span>
+                      {sortCol === i && (
+                        <span className="ml-1.5 text-brand-orange text-[10px]">
+                          {sortDir === 'asc' ? '▲' : '▼'}
+                        </span>
+                      )}
+                      {/* Resize handle */}
+                      <div
+                        className="absolute right-0 top-1/2 -translate-y-1/2 h-2/3 w-1.5 cursor-col-resize flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        onMouseDown={(e) => startResize(e, i)}
+                        onDoubleClick={(e) => { e.stopPropagation(); autoFitColumn(i); }}
+                        title="Drag to resize, double-click to auto-fit"
+                      >
+                        <div className="w-px h-full bg-text-muted/30" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
 
-          {/* Virtualized rows */}
-          {visibleRows.map((row, idx) => {
-            const actualIndex = visibleStart + idx;
-            const isEven = actualIndex % 2 === 0;
-            return (
-              <div
-                key={actualIndex}
-                className={`absolute left-0 right-0 flex items-center border-b border-border-main/50 ${
-                  isEven ? 'bg-bg-main' : 'bg-bg-card/30'
-                } hover:bg-brand-orange/5 transition-colors`}
-                style={{ top: HEADER_HEIGHT + actualIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
-              >
-                {row.map((cell, ci) => (
-                  <div
-                    key={ci}
-                    className="px-3 text-[13px] text-text-main/90 truncate"
-                    style={{ width: colWidths[ci] || DEFAULT_COL_WIDTH, flexShrink: 0 }}
-                    title={cell}
-                  >
-                    {cell}
-                  </div>
-                ))}
+                {/* Virtualized rows */}
+                {visibleRows.map((row, idx) => {
+                  const actualIndex = visibleStart + idx;
+                  const isEven = actualIndex % 2 === 0;
+                  return (
+                    <div
+                      key={actualIndex}
+                      className={`absolute left-0 right-0 flex items-center border-b border-border-main/50 ${
+                        isEven ? 'bg-bg-main' : 'bg-bg-card/30'
+                      } hover:bg-brand-orange/5 transition-colors`}
+                      style={{ top: HEADER_HEIGHT + actualIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
+                    >
+                      {row.map((cell, ci) => (
+                        <div
+                          key={ci}
+                          className="px-3 text-[13px] text-text-main/90 truncate"
+                          style={{ width: colWidths[ci] || DEFAULT_COL_WIDTH, flexShrink: 0 }}
+                          title={cell}
+                        >
+                          {cell}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Comment lines overlay (toggleable) */}
-      {commentLines.length > 0 && (
-        <div className="shrink-0 px-4 py-2 border-t border-border-main bg-bg-card/30">
-          <div className="text-[10px] text-text-muted font-medium uppercase tracking-widest mb-1.5">Comments</div>
-          <div className="flex flex-wrap gap-1.5">
-            {commentLines.map((line, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center px-2 py-0.5 rounded-md bg-bg-main border border-border-main text-text-muted text-[11px]"
-              >
-                {line}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Status bar */}
+      <div className="shrink-0 flex items-center justify-end px-6 py-2.5 border-t border-border-main bg-bg-card/60 text-text-muted text-[11px] font-medium gap-4">
+        <span className="flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-brand-orange">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <line x1="3" y1="9" x2="21" y2="9" />
+            <line x1="9" y1="21" x2="9" y2="9" />
+          </svg>
+          {headers.length} columns
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-brand-orange">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          {sortedRows.length.toLocaleString()} rows
+        </span>
+        {filteredRows.length !== allRows.length && (
+          <span className="text-brand-orange ml-1">
+            Showing {filteredRows.length.toLocaleString()} of {allRows.length.toLocaleString()} rows
+          </span>
+        )}
+      </div>
     </div>
   );
 }

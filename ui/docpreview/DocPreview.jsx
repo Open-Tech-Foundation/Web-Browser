@@ -20,6 +20,7 @@ const DocPreview = () => {
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
   const [textContent, setTextContent] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const hasSnapshotRef = useRef(false);
   const previewTabIdRef = useRef(-1);
@@ -70,9 +71,11 @@ const DocPreview = () => {
       }
       const incomingDisplay = ev.error ? '' : (ev.displayUrl || '');
       const incomingContent = ev.error ? '' : (ev.contentUrl || '');
+      const incomingUrl = ev.url || '';
+      const isRemoteSource = incomingUrl.startsWith('http://') || incomingUrl.startsWith('https://');
       hasSnapshotRef.current = !!incomingDisplay || !!incomingContent;
       previewTabIdRef.current = typeof ev.tabId === 'number' ? ev.tabId : -1;
-      setUrl(ev.url || '');
+      setUrl(incomingUrl);
       setDisplayUrl(incomingDisplay);
       setContentUrl(incomingContent);
       setMimeType(typeof ev.mimeType === 'string' ? ev.mimeType : 'text/plain');
@@ -96,6 +99,9 @@ const DocPreview = () => {
       } else {
         setTextContent('');
       }
+
+      // Show loading indicator for remote sources that haven't received content yet
+      setIsLoading(isRemoteSource && !incomingDisplay && !incomingContent && !ev.error);
     };
     applyLoadDocRef.current = applyLoadDoc;
 
@@ -177,15 +183,24 @@ const DocPreview = () => {
 
   const renderContent = () => {
     if (!displayUrl && !contentUrl && !textContent) {
-      const isLoading = !!url && retryCountRef.current < MAX_RETRIES;
+      if (isLoading) {
+        return (
+          <div style={emptyStyle}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128196;</div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)', marginBottom: '12px' }}>
+              Downloading document...
+            </div>
+            <div style={{ width: '200px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={progressBarStyle} />
+            </div>
+          </div>
+        );
+      }
       return (
         <div style={emptyStyle}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>&#128196;</div>
           <div style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>
-            {isLoading ? 'Loading document...' : 'No document loaded'}
-          </div>
-          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '8px' }}>
-            {isLoading ? '' : 'Open a document from downloads to preview it here'}
+            No document loaded
           </div>
         </div>
       );
@@ -221,7 +236,15 @@ const DocPreview = () => {
   };
 
   return (
-    <div style={containerStyle}>
+    <>
+      <style>{`
+        @keyframes docPreviewProgress {
+          0% { transform: translateX(-100%); }
+          50% { transform: translateX(0%); }
+          100% { transform: translateX(100%); }
+        }
+      `}</style>
+      <div style={containerStyle}>
       <div style={titleBarStyle}>
         <span style={titleNameStyle}>{fileName}</span>
         <div style={titleRightStyle}>
@@ -239,6 +262,7 @@ const DocPreview = () => {
       {renderContent()}
       {toast && <div style={toastStyle}>{toast}</div>}
     </div>
+    </>
   );
 };
 
@@ -336,6 +360,14 @@ const toastStyle = {
   fontWeight: '600',
   zIndex: 40,
   boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+};
+
+const progressBarStyle = {
+  height: '100%',
+  width: '100%',
+  background: '#FF7A00',
+  borderRadius: '2px',
+  animation: 'docPreviewProgress 1.5s ease-in-out infinite',
 };
 
 export default DocPreview;
