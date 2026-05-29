@@ -250,7 +250,7 @@ const DownloadsBar = () => {
     });
   }, [downloads]);
 
-  const latestDownloads = useMemo(() => sortedDownloads.slice(0, 5), [sortedDownloads]);
+  const latestDownloads = useMemo(() => sortedDownloads.slice(0, 10), [sortedDownloads]);
 
   const run = (request) => window.cefQuery?.({ request });
 
