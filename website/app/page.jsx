@@ -360,80 +360,6 @@ export default function HomePage() {
       <section className="py-28 px-6 max-w-7xl mx-auto w-full">
         <div className="mb-16">
           <h2 className="text-4xl font-bold mb-6" style="color: var(--foreground);">Privacy & Security Features in the Browser</h2>
-          <p className="max-w-3xl leading-relaxed text-lg" style="color: var(--muted);">
-            OTF Browser bakes privacy and security into every layer — from kernel-level scheme blocking and WebGPU compute prevention to per-session fingerprint rotation and full certificate transparency. No extensions required, no toggles to hunt for.
-          </p>
-        </div>
-
-        {/* ── Always-On Privacy Protections ──────────────────────────────── */}
-        <div className="mb-16">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            </div>
-            <h3 className="text-2xl font-bold" style="color: var(--foreground);">Always-On Privacy Protections</h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[
-              {
-                name: "Canvas Fingerprint Protection",
-                plain: "Prevents websites from generating a unique device ID by reading subtle differences in how your browser renders graphics.",
-                tech: "Injects per-session noise into canvas read methods: getImageData, toDataURL, toBlob, OffscreenCanvas.convertToBlob, and transferToImageBitmap. Each page load produces a fresh canvas fingerprint, making cross-session tracking impossible.",
-              },
-              {
-                name: "WebGL Identity Protection",
-                plain: "Hides your GPU model, driver version, and graphics capabilities so trackers cannot identify your hardware.",
-                tech: "Normalizes 40+ WebGL parameters (renderer, vendor, shader precision, max texture size) to fixed generic values. Blocks WEBGL_debug_renderer_info extension. Perturbs readPixels output with per-session noise.",
-              },
-              {
-                name: "Font Probing Protection",
-                plain: "Stops websites from scanning your system fonts to build a unique device fingerprint.",
-                tech: "Limits document.fonts.check(), load(), and forEach() to 4 allowed fonts (Arial, Helvetica, Times New Roman, Courier New). Normalizes canvas measureText widths. Applies per-session noise to DOM font metrics (getBoundingClientRect, offsetWidth/Height).",
-              },
-              {
-                name: "Audio Fingerprint Protection",
-                plain: "Prevents websites from using subtle differences in your audio stack to identify your device.",
-                tech: "Perturbs AudioBuffer.getChannelData, AnalyserNode.getFloatFrequencyData and getByteFrequencyData with per-origin deterministic noise. Audio output still works — only the fingerprint signal is disrupted.",
-              },
-              {
-                name: "Math Function Fingerprinting Protection",
-                plain: "Blocks a sophisticated technique where websites use tiny rounding errors in math functions to identify your CPU and browser.",
-                tech: "Adds per-(session, function, input) deterministic noise (~1e-13) to 22 Math functions including sin, cos, tan, log, sqrt, pow, and atan2. Values rotate across sessions to prevent cross-session correlation.",
-              },
-              {
-                name: "Screen & Hardware Profile Normalization",
-                plain: "Reports a standard screen size, CPU count, and memory amount instead of your real device specs.",
-                tech: "Fixes screen dimensions to a common profile (e.g., 1920x1080@1x), hardwareConcurrency to 6, deviceMemory to 16 GB, navigator.platform to 'Linux x86_64', and screen.colorDepth to 24. Sec-CH-UA-Platform forced to 'Linux' at the CEF level.",
-              },
-              {
-                name: "Media Devices Spoofing",
-                plain: "Shows a fixed set of generic microphone, camera, and speaker devices instead of your actual hardware labels.",
-                tech: "Returns exactly 3 fixed devices (audioinput, audiooutput, videoinput) with standardized groupIds and capabilities. Real device labels are never exposed. Speaker output still works — verified by the built-in test tone.",
-              },
-              {
-                name: "API Surface Reduction",
-                plain: "Removes or disables browser APIs that are commonly abused for tracking, such as battery status, network type, and keyboard layout.",
-                tech: "Completely removes navigator.getBattery and BatteryManager, navigator.connection and prefixed variants, navigator.keyboard and KeyboardLayoutMap. Also removes navigator.serviceWorker at the engine level and via page policy. speechSynthesis.getVoices() returns an empty array.",
-              },
-            ].map((feature) => (
-              <div
-                key={feature.name}
-                className="p-6 rounded-2xl border transition-all duration-300"
-                style="background-color: var(--bg-card); border-color: var(--border);"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent);">Always On</span>
-                </div>
-                <h4 className="text-lg font-bold mb-2" style="color: var(--foreground);">{feature.name}</h4>
-                <p className="text-sm leading-relaxed mb-3" style="color: var(--muted);">{feature.plain}</p>
-                <details className="group">
-                  <summary className="text-[11px] font-bold uppercase tracking-wider cursor-pointer transition-colors" style="color: var(--accent);">Technical detail</summary>
-                  <p className="mt-3 text-xs leading-relaxed" style="color: var(--muted);">{feature.tech}</p>
-                </details>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* ── Security Protections ──────────────────────────────────────── */}
@@ -492,46 +418,58 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* ── User-Controlled Privacy ─────────────────────────────────────── */}
-        <div>
+        {/* ── Privacy Protections ──────────────────────────────────────── */}
+        <div className="mb-16">
           <div className="flex items-center gap-3 mb-10">
             <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             </div>
-            <h3 className="text-2xl font-bold" style="color: var(--foreground);">User-Controlled Privacy</h3>
+            <h3 className="text-2xl font-bold" style="color: var(--foreground);">Privacy Protections</h3>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[
               {
+                name: "Fingerprint Protection",
+                plain: "Rotates your canvas, WebGL, font, audio, and math fingerprints every session to prevent cross-session tracking. No two sessions look the same.",
+                tech: "Injects per-session noise into canvas read methods, normalizes 40+ WebGL parameters, limits font probing to 4 allowed fonts, perturbs AudioBuffer and AnalyserNode data, and adds per-session noise to 22 Math functions. Screen dimensions, CPU count, and memory are fixed to common profiles. Media device labels are spoofed. Battery, network, keyboard, and Service Worker APIs are removed or disabled.",
+                tag: "always",
+              },
+              {
                 name: "Browsing & Download History Toggles",
                 plain: "Turn history recording on or off. When disabled, your browsing and download activity is not persisted between sessions.",
                 tech: "Settings stored in browser JSON config. History persistence follows the toggle: when disabled, web and download history are session-only and cleared on exit. Accessible from browser://settings Privacy panel.",
+                tag: "user",
               },
               {
                 name: "Private Tabs & Guest Sessions",
                 plain: "Browse without leaving any trace. Private tabs use ephemeral storage. Guest sessions fully isolate bookmarks, history, and permissions.",
                 tech: "Private tabs use a separate CEF request context with in-memory-only storage. Guest sessions lock bookmarks, browsing history, downloads, workspace switching, and site permissions. Closing the last guest tab ends the session automatically.",
+                tag: "user",
               },
               {
                 name: "Per-Site Data Manager",
                 plain: "See exactly what cookies, storage, and permissions a website has — and clear them individually.",
                 tech: "browser://sitedata shows a full cookie table (name, value, domain, path, secure, httponly), storage usage breakdown by type, permission toggles (pop-ups, downloads, images, JavaScript), and a cross-origin resource list showing third-party trackers the site loaded.",
+                tag: "user",
               },
               {
                 name: "TLS Certificate Viewer",
                 plain: "Inspect the security certificate of any website: who issued it, who it was issued to, and when it expires.",
                 tech: "Opens as a side panel from the address bar security icon. Shows Common Name, Organization, Issuer CA, validity start and expiry dates. Green banner for valid certificates, red warning for invalid or untrusted ones. Data fetched via C++ get-certificate-by-tab-id query.",
+                tag: "user",
               },
               {
                 name: "Browser Data Reset",
                 plain: "Clear selected categories of your browsing data — from history and cookies to SSL exceptions and cached files — in one go.",
                 tech: "Reset dialog in browser://settings lets you selectively clear: settings, history, bookmarks, SSL exceptions, HTTP auth, connections, cache, cookies, service workers, site permissions, and web storage. After reset, a restart button appears.",
+                tag: "user",
               },
               {
                 name: "Protection Diagnostics Portal",
                 plain: "Verify your browser's privacy defenses are working with a built-in test center that checks every protected surface.",
                 tech: "browser://settings links to browser.opentechf.org/protection — a comprehensive test suite that probes all 41+ protected surfaces (canvas, WebGL, fonts, audio, realm coverage, etc.) and scores them from 0-100. Results can be exported as a JSON report.",
+                tag: "user",
               },
             ].map((feature) => (
               <div
@@ -540,7 +478,11 @@ export default function HomePage() {
                 style="background-color: var(--bg-card); border-color: var(--border);"
               >
                 <div className="flex items-center gap-3 mb-3">
-                  <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, #3b82f6 12%, transparent); color: #3b82f6;">User Controlled</span>
+                  {feature.tag === "always" ? (
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent);">Always On</span>
+                  ) : (
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md" style="background-color: color-mix(in srgb, #3b82f6 12%, transparent); color: #3b82f6;">User Controlled</span>
+                  )}
                 </div>
                 <h4 className="text-lg font-bold mb-2" style="color: var(--foreground);">{feature.name}</h4>
                 <p className="text-sm leading-relaxed mb-3" style="color: var(--muted);">{feature.plain}</p>
