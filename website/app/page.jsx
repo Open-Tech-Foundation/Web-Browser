@@ -294,6 +294,69 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="py-24 px-6 max-w-7xl mx-auto w-full">
+        <div className="text-center mb-16">
+          <h2 className="text-4xl font-extrabold mb-4 tracking-tight" style="color: var(--foreground);">Built-In Features</h2>
+          <p className="max-w-2xl mx-auto text-lg leading-relaxed" style="color: var(--muted);">
+            Handy tools that ship with the browser, ready when you need them.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            {
+              title: "Web Capture",
+              desc: "Snip any part of a web page and save or copy it as an image — no extensions needed.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>,
+              badges: ["Snip", "Download", "Copy"],
+              emphasize: true,
+            },
+            {
+              title: "Console Logs",
+              desc: "View console output, errors, and network messages from the current tab.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>,
+              badges: ["Errors", "Warnings", "Logs"],
+              emphasize: true,
+            },
+          ].map((feature) => (
+            <div
+              key={feature.title}
+              className={`p-8 rounded-[32px] border transition-all duration-500 hover:-translate-y-2 group overflow-hidden relative ${feature.emphasize ? "hover:border-orange-400/50 shadow-[0_24px_80px_rgba(249,115,22,0.10)]" : "hover:border-orange-500/30"
+                }`}
+              style="background-color: var(--bg-card); border-color: var(--border);"
+            >
+              {feature.emphasize && (
+                <div
+                  className="absolute inset-0 opacity-60 pointer-events-none"
+                  style="background: radial-gradient(circle at top right, rgba(249,115,22,0.18), transparent 45%), radial-gradient(circle at bottom left, rgba(251,191,36,0.10), transparent 38%);"
+                ></div>
+              )}
+              <div className="relative z-10">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-6 text-orange-500 transition-transform ${feature.emphasize ? "bg-orange-500/15 shadow-[0_0_0_1px_rgba(249,115,22,0.18)] group-hover:scale-110" : "bg-orange-500/10 group-hover:scale-110"}`}>
+                  {feature.icon}
+                </div>
+                <h3 className="text-xl font-bold mb-4" style="color: var(--foreground);">{feature.title}</h3>
+                <p className="text-sm leading-relaxed mb-5" style="color: var(--muted);">{feature.desc}</p>
+
+                {feature.badges && (
+                  <div className="flex flex-wrap gap-2 mb-5">
+                    {feature.badges.map((badge) => (
+                      <span
+                        key={badge}
+                        className="inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em]"
+                        style="background-color: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent);"
+                      >
+                        {badge}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="py-28 px-6 max-w-7xl mx-auto w-full">
         <div className="mb-16">
           <h2 className="text-4xl font-bold mb-6" style="color: var(--foreground);">Privacy & Security Features in the Browser</h2>
