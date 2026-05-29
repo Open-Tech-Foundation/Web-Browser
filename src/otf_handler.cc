@@ -5565,6 +5565,14 @@ bool OtfHandler::OnConsoleMessage(CefRefPtr<CefBrowser> browser,
                                   const CefString& source,
                                   int line) {
   CEF_REQUIRE_UI_THREAD();
+
+  // Mirror ALL renderer console output to the CEF log (debug.txt) — including
+  // the UI shell and overlay browsers that aren't content tabs — so a blank
+  // window or a module/JS failure stays diagnosable when DevTools is
+  // unavailable (e.g. command-line flags are blocked).
+  LOG(INFO) << "[otf][console:" << level << "] " << message.ToString()
+            << " (" << source.ToString() << ":" << line << ")";
+
   if (!tab_manager_) return false;
 
   // Only capture messages from real content tabs.
@@ -5829,6 +5837,22 @@ void OtfHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   }
 }
 
+void OtfHandler::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
+                                           TerminationStatus status,
+                                           int error_code,
+                                           const CefString& error_string) {
+  CEF_REQUIRE_UI_THREAD();
+  // A dead renderer paints a blank window. Log it (debug.txt) so a GPU/renderer
+  // crash is visible without DevTools.
+  std::string url;
+  if (browser && browser->GetMainFrame()) {
+    url = browser->GetMainFrame()->GetURL().ToString();
+  }
+  LOG(ERROR) << "[otf] RENDER PROCESS TERMINATED: status=" << status
+             << " error_code=" << error_code
+             << " error=" << error_string.ToString() << " url=" << url;
+}
+
 void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
                              CefRefPtr<CefFrame> frame,
                              ErrorCode errorCode,
@@ -5838,6 +5862,9 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
   if (errorCode == ERR_ABORTED) {
     return;
   }
+  LOG(ERROR) << "[otf] load error: " << std::string(failedUrl) << " — "
+             << std::string(errorText) << " (" << errorCode << ")"
+             << (frame->IsMain() ? " [main frame]" : " [subframe]");
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
     if (view && tab_manager_ && IsCertificateErrorCode(errorCode)) {
