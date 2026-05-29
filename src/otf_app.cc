@@ -442,7 +442,11 @@ CefRefPtr<CefResourceHandler> MakeNotFound() {
 
 CefRefPtr<CefResourceHandler> MakeFileResponse(const std::string& disk_path) {
   auto bytes = otf::ReadFileBinary(disk_path);
-  if (!bytes) return MakeNotFound();
+  if (!bytes) {
+    LOG(ERROR) << "[otf] scheme: file NOT FOUND on disk: " << disk_path;
+    return MakeNotFound();
+  }
+  LOG(INFO) << "[otf] scheme: served " << bytes->size() << " bytes <- " << disk_path;
   return MakeBytesResponse(GuessMimeType(disk_path), std::move(*bytes));
 }
 
@@ -507,6 +511,7 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
                                        const CefString& scheme_name,
                                        CefRefPtr<CefRequest> request) override {
     const std::string url = request->GetURL().ToString();
+    LOG(INFO) << "[otf] scheme request: " << url;
 
     CefURLParts parts;
     if (!CefParseURL(url, parts)) {
@@ -594,8 +599,12 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
 
     // Production: serve from ui/. "shell" is the toolbar (ui/index.html).
     const std::string exe_dir = otf::GetExecutableDir();
-    if (exe_dir.empty()) return MakeNotFound();
+    if (exe_dir.empty()) {
+      LOG(ERROR) << "[otf] scheme: GetExecutableDir() returned EMPTY for " << url;
+      return MakeNotFound();
+    }
     const std::string ui_dir = exe_dir + "/ui";
+    LOG(INFO) << "[otf] scheme prod: url=" << url << " ui_dir=" << ui_dir;
     std::string disk_path;
     if (is_image_preview_asset) {
       if (!IsSafeUiRelativePath(path)) return MakeNotFound();

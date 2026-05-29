@@ -89,6 +89,19 @@ static int RunApp(int argc, char* argv[]) {
   LOG(INFO) << "[otf] app data dir : " << app_data.string();
   LOG(INFO) << "[otf] app cache dir: " << app_cache.string();
 
+  // Diagnostics for production UI serving: the browser:// scheme handler serves
+  // the UI from <exe dir>/ui. If that resolution is wrong (or the folder didn't
+  // ship), the app paints a blank window. Log it so debug.txt shows the truth.
+  {
+    const std::string exe_dir = otf::GetExecutableDir();
+    std::error_code ec;
+    const std::filesystem::path ui_index =
+        std::filesystem::path(exe_dir) / "ui" / "index.html";
+    LOG(INFO) << "[otf] executable dir: [" << exe_dir << "]";
+    LOG(INFO) << "[otf] ui index.html: " << ui_index.string()
+              << " exists=" << (std::filesystem::exists(ui_index, ec) ? "YES" : "NO");
+  }
+
   // Point CEF at the platform-correct cache directory so cookies, HTTP cache,
   // and localStorage survive across restarts in a predictable location.
   // workspace-specific request contexts each get a sub-directory under this.
