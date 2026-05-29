@@ -26,6 +26,8 @@ const FIXTURE_PDF = Buffer.from(
 
 const FIXTURE_JSON = Buffer.from('{"key": "value", "number": 42}', 'utf-8');
 
+const FIXTURE_CSV = Buffer.from('Name,Age,City\nAlice,30,New York\nBob,25,Los Angeles\nCharlie,35,Chicago\n"Doe, Jane",28,Miami\n', 'utf-8');
+
 const DOC_FIXTURES = [
   {
     name: 'doc-preview-test.pdf',
@@ -38,6 +40,12 @@ const DOC_FIXTURES = [
     format: 'JSON',
     mime: 'application/json',
     body: FIXTURE_JSON,
+  },
+  {
+    name: 'doc-preview-test.csv',
+    format: 'CSV',
+    mime: 'text/csv',
+    body: FIXTURE_CSV,
   },
 ];
 
@@ -218,6 +226,50 @@ serialTest('doc preview opens JSON from downloads',
       // JSON should be rendered in Monaco editor
       assert.ok(state.hasMonaco || state.text.includes('key'),
         `JSON preview should show Monaco editor, got: ${JSON.stringify(state)}`);
+    } finally {
+      if (previewCdp) previewCdp.close();
+      if (downloadsCdp) downloadsCdp.close();
+      if (pageCdp) pageCdp.close();
+      await browser.close();
+      await server.close();
+    }
+  });
+
+serialTest('doc preview opens CSV from downloads',
+  { timeout: timeoutMs + 30000 },
+  async () => {
+    const fixture = DOC_FIXTURES.find((f) => f.name === 'doc-preview-test.csv');
+    const server = await startStaticServer(docFixtureServer([fixture]));
+    const browser = await launchDevBrowser({ settings: { downloadsEnabled: true } });
+    let pageCdp = null;
+    let downloadsCdp = null;
+    let previewCdp = null;
+    try {
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((t) =>
+        (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
+      );
+      await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
+      await openDownloadedPreview(downloadsCdp);
+
+      // Connect to the doc preview tab
+      previewCdp = await connectToReadyTarget(
+        (t) =>
+          (t.url || '').includes('docpreview.html') ||
+          (t.url || '').startsWith('browser://doc-preview/'),
+        docPreviewStateExpression,
+        (s) => s.text.includes('NAME') && s.text.includes('Alice'),
+        20000,
+      );
+
+      // Verify the CSV table rendered
+      const state = await previewCdp.evaluate(docPreviewStateExpression);
+      console.log('[DOC-PREVIEW E2E] CSV preview state:', JSON.stringify(state));
+
+      assert.ok(state.text.includes('NAME') && state.text.includes('Alice') && state.text.includes('New York'),
+        `CSV preview should show table with headers and data, got: ${JSON.stringify(state)}`);
     } finally {
       if (previewCdp) previewCdp.close();
       if (downloadsCdp) downloadsCdp.close();

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import TextViewer from './TextViewer';
+import CsvViewer from './CsvViewer';
 
 const formatBytes = (bytes) => {
   if (bytes < 0) return '';
@@ -171,7 +172,8 @@ const DocPreview = () => {
   }, []);
 
   const isPdf = mimeType === 'application/pdf';
-  const isText = !isPdf;
+  const fileName = url.split('/').pop().split('?')[0] || '';
+  const isCsv = mimeType === 'text/csv' || fileName.toLowerCase().endsWith('.csv');
 
   const renderContent = () => {
     if (!displayUrl && !contentUrl && !textContent) {
@@ -207,14 +209,16 @@ const DocPreview = () => {
       );
     }
 
+    if (isCsv) {
+      return <CsvViewer content={textContent} fileName={fileName} />;
+    }
+
     return (
       <div style={textContainerStyle}>
-        <TextViewer content={textContent} mimeType={mimeType} fileName={url.split('/').pop().split('?')[0]} />
+        <TextViewer content={textContent} mimeType={mimeType} fileName={fileName} />
       </div>
     );
   };
-
-  const fileName = url.split('/').pop().split('?')[0] || 'Document';
 
   return (
     <div style={containerStyle}>
