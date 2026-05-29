@@ -1288,19 +1288,22 @@ class HideToastTask : public CefTask {
 
 }  // namespace
 
-void OtfApp::ShowToastNotification(const std::string& message) {
+void OtfApp::ShowToast(const std::string& icon, const std::string& message) {
   CEF_REQUIRE_UI_THREAD();
   if (!toast_overlay_) return;
   PositionToastOverlay();
   toast_overlay_->SetVisible(true);
   CefRefPtr<CefBrowser> browser = OtfHandler::GetInstance()->toast_browser_;
   if (browser) {
-    std::string safe = message;
-    for (size_t i = 0; (i = safe.find('\\', i)) != std::string::npos; i += 2)
-      safe.replace(i, 1, "\\\\");
-    for (size_t i = 0; (i = safe.find('\'', i)) != std::string::npos; i += 2)
-      safe.replace(i, 1, "\\'");
-    const std::string js = "window.__otfSetToastMessage('" + safe + "');";
+    std::string safe_icon = icon;
+    std::string safe_msg = message;
+    for (size_t i = 0; (i = safe_icon.find('\'', i)) != std::string::npos; i += 2)
+      safe_icon.replace(i, 1, "\\'");
+    for (size_t i = 0; (i = safe_msg.find('\\', i)) != std::string::npos; i += 2)
+      safe_msg.replace(i, 1, "\\\\");
+    for (size_t i = 0; (i = safe_msg.find('\'', i)) != std::string::npos; i += 2)
+      safe_msg.replace(i, 1, "\\'");
+    const std::string js = "window.__otfSetToastMessage('" + safe_icon + "', '" + safe_msg + "');";
     browser->GetMainFrame()->ExecuteJavaScript(js, "", 0);
   }
   ++toast_gen_;
@@ -1317,13 +1320,13 @@ void OtfApp::HideToastOverlay() {
 void OtfApp::PositionToastOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (!window_ || !toast_overlay_ || !content_panel_ || !content_area_panel_) return;
-  constexpr int kOverlayWidth = 150;
   constexpr int kOverlayHeight = 32;
   CefRect area = content_area_panel_->GetBounds();
   CefRect panel = content_panel_->GetBounds();
-  int x = area.x + panel.x + (panel.width - kOverlayWidth) / 2;
+  int x = area.x + panel.x;
   int y = area.y + panel.y + 4;
-  toast_overlay_->SetBounds(CefRect(x, y, kOverlayWidth, kOverlayHeight));
+  int width = panel.width;
+  toast_overlay_->SetBounds(CefRect(x, y, width, kOverlayHeight));
 }
 
 void OtfApp::CreateLinkPreviewOverlay() {
@@ -2029,9 +2032,9 @@ void OtfApp::CreateSnipPreviewOverlay() {
 
 void OtfApp::PositionSnipPreviewOverlay() {
   CEF_REQUIRE_UI_THREAD();
-  if (!window_ || !snip_preview_overlay_ || !content_panel_) return;
-  CefRect panel = content_panel_->GetBounds();
-  snip_preview_overlay_->SetBounds(CefRect(panel.x, panel.y, panel.width, panel.height));
+  if (!window_ || !snip_preview_overlay_) return;
+  CefRect window_bounds = window_->GetBounds();
+  snip_preview_overlay_->SetBounds(CefRect(0, 0, window_bounds.width, window_bounds.height));
 }
 
 void OtfApp::ShowSnipPreviewOverlay() {
@@ -2039,6 +2042,10 @@ void OtfApp::ShowSnipPreviewOverlay() {
   if (!snip_preview_overlay_) return;
   PositionSnipPreviewOverlay();
   snip_preview_overlay_->SetVisible(true);
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (handler && handler->snip_preview_browser_) {
+    handler->snip_preview_browser_->GetHost()->SetFocus(true);
+  }
 }
 
 void OtfApp::HideSnipPreviewOverlay() {

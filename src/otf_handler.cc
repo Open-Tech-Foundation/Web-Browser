@@ -72,6 +72,7 @@
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
 #include "include/cef_command_ids.h"
+#include "include/cef_task_manager.h"
 #include "include/cef_urlrequest.h"
 
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -2029,6 +2030,40 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg == "get-my-tab-id") {
       CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
       callback->Success(view ? std::to_string(view->GetID()) : "0");
+      return true;
+    }
+
+    if (msg.rfind("get-tab-memory:", 0) == 0) {
+      const auto id_opt = ParseIntStrict(
+          std::string_view(msg).substr(std::strlen("get-tab-memory:")));
+      if (!id_opt) {
+        callback->Failure(1, "invalid tab id");
+        return true;
+      }
+      int tab_id = *id_opt;
+      CefRefPtr<CefBrowser> tab_browser;
+      if (handler && handler->tab_manager_) {
+        tab_browser = handler->tab_manager_->GetBrowser(tab_id);
+      }
+      int64_t memory_bytes = -1;
+      if (tab_browser) {
+        auto tm = CefTaskManager::GetTaskManager();
+        if (tm) {
+          int64_t task_id = tm->GetTaskIdForBrowserId(tab_browser->GetIdentifier());
+          if (task_id >= 0) {
+            CefTaskInfo info;
+            info.size = sizeof(info);
+            if (tm->GetTaskInfo(task_id, info) && info.memory >= 0) {
+              memory_bytes = info.memory;
+            }
+          }
+        }
+      }
+      std::string json = JsonObjectBuilder()
+                             .AddRaw("tabId", std::to_string(tab_id))
+                             .AddRaw("memoryBytes", std::to_string(memory_bytes))
+                             .Build();
+      callback->Success(json);
       return true;
     }
 
@@ -4733,6 +4768,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       OtfApp* app = OtfApp::GetInstance();
       if (app) app->HideSnipPreviewOverlay();
       callback->Success("");
+    } else if (msg.rfind("toast:", 0) == 0) {
+      // Format: toast:icon:message
+      std::string payload = msg.substr(6);
+      size_t colon_pos = payload.find(':');
+      std::string icon = "check";
+      std::string message = payload;
+      if (colon_pos != std::string::npos) {
+        icon = payload.substr(0, colon_pos);
+        message = payload.substr(colon_pos + 1);
+      }
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) app->ShowToast(icon, message);
+      callback->Success("");
     } else {
       return false;
     }
@@ -6413,7 +6461,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     // handle it ourselves using the platform clipboard API.
     WriteToClipboard(params->GetLinkUrl().ToString());
     if (OtfApp* app = OtfApp::GetInstance()) {
-      app->ShowToastNotification("Link copied");
+      app->ShowToast("copy", "Link copied");
     }
     return true;
   }
@@ -6430,7 +6478,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
       WriteToClipboard(email);
     }
     if (OtfApp* app = OtfApp::GetInstance()) {
-      app->ShowToastNotification("Email copied");
+      app->ShowToast("copy", "Email copied");
     }
     return true;
   }

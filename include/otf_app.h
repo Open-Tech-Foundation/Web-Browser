@@ -106,7 +106,7 @@ class OtfApp : public CefApp,
   void CreateImagePreviewOverlay();
   void CreateLinkPreviewOverlay();
   void CreateToastOverlay();
-  void ShowToastNotification(const std::string& message);
+  void ShowToast(const std::string& icon, const std::string& message);
   void HideToastOverlay();
   void PositionToastOverlay();
   void CreateConsoleOverlay();

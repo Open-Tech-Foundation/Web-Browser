@@ -127,6 +127,45 @@ const S = {
     borderRadius: '4px',
     transition: 'all 0.15s',
   },
+  toolbar: {
+    position: 'absolute',
+    top: '16px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    gap: '8px',
+    background: '#1e293b',
+    padding: '8px 12px',
+    borderRadius: '8px',
+    boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+    zIndex: 10,
+  },
+  toolbarBtn: {
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: 600,
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    background: '#334155',
+    color: '#e2e8f0',
+  },
+  toolbarCloseBtn: {
+    padding: '6px',
+    background: 'transparent',
+    border: 'none',
+    color: '#94a3b8',
+    cursor: 'pointer',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.15s',
+  },
 };
 
 const SnipViewer = () => {
@@ -250,6 +289,13 @@ const SnipViewer = () => {
       ]);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      
+      if (window.cefQuery) {
+        window.cefQuery({
+          request: 'toast:copy:Image copied',
+          onSuccess: () => {}
+        });
+      }
     } catch (err) {
       console.error('Copy failed:', err);
     }
@@ -263,6 +309,13 @@ const SnipViewer = () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    
+    if (window.cefQuery) {
+      window.cefQuery({
+        request: 'toast:save:Image saved',
+        onSuccess: () => {}
+      });
+    }
   };
 
   const handleReselect = () => {
@@ -270,6 +323,35 @@ const SnipViewer = () => {
     setSelection(null);
     setCroppedDataUrl(null);
     setCropDimensions(null);
+  };
+
+  const handleFullPage = () => {
+    if (!imageRef.current) return;
+    const img = imageRef.current;
+    const imgRect = img.getBoundingClientRect();
+    const containerRect = containerRef.current.getBoundingClientRect();
+    
+    const imgOffsetX = imgRect.left - containerRect.left;
+    const imgOffsetY = imgRect.top - containerRect.top;
+    
+    setSelection({
+      x: imgOffsetX,
+      y: imgOffsetY,
+      w: imgRect.width,
+      h: imgRect.height,
+    });
+    
+    setTimeout(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const dataUrl = canvas.toDataURL('image/png');
+      setCroppedDataUrl(dataUrl);
+      setCropDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+      setShowPreview(true);
+    }, 50);
   };
 
   const handleClose = () => {
@@ -301,6 +383,32 @@ const SnipViewer = () => {
         onMouseUp={handleMouseUp}
         onClick={handleBackdropClick}
       >
+        {imageData && !showPreview && !isDragging && !selection && (
+          <div style={S.toolbar}>
+            <button
+              style={S.toolbarBtn}
+              onClick={handleFullPage}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              </svg>
+              Full Page
+            </button>
+            <button
+              style={S.toolbarCloseBtn}
+              onClick={handleClose}
+              onMouseDown={(e) => e.stopPropagation()}
+              title="Close (Esc)"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        )}
+
         <img
           ref={imageRef}
           src={dataUrl}
