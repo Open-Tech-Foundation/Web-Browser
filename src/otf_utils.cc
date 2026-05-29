@@ -1796,7 +1796,9 @@ std::string ValidateStoragePath(const std::string& path,
 #if defined(_WIN32)
   ULARGE_INTEGER free_bytes;
   if (GetDiskFreeSpaceExW(resolved.c_str(), &free_bytes, nullptr, nullptr)) {
-    if (free_bytes.QuadPart < static_cast<LONGLONG>(required_bytes)) {
+    // QuadPart is ULONGLONG; compare unsigned-to-unsigned (required_bytes is
+    // uint64_t) — a signed LONGLONG cast trips C4018 under /WX.
+    if (free_bytes.QuadPart < required_bytes) {
       return std::string("Not enough free disk space. At least ") +
              (purpose == "cache" ? "100 MB" : "50 MB") + " required.";
     }
