@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <mutex>
+#include <set>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -1394,7 +1395,8 @@ bool IsSupportedDocumentUrl(const std::string& url) {
     return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
   };
   return ends_with(path, ".pdf") || ends_with(path, ".txt") ||
-         ends_with(path, ".json") || ends_with(path, ".xml") ||
+         ends_with(path, ".json") || ends_with(path, ".jsonl") ||
+         ends_with(path, ".xml") ||
          ends_with(path, ".csv") || ends_with(path, ".md") ||
          ends_with(path, ".js") || ends_with(path, ".ts") ||
          ends_with(path, ".py") || ends_with(path, ".html") ||
@@ -1423,6 +1425,7 @@ std::string GuessDocumentMimeType(const std::string& url) {
   };
   if (ends_with(".pdf")) return "application/pdf";
   if (ends_with(".json")) return "application/json";
+  if (ends_with(".jsonl")) return "application/json";
   if (ends_with(".xml")) return "application/xml";
   if (ends_with(".html")) return "text/html";
   if (ends_with(".css")) return "text/css";
@@ -1829,7 +1832,7 @@ uint64_t GetDirectorySize(const std::filesystem::path& dir) {
 // Returns a vector of {origin, sizeBytes} pairs.
 static std::vector<std::pair<std::string, uint64_t>> ScanIndexedDbOrigins() {
   std::vector<std::pair<std::string, uint64_t>> results;
-  const auto db_dir = GetAppCacheDir() / "cef" / "IndexedDB";
+  const auto db_dir = GetActiveCacheDir() / "cef" / "Default" / "IndexedDB";
   std::error_code ec;
   if (!std::filesystem::is_directory(db_dir, ec)) return results;
   for (const auto& entry : std::filesystem::directory_iterator(db_dir, ec)) {
@@ -1866,34 +1869,237 @@ static std::vector<std::pair<std::string, uint64_t>> ScanIndexedDbOrigins() {
   return results;
 }
 
-std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins) {
-  auto origins = ScanIndexedDbOrigins();
-
-  // Build a map from origin -> storageBytes
-  std::map<std::string, uint64_t> usage_map;
-  for (const auto& [origin, size] : origins) {
-    usage_map[origin] = size;
+// Scans CacheStorage (Service Worker cache) directories for per-origin sizes.
+// Directory names are opaque hashes, but each contains an index.txt with the
+// origin URL stored as a plaintext string (protobuf-embedded).
+// Returns a vector of {origin, sizeBytes} pairs.
+static std::vector<std::pair<std::string, uint64_t>> ScanCacheStorageOrigins() {
+  std::vector<std::pair<std::string, uint64_t>> results;
+  const auto cs_dir = GetActiveCacheDir() / "cef" / "Default" / "Service Worker" / "CacheStorage";
+  std::error_code ec;
+  if (!std::filesystem::is_directory(cs_dir, ec)) return results;
+  for (const auto& entry : std::filesystem::directory_iterator(cs_dir, ec)) {
+    if (!entry.is_directory(ec)) continue;
+    // Each subdirectory is a hash-named origin directory containing cache bodies.
+    const auto index_file = entry.path() / "index.txt";
+    if (!std::filesystem::is_regular_file(index_file, ec)) continue;
+    // Read the index file and search for an http(s):// URL
+    std::ifstream ifs(index_file, std::ios::binary);
+    if (!ifs) continue;
+    std::string content((std::istreambuf_iterator<char>(ifs)),
+                         std::istreambuf_iterator<char>());
+    ifs.close();
+    // Search for "http://" or "https://" - the origin URL is stored in the
+    // protobuf-encoded index.txt as an opaque string field.
+    static constexpr std::string_view kHttpPrefix = "http://";
+    static constexpr std::string_view kHttpsPrefix = "https://";
+    std::string origin;
+    for (size_t i = 0; i < content.size(); ++i) {
+      if (content.compare(i, kHttpPrefix.size(), kHttpPrefix) == 0 ||
+          content.compare(i, kHttpsPrefix.size(), kHttpsPrefix) == 0) {
+        // Found a URL - extract up to the first space/control/quote char
+        size_t end = i;
+        while (end < content.size() && content[end] > 0x1f &&
+               content[end] != '"' && content[end] != '<' && content[end] != '>' &&
+               content[end] != '[' && content[end] != ']' && content[end] != ' ') {
+          ++end;
+        }
+        const std::string url_str = content.substr(i, end - i);
+        origin = ExtractOrigin(url_str);
+        if (!origin.empty()) break;
+      }
+    }
+    if (origin.empty()) continue;
+    const uint64_t size = GetDirectorySize(entry.path());
+    results.emplace_back(std::move(origin), size);
   }
-  // Add extra origins (e.g. from history) with 0 storage if not already present
-  for (const auto& origin : extra_origins) {
-    if (usage_map.find(origin) == usage_map.end()) {
-      usage_map[origin] = 0;
+  return results;
+}
+
+// Scans Local Storage LevelDB for per-origin data presence.
+// Returns a vector of {origin, 0} for each origin found to have localStorage.
+// Accurate per-origin sizing would require LevelDB parsing; we detect
+// presence by scanning for META:https:// / META:http:// patterns in the
+// binary LevelDB files.
+static std::vector<std::pair<std::string, uint64_t>> ScanLocalStorageOrigins() {
+  std::vector<std::pair<std::string, uint64_t>> results;
+  const auto ls_dir = GetActiveCacheDir() / "cef" / "Default" / "Local Storage" / "leveldb";
+  std::error_code ec;
+  if (!std::filesystem::is_directory(ls_dir, ec)) return results;
+
+  std::string all_data;
+  for (const auto& entry : std::filesystem::directory_iterator(ls_dir, ec)) {
+    if (!entry.is_regular_file(ec)) continue;
+    const auto name = entry.path().filename().string();
+    if (name.size() < 4) continue;
+    const auto ext = name.substr(name.size() - 4);
+    if (ext != ".ldb" && ext != ".log") continue;
+    std::ifstream ifs(entry.path(), std::ios::binary);
+    if (!ifs) continue;
+    all_data.append((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+  }
+  if (all_data.empty()) return results;
+
+  std::set<std::string> origins_found;
+  static constexpr std::string_view kMetaHttp = "META:http://";
+  static constexpr std::string_view kMetaHttps = "META:https://";
+  for (size_t i = 0; i + 5 < all_data.size(); ++i) {
+    size_t meta_end = 0;
+    if (all_data.compare(i, kMetaHttps.size(), kMetaHttps) == 0)
+      meta_end = i + kMetaHttps.size();
+    else if (all_data.compare(i, kMetaHttp.size(), kMetaHttp) == 0)
+      meta_end = i + kMetaHttp.size();
+    else
+      continue;
+    size_t end = meta_end;
+    while (end < all_data.size() && all_data[end] >= 0x20) ++end;
+    if (end > meta_end) {
+      std::string origin_url = all_data.substr(i + 5, end - i - 5);
+      std::string origin = ExtractOrigin(origin_url);
+      if (!origin.empty()) origins_found.insert(origin);
     }
   }
+  for (const auto& origin : origins_found)
+    results.emplace_back(origin, 0);
+  return results;
+}
+
+static std::string NormalizeOrigin(const std::string& origin) {
+  // Strip www. prefix(es) from host and remove default ports (80, 443)
+  // so e.g. https://www.www.youtube.com:443 normalizes to https://youtube.com.
+  std::string result = origin;
+  constexpr std::string_view kDotWww = "://www.";
+  size_t pos = result.find(kDotWww);
+  if (pos != std::string::npos) {
+    size_t start = pos + 3; // after "://"
+    while (result.compare(start, 4, "www.") == 0) {
+      result.erase(start, 4); // remove each "www."
+      // after erasing, check if there's another "www." at the same position
+    }
+  }
+  // Strip default port :443 for https, :80 for http
+  if (result.compare(0, 8, "https://") == 0) {
+    size_t port_pos = result.find(':');
+    if (port_pos != std::string::npos) {
+      auto port_str = result.substr(port_pos + 1);
+      size_t slash = port_str.find('/');
+      if (slash != std::string::npos) port_str = port_str.substr(0, slash);
+      if (port_str == "443") result.erase(port_pos);
+    }
+  } else if (result.compare(0, 7, "http://") == 0) {
+    size_t port_pos = result.find(':');
+    if (port_pos != std::string::npos) {
+      auto port_str = result.substr(port_pos + 1);
+      size_t slash = port_str.find('/');
+      if (slash != std::string::npos) port_str = port_str.substr(0, slash);
+      if (port_str == "80") result.erase(port_pos);
+    }
+  }
+  return result;
+}
+
+std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins,
+                               const std::map<std::string, uint64_t>& cookie_sizes,
+                               const std::map<std::string, uint64_t>& cookie_counts,
+                               const std::map<std::string, uint64_t>& local_storage_sizes) {
+  auto idb_origins = ScanIndexedDbOrigins();
+  auto cs_origins = ScanCacheStorageOrigins();
+  auto ls_origins = ScanLocalStorageOrigins();
+
+  // Build normalized maps by origin for each storage type
+  auto insert_into = [](std::map<std::string, uint64_t>& map,
+                         const std::vector<std::pair<std::string, uint64_t>>& vec) {
+    for (const auto& [origin, size] : vec)
+      map[NormalizeOrigin(origin)] += size;
+  };
+  std::map<std::string, uint64_t> idb_map;
+  std::map<std::string, uint64_t> cs_map;
+  insert_into(idb_map, idb_origins);
+  insert_into(cs_map, cs_origins);
+  // Merge caller-provided localStorage sizes with scanned ones
+  std::map<std::string, uint64_t> ls_map;
+  for (const auto& [origin, size] : local_storage_sizes)
+    ls_map[NormalizeOrigin(origin)] += size;
+  for (const auto& [origin, size] : ls_origins)
+    ls_map[NormalizeOrigin(origin)] += size;
+  // Normalize cookie_sizes
+  std::map<std::string, uint64_t> cookies_map;
+  for (const auto& [origin, size] : cookie_sizes)
+    cookies_map[NormalizeOrigin(origin)] += size;
+  // Normalize cookie_counts
+  std::map<std::string, uint64_t> cookie_count_map;
+  for (const auto& [origin, count] : cookie_counts)
+    cookie_count_map[NormalizeOrigin(origin)] += count;
+  // Normalize extra_origins
+  std::set<std::string> extra_set;
+  for (const auto& origin : extra_origins)
+    extra_set.insert(NormalizeOrigin(origin));
+
+  // Collect all unique normalized origins
+  std::set<std::string> all_origins;
+  for (const auto& [origin, _] : idb_map) all_origins.insert(origin);
+  for (const auto& [origin, _] : cs_map) all_origins.insert(origin);
+  for (const auto& [origin, _] : ls_map) all_origins.insert(origin);
+  for (const auto& [origin, _] : cookies_map) all_origins.insert(origin);
+  for (const auto& [origin, _] : cookie_count_map) all_origins.insert(origin);
+  for (const auto& origin : extra_set) all_origins.insert(origin);
 
   std::string json = "[";
   bool first = true;
-  for (const auto& [origin, size] : usage_map) {
+  for (const auto& origin : all_origins) {
     if (!first) json += ",";
     first = false;
+    const uint64_t idb = idb_map[origin];
+    const uint64_t cs = cs_map[origin];
+    const uint64_t ls = ls_map[origin];
+    const uint64_t cookies = cookies_map[origin];
+    const uint64_t cookie_count = cookie_count_map[origin];
+    const uint64_t total = idb + cs + ls + cookies;
     json += JsonObjectBuilder()
                 .AddString("origin", origin)
-                .AddRaw("storageBytes", std::to_string(size))
-                .AddRaw("cookieCount", "0")
+                .AddRaw("storageBytes", std::to_string(total))
+                .AddRaw("indexedDB", std::to_string(idb))
+                .AddRaw("cacheStorage", std::to_string(cs))
+                .AddRaw("localStorage", std::to_string(ls))
+                .AddRaw("cookies", std::to_string(cookies))
+                .AddRaw("cookieCount", std::to_string(cookie_count))
                 .Build();
   }
   json += "]";
   return json;
+}
+
+std::string BuildStorageTotalsJson() {
+  std::error_code ec;
+  const auto profile_dir = GetActiveCacheDir() / "cef" / "Default";
+
+  const uint64_t http_cache = GetDirectorySize(profile_dir / "Cache");
+  const uint64_t indexed_db = GetDirectorySize(profile_dir / "IndexedDB");
+  const uint64_t localStorage = GetDirectorySize(profile_dir / "Local Storage");
+  const uint64_t sessionStorage = GetDirectorySize(profile_dir / "Session Storage");
+  const uint64_t blob_storage = GetDirectorySize(profile_dir / "blob_storage");
+  const uint64_t file_system = GetDirectorySize(profile_dir / "File System");
+  // Service Workers disabled in this browser - skip SW script dirs
+  const uint64_t cs_total = GetDirectorySize(profile_dir / "Service Worker" / "CacheStorage");
+  // Cookies file size
+  uint64_t cookies = 0;
+  if (std::filesystem::is_regular_file(profile_dir / "Cookies", ec))
+    cookies = std::filesystem::file_size(profile_dir / "Cookies", ec);
+  // Code Cache
+  const uint64_t code_cache = GetDirectorySize(profile_dir / "Code Cache");
+
+  return JsonObjectBuilder()
+      .AddRaw("httpCache", std::to_string(http_cache))
+      .AddRaw("indexedDB", std::to_string(indexed_db))
+      .AddRaw("cacheStorage", std::to_string(cs_total))
+      .AddRaw("localStorage", std::to_string(localStorage))
+      .AddRaw("sessionStorage", std::to_string(sessionStorage))
+      .AddRaw("blobStorage", std::to_string(blob_storage))
+      .AddRaw("fileSystem", std::to_string(file_system))
+      .AddRaw("cookies", std::to_string(cookies))
+      .AddRaw("codeCache", std::to_string(code_cache))
+      .Build();
 }
 
 } // namespace otf

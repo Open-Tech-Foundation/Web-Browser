@@ -24,7 +24,7 @@ const guessLanguage = (mimeType, fileName) => {
   if (mimeType === 'text/csv') return 'plaintext';
   const ext = (fileName || '').split('.').pop().toLowerCase();
   const extMap = {
-    json: 'json', xml: 'xml', html: 'html', htm: 'html', css: 'css',
+    json: 'json', jsonl: 'json', xml: 'xml', html: 'html', htm: 'html', css: 'css',
     js: 'javascript', mjs: 'javascript', jsx: 'javascript',
     ts: 'typescript', tsx: 'typescript',
     py: 'python', sh: 'shell', bash: 'shell', zsh: 'shell',
