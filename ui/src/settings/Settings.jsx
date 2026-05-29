@@ -3,7 +3,7 @@ import * as Icons from './Icons';
 import { resolveUrl, looksLikeDirectUrl } from '../shared/search';
 
 const humanizeSize = (bytes) => {
-  if (!bytes || bytes === 0) return '';
+  if (!bytes || bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   let size = bytes;
@@ -128,6 +128,23 @@ const Settings = () => {
   const [storageSuccess, setStorageSuccess] = useState('');
   const [rowErrors, setRowErrors] = useState({});
 
+  // Clear Data section
+  const [siteUsage, setSiteUsage] = useState([]);
+  const [sortAsc, setSortAsc] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearStatus, setClearStatus] = useState('');
+  const [storageTotals, setStorageTotals] = useState(null);
+
+  const [clearItems, setClearItems] = useState({
+    history: true,
+    downloads: true,
+    cookies: true,
+    cache: true,
+    siteData: true,
+  });
+  const toggleClearItem = (key) => setClearItems((p) => ({ ...p, [key]: !p[key] }));
+
   const [appearanceMode, setAppearanceMode] = useState('auto');
   const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '', cef: '' });
 
@@ -244,6 +261,22 @@ const Settings = () => {
         onSuccess: (response) => {
           try {
             setStoragePaths(JSON.parse(response));
+          } catch (_) {}
+        }
+      });
+      window.cefQuery({
+        request: 'get-site-usage-list',
+        onSuccess: (response) => {
+          try {
+            setSiteUsage(JSON.parse(response));
+          } catch (_) {}
+        }
+      });
+      window.cefQuery({
+        request: 'get-storage-totals',
+        onSuccess: (response) => {
+          try {
+            setStorageTotals(JSON.parse(response));
           } catch (_) {}
         }
       });
@@ -401,6 +434,7 @@ const Settings = () => {
     { id: 'privacy', label: 'Privacy', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg> },
     { id: 'security', label: 'Security', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg> },
     { id: 'storage', label: 'Config', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12A10 10 0 1 1 12 2a10 10 0 0 1 10 10z" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg> },
+    { id: 'cleardata', label: 'Clear Data', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg> },
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 9h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" /><path d="M5 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M15 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /></svg> },
     { id: 'reset', label: 'Reset Settings', icon: <Icons.Reset /> },
     { id: 'about', label: 'About', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg> },
@@ -705,6 +739,143 @@ const Settings = () => {
               </>
             )}
 
+            {activeMenu === 'cleardata' && (
+              <>
+                <header className="mb-12">
+                  <h1 className="text-4xl font-extrabold tracking-tight mb-4 text-main">Clear Browsing Data</h1>
+                </header>
+
+                <section>
+                  <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Clear Browsing Data</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Checkbox label="Browsing history" checked={clearItems.history} onChange={() => toggleClearItem('history')} />
+                    <Checkbox label="Download history" checked={clearItems.downloads} onChange={() => toggleClearItem('downloads')} />
+                    <Checkbox label="Cookies and other site data" checked={clearItems.cookies} onChange={() => toggleClearItem('cookies')} />
+                    <Checkbox label="Cached images and files" checked={clearItems.cache} onChange={() => toggleClearItem('cache')} />
+                    <Checkbox label="Site storage (IndexedDB, Local Storage, etc.)" checked={clearItems.siteData} onChange={() => toggleClearItem('siteData')} />
+                  </div>
+                  <div className="pt-6 border-t border-main mt-6">
+                    <button
+                      onClick={() => { setClearStatus(''); setShowClearConfirm(true); }}
+                      disabled={!Object.values(clearItems).some(Boolean)}
+                      className="px-10 py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl text-base font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-500 cursor-pointer"
+                    >
+                      Clear Data
+                    </button>
+                  </div>
+                </section>
+
+                <section className="mt-10">
+                  <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Storage by Type</h2>
+                  {!storageTotals ? (
+                    <p className="text-sm text-muted">Loading storage totals...</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {[
+                        { key: 'httpCache', label: 'HTTP Cache' },
+                        { key: 'indexedDB', label: 'IndexedDB' },
+                        { key: 'cacheStorage', label: 'Cache Storage' },
+                        { key: 'localStorage', label: 'Local Storage' },
+                        { key: 'sessionStorage', label: 'Session Storage' },
+                        { key: 'fileSystem', label: 'File System' },
+                        { key: 'blobStorage', label: 'Blob Storage' },
+                        { key: 'codeCache', label: 'Code Cache' },
+                        { key: 'cookies', label: 'Cookies' },
+                      ].map(({ key, label }) => {
+                        const bytes = Number(storageTotals[key] ?? 0);
+                        return (
+                          <div key={key} className="p-4 bg-card/50 border border-main rounded-2xl">
+                            <div className="text-[10px] font-bold uppercase tracking-wider mb-1 text-orange-500">{label}</div>
+                            <div className="text-sm font-mono font-semibold text-main">{humanizeSize(bytes)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                <section className="mt-10">
+                  <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">
+                    Sites with Storage ({siteUsage.filter((s) => (Number(s.storageBytes) || 0) > 0).length})
+                  </h2>
+                  {siteUsage.length === 0 ? (
+                    <p className="text-sm text-muted">No site storage data found.</p>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-xs text-muted font-medium">Sort by size</span>
+                        <button
+                          onClick={() => setSortAsc(!sortAsc)}
+                          className="px-3 py-1.5 bg-main/5 border border-main rounded-lg text-xs text-muted hover:text-main hover:border-orange-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className={sortAsc ? '' : 'rotate-180'}>
+                            <path d="M12 5v14M5 12l7-7 7 7" />
+                          </svg>
+                          {sortAsc ? 'Smallest' : 'Largest'}
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {[...siteUsage]
+                          .filter((site) => (Number(site.storageBytes) || 0) > 0)
+                          .sort((a, b) => sortAsc
+                            ? (Number(a.storageBytes) - Number(b.storageBytes))
+                            : (Number(b.storageBytes) - Number(a.storageBytes)))
+                          .map((site) => {
+                            const idb = Number(site.indexedDB) || 0;
+                            const cs = Number(site.cacheStorage) || 0;
+                            const ls = Number(site.localStorage) || 0;
+                            const cookies = Number(site.cookies) || 0;
+                            const items = [];
+                            if (idb > 0) items.push({ label: 'IndexedDB', bytes: idb });
+                            if (cs > 0) items.push({ label: 'Cache Storage', bytes: cs });
+                            if (ls > 0) items.push({ label: 'Local Storage', bytes: ls });
+                            if (cookies > 0) items.push({ label: 'Cookies', bytes: cookies });
+                            const hasItems = items.length > 0;
+                            const Row = hasItems ? 'details' : 'div';
+                            const rowProps = hasItems ? { className: 'group bg-card/50 border border-main rounded-2xl overflow-hidden transition-all hover:border-orange-500/30 open:shadow-md' } : { className: 'flex items-center justify-between p-4 bg-card/50 border border-main rounded-2xl transition-all hover:border-orange-500/30' };
+                            return (
+                            <Row key={site.origin} {...rowProps}>
+                              {hasItems ? (
+                                <summary className="flex items-center justify-between p-4 cursor-pointer list-none [&::-webkit-details-marker]:hidden transition-colors hover:bg-black/5 open:bg-black/5">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="shrink-0 text-muted transition-transform group-open:rotate-90">
+                                      <path d="M9 18l6-6-6-6" />
+                                    </svg>
+                                    <span className="text-sm font-medium text-main truncate">{site.origin}</span>
+                                  </div>
+                                  <span className="text-xs font-mono text-muted shrink-0 ml-3">{humanizeSize(Number(site.storageBytes))}</span>
+                                </summary>
+                              ) : (
+                                <div className="flex items-center justify-between p-4 w-full">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <span className="text-sm font-medium text-main truncate">{site.origin}</span>
+                                  </div>
+                                  <span className="text-xs font-mono text-muted shrink-0 ml-3">{humanizeSize(Number(site.storageBytes))}</span>
+                                </div>
+                              )}
+                              {hasItems && (
+                                <div className="px-4 pb-4 space-y-1">
+                                  {items.map((item) => (
+                                    <div key={item.label} className="flex items-center gap-2.5 text-xs pl-8 pr-2 py-1 rounded-lg hover:bg-black/5">
+                                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="shrink-0 text-orange-400">
+                                        <path d="M4 12h16" /><path d="M12 4v16" />
+                                      </svg>
+                                      <span className="text-orange-500 font-medium">{item.label}</span>
+                                      <span className="font-mono text-muted ml-auto">{humanizeSize(item.bytes)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </Row>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
+                </section>
+              </>
+            )}
+
             {activeMenu === 'storage' && (
               <>
                 <header className="mb-12">
@@ -950,27 +1121,6 @@ const Settings = () => {
                     </div>
                   </section>
 
-                  <section>
-                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Public Proof of Concept</h2>
-                    <div className="p-8 bg-card/50 border border-main rounded-3xl relative overflow-hidden group">
-                      <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 via-transparent to-transparent opacity-80" />
-                      <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
-                        <div className="flex-grow">
-                          <h3 className="text-lg font-bold text-main mb-2">Browser Protection Diagnostics</h3>
-                          <p className="text-muted text-sm leading-relaxed max-w-2xl">
-                            Launch the official protection portal to verify active browser privacy defenses, security layers, and anti-fingerprinting safeguards.
-                          </p>
-                          <p className="text-xs text-muted mt-3 font-mono">https://browser.opentechf.org/protection</p>
-                        </div>
-                        <button
-                          onClick={() => openInternalPage('https://browser.opentechf.org/protection')}
-                          className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-orange-500/20 active:scale-95 cursor-pointer shrink-0"
-                        >
-                          Open test page
-                        </button>
-                      </div>
-                    </div>
-                  </section>
                 </div>
               </>
             )}
@@ -1121,6 +1271,28 @@ const Settings = () => {
                       </div>
                     </div>
                   </section>
+
+                  <section>
+                    <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Browser Protection</h2>
+                    <div className="p-8 bg-card/50 border border-main rounded-3xl relative overflow-hidden group">
+                      <div className="absolute inset-0 bg-gradient-to-br from-orange-500/10 via-transparent to-transparent opacity-80" />
+                      <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
+                        <div className="flex-grow">
+                          <h3 className="text-lg font-bold text-main mb-2">Browser Protection Diagnostics</h3>
+                          <p className="text-muted text-sm leading-relaxed max-w-2xl">
+                            Launch the official protection portal to verify active browser privacy defenses, security layers, and anti-fingerprinting safeguards.
+                          </p>
+                          <p className="text-xs text-muted mt-3 font-mono">https://browser.opentechf.org/protection</p>
+                        </div>
+                        <button
+                          onClick={() => openInternalPage('https://browser.opentechf.org/protection')}
+                          className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-orange-500/20 active:scale-95 cursor-pointer shrink-0"
+                        >
+                          Open test page
+                        </button>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
             )}
@@ -1186,6 +1358,86 @@ const Settings = () => {
                       Close
                     </button>
                   </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Data Confirm Dialog */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setShowClearConfirm(false)} />
+          <div
+            className="relative w-full max-w-md border border-main rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300"
+            style={{ backgroundColor: 'var(--bg-card)' }}
+          >
+            <div className="relative z-10">
+              <div className="w-16 h-16 rounded-3xl bg-red-500/15 border border-red-500/30 flex items-center justify-center mb-8 mx-auto">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </div>
+              <h2 className="text-2xl font-black text-center text-main mb-4 tracking-tight">
+                {clearStatus ? 'Cleared' : 'Clear Browsing Data?'}
+              </h2>
+              {!clearStatus ? (
+                <>
+                  <p className="text-muted text-center text-sm leading-relaxed mb-4">
+                    The following items will be deleted. This action cannot be undone.
+                  </p>
+                  <div className="space-y-1 mb-8">
+                    {clearItems.history && <p className="text-xs text-center text-muted">Browsing history</p>}
+                    {clearItems.downloads && <p className="text-xs text-center text-muted">Download history</p>}
+                    {clearItems.cookies && <p className="text-xs text-center text-muted">Cookies and other site data</p>}
+                    {clearItems.cache && <p className="text-xs text-center text-muted">Cached images and files</p>}
+                    {clearItems.siteData && <p className="text-xs text-center text-muted">Site storage</p>}
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={() => {
+                        setClearBusy(true);
+                        const categories = Object.entries(clearItems)
+                          .filter(([, v]) => v)
+                          .map(([k]) => k);
+                        window.cefQuery({
+                          request: `clear-browsing-data:${JSON.stringify({ categories })}`,
+                          onSuccess: () => {
+                            setClearStatus('Browsing data cleared.');
+                            setClearBusy(false);
+                            setSiteUsage([]);
+                            setStorageTotals(null);
+                          },
+                          onFailure: (code, msg) => {
+                            setClearStatus(`Failed: ${msg || code}`);
+                            setClearBusy(false);
+                          }
+                        });
+                      }}
+                      disabled={clearBusy}
+                      className="w-full py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {clearBusy ? 'Clearing...' : 'Clear Data'}
+                    </button>
+                    <button
+                      onClick={() => setShowClearConfirm(false)}
+                      disabled={clearBusy}
+                      className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-center text-sm leading-relaxed mb-8 text-muted">{clearStatus}</p>
+                  <button
+                    onClick={() => { setShowClearConfirm(false); setClearStatus(''); }}
+                    className="w-full py-4 bg-main/5 hover:bg-main/10 text-muted hover:text-main rounded-2xl font-bold transition-all active:scale-95"
+                  >
+                    Close
+                  </button>
                 </>
               )}
             </div>
