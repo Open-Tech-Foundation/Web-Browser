@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <initializer_list>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -153,7 +154,13 @@ uint64_t GetDirectorySize(const std::filesystem::path& dir);
 // Accepts additional origins (e.g. from history) that should appear in the
 // result even if they have no local site storage.
 // Returns a JSON array: [{origin, storageBytes, cookieCount}, ...]
-std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins = {});
+std::string BuildSiteUsageJson(
+    const std::vector<std::string>& extra_origins = {},
+    const std::map<std::string, uint64_t>& cookie_sizes = {},
+    const std::map<std::string, uint64_t>& cookie_counts = {},
+    const std::map<std::string, uint64_t>& local_storage_sizes = {});
+
+std::string BuildStorageTotalsJson();
 
 bool IsAllowedBrowserPageUrl(const std::string& url);
 std::string GetBrowserPageFilePath(const std::string& url);
