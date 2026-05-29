@@ -11,18 +11,26 @@ const ONE_LINER = `curl -fsSL ${LINUX_INSTALL_SCRIPT_URL} | sh`;
 function copyOneLiner(e) {
   if (typeof navigator !== "undefined" && navigator.clipboard) {
     navigator.clipboard.writeText(ONE_LINER).then(() => {
-      if (e?.target) {
-        const btn = e.target;
-        const orig = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = orig; }, 2000);
+      const btn = e?.currentTarget || e?.target;
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        btn.style.backgroundColor = '#22c55e';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#22c55e';
+        setTimeout(() => {
+          btn.innerHTML = orig;
+          btn.style.backgroundColor = '';
+          btn.style.color = '';
+          btn.style.borderColor = '';
+        }, 2000);
       }
     }).catch(() => {
-      if (e?.target) {
-        const btn = e.target;
-        const orig = btn.textContent;
-        btn.textContent = 'Failed';
-        setTimeout(() => { btn.textContent = orig; }, 2000);
+      const btn = e?.currentTarget || e?.target;
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = 'Failed';
+        setTimeout(() => { btn.innerHTML = orig; }, 2000);
       }
     });
   }
