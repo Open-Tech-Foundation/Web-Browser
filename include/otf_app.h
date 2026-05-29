@@ -1,9 +1,11 @@
 #ifndef OTF_BROWSER_APP_H_
 #define OTF_BROWSER_APP_H_
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "include/cef_app.h"
 #include "include/wrapper/cef_message_router.h"
@@ -216,10 +218,20 @@ class OtfApp : public CefApp,
   IMPLEMENT_REFCOUNTING(OtfApp);
 };
 
-// Register/unregister file content for serving through the browser:// scheme.
-// Used by doc-preview to serve PDFs and other binary documents directly.
+// Register/unregister doc-preview content for serving through the browser://
+// scheme. RegisterDocContent maps a token to a file on disk (already-persisted
+// downloads/restore); RegisterDocContentBytes maps it to bytes held in memory
+// (fetched remote docs — live preview without touching the disk).
 void RegisterDocContent(const std::string& token,
                         const std::string& file_path);
+void RegisterDocContentBytes(const std::string& token,
+                             std::vector<uint8_t> bytes,
+                             const std::string& mime);
+// Retrieve in-memory content bytes (and mime) for a token. Returns false for
+// unknown tokens or path-backed (on-disk) entries.
+bool GetDocContentBytes(const std::string& token,
+                        std::vector<uint8_t>* out_bytes,
+                        std::string* out_mime);
 void UnregisterDocContent(const std::string& token);
 
 } // namespace otf

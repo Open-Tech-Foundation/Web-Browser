@@ -408,23 +408,25 @@ class DeferredDocFetchTask : public CefTask {
       if (response_bytes_.empty()) {
         handler->SetDocPreviewUrlForTab(tab_id_, url_);
       } else {
-        // Materialize the fetched bytes to a temp file so the doc-preview
-        // resource handler can serve them by URL. Cross-platform via the
-        // otf_utils file interface (no POSIX mkstemp — that broke on MSVC).
-        const std::string temp_path =
-            otf::GetTempFilePath("otf_doc_fetch_" + std::to_string(tab_id_));
-        if (otf::WriteFileBinary(temp_path, response_bytes_.data(),
-                                 response_bytes_.size())) {
-          const std::string name = url_.substr(url_.find_last_of('/') + 1);
-          const std::string safe_name = name.empty() ? "document.txt" : name;
-          const std::string content_token =
-              "fetch/" + std::to_string(tab_id_) + "/" + safe_name;
-          const std::string content_url =
-              "browser://doc-preview/content/" + content_token;
-          otf::RegisterDocContent(content_token, temp_path);
-          handler->SetDocPreviewLocalFileForTab(tab_id_, url_, temp_path);
-          handler->SetDocPreviewContentUrlForTab(tab_id_, content_url);
-        }
+        // Keep the fetched bytes in memory and serve them from there — a live
+        // preview must not touch the disk. No temp file: the scheme handler
+        // streams these bytes for the content URL (PDF viewer) and
+        // BuildDocPreviewLoadEvent builds the text data: URI from them.
+        const std::string name = url_.substr(url_.find_last_of('/') + 1);
+        const std::string safe_name = name.empty() ? "document.txt" : name;
+        std::string mime;
+        CefRefPtr<CefResponse> resp = request->GetResponse();
+        if (resp) mime = resp->GetMimeType().ToString();
+        if (mime.empty()) mime = otf::GuessDocumentMimeType(safe_name);
+        const std::string content_token =
+            "fetch/" + std::to_string(tab_id_) + "/" + safe_name;
+        const std::string content_url =
+            "browser://doc-preview/content/" + content_token;
+        otf::RegisterDocContentBytes(
+            content_token,
+            std::vector<uint8_t>(response_bytes_.begin(), response_bytes_.end()),
+            mime);
+        handler->SetDocPreviewContentUrlForTab(tab_id_, content_url);
       }
 
       CefPostTask(TID_UI, new DeferredDocPreviewPushTask(tab_id_));
@@ -2364,6 +2366,56 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
         callback->Success("");
         return true;
+      }
+      // Fetched doc held in memory: write the bytes we already have to the
+      // download target instead of re-fetching from the network.
+      if (handler) {
+        const std::string content_url =
+            handler->GetDocPreviewContentUrlForTab(tab_id);
+        static const std::string kContentPrefix =
+            "browser://doc-preview/content/";
+        if (content_url.rfind(kContentPrefix, 0) == 0) {
+          const std::string token = content_url.substr(kContentPrefix.size());
+          std::vector<uint8_t> bytes;
+          std::string mem_mime;
+          if (otf::GetDocContentBytes(token, &bytes, &mem_mime)) {
+            const std::string raw_name =
+                token.substr(token.find_last_of('/') + 1);
+            const std::string suggested_name =
+                SanitizeFilename(raw_name.empty() ? "download.txt" : raw_name);
+            const std::string target_path =
+                otf::BuildDownloadPath(suggested_name);
+            if (!otf::WriteFileBinary(target_path, bytes.data(),
+                                      bytes.size())) {
+              callback->Failure(0, "Could not save document file");
+              return true;
+            }
+            const std::string save_mime =
+                mem_mime.empty() ? "application/octet-stream" : mem_mime;
+            if (handler->store_) {
+              const int download_id = handler->store_->CreateDownload(
+                  download_url, target_path, target_path, suggested_name,
+                  save_mime, "completed");
+              if (download_id > 0) {
+                PersistedDownload download;
+                download.id = download_id;
+                download.url = download_url;
+                download.original_url = target_path;
+                download.target_path = target_path;
+                download.filename = suggested_name;
+                download.total_bytes = static_cast<int64_t>(bytes.size());
+                download.received_bytes = static_cast<int64_t>(bytes.size());
+                download.status = "completed";
+                download.mime_type = save_mime;
+                handler->store_->UpdateDownload(download);
+                handler->NotifyDownloadsChanged();
+                handler->NotifyDownloadBadge();
+              }
+            }
+            callback->Success("");
+            return true;
+          }
+        }
       }
       if (download_url.rfind("file://", 0) == 0) {
         callback->Failure(1, "file scheme is disabled");
@@ -7323,6 +7375,12 @@ void OtfHandler::ClearDocPreviewStateForTab(int tab_id) {
     }
   }
   tab_doc_preview_subscriptions_.erase(tab_id);
+  // Free any in-memory fetched content registered for this tab.
+  const std::string content_url = GetDocPreviewContentUrlForTab(tab_id);
+  static const std::string kContentPrefix = "browser://doc-preview/content/";
+  if (content_url.rfind(kContentPrefix, 0) == 0) {
+    otf::UnregisterDocContent(content_url.substr(kContentPrefix.size()));
+  }
   SetDocPreviewUrlForTab(tab_id, "");
   SetDocPreviewContentUrlForTab(tab_id, "");
   tab_doc_preview_render_cache_.erase(tab_id);
@@ -7377,6 +7435,41 @@ std::string OtfHandler::BuildDocPreviewLoadEvent(int tab_id) {
         } else {
           SetDocPreviewFormatForTab(tab_id, format);
         }
+      }
+      if (file_size_bytes >= 0) {
+        SetDocPreviewFileSizeForTab(tab_id, file_size_bytes);
+      }
+    }
+  } else if (!content_url.empty()) {
+    // Fetched doc served from memory (no on-disk file). Source the display URL
+    // from the in-memory bytes. PDFs render by navigating the tab to
+    // content_url, so they need no data: URI — only text gets one for Monaco.
+    static const std::string kContentPrefix = "browser://doc-preview/content/";
+    const std::string token =
+        content_url.rfind(kContentPrefix, 0) == 0
+            ? content_url.substr(kContentPrefix.size())
+            : std::string();
+    std::vector<uint8_t> bytes;
+    std::string mem_mime;
+    if (!token.empty() && otf::GetDocContentBytes(token, &bytes, &mem_mime)) {
+      mime_type = mem_mime.empty() ? otf::GuessDocumentMimeType(url) : mem_mime;
+      file_size_bytes = static_cast<int64_t>(bytes.size());
+      auto cache_it = tab_doc_preview_render_cache_.find(tab_id);
+      if (cache_it != tab_doc_preview_render_cache_.end() &&
+          cache_it->second.file_path == content_url &&
+          !cache_it->second.display_url.empty()) {
+        display_url = cache_it->second.display_url;
+      } else if (mime_type != "application/pdf") {
+        std::string content(bytes.begin(), bytes.end());
+        display_url = "data:text/plain;base64," +
+                      CefBase64Encode(content.data(), content.size()).ToString();
+        tab_doc_preview_render_cache_[tab_id] =
+            DocPreviewRenderCache{content_url, display_url};
+      }
+      if (format.empty()) {
+        format = GuessPreviewFormat(url);
+        if (format.empty()) format = mime_type;
+        SetDocPreviewFormatForTab(tab_id, format.empty() ? "TXT" : format);
       }
       if (file_size_bytes >= 0) {
         SetDocPreviewFileSizeForTab(tab_id, file_size_bytes);

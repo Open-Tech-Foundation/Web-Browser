@@ -485,11 +485,18 @@ std::string InjectBaseHref(const std::string& html, const std::string& base_href
 //   The same URLs meta-refresh to the vite dev server, which serves the
 //   pre-bundle React source via HMR.
 
-// Static map for serving file content through the scheme handler.
-// Used by doc-content routes so PDFs and other binary docs can be served
-// directly without data: URIs (which don't work with CEF's PDF viewer).
-std::map<std::string, std::string>& GetDocContentMap() {
-  static std::map<std::string, std::string> instance;
+// Static map for serving doc-preview content through the scheme handler.
+// PDFs and other binary docs need a real URL (CEF's PDF viewer can't load a
+// data: URI). An entry serves EITHER a file on disk (`path`, for already-
+// persisted download/restore docs) OR bytes held in memory (`bytes`+`mime`,
+// for fetched remote docs — so live preview never touches the disk).
+struct DocContentEntry {
+  std::string path;
+  std::vector<uint8_t> bytes;
+  std::string mime;
+};
+std::map<std::string, DocContentEntry>& GetDocContentMap() {
+  static std::map<std::string, DocContentEntry> instance;
   return instance;
 }
 
@@ -545,7 +552,15 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
       auto& content_map = GetDocContentMap();
       auto it = content_map.find(token);
       if (it != content_map.end()) {
-        return MakeFileResponse(it->second);
+        if (!it->second.path.empty()) {
+          return MakeFileResponse(it->second.path);
+        }
+        // Served straight from memory — no disk round-trip. Copy so the map
+        // keeps its bytes for repeat/range requests from the PDF viewer.
+        return MakeBytesResponse(
+            it->second.mime.empty() ? "application/octet-stream"
+                                    : it->second.mime,
+            it->second.bytes);
       }
       return MakeNotFound();
     }
@@ -627,7 +642,24 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
 
 void RegisterDocContent(const std::string& token,
                          const std::string& file_path) {
-  GetDocContentMap()[token] = file_path;
+  GetDocContentMap()[token] = DocContentEntry{file_path, {}, {}};
+}
+
+void RegisterDocContentBytes(const std::string& token,
+                             std::vector<uint8_t> bytes,
+                             const std::string& mime) {
+  GetDocContentMap()[token] = DocContentEntry{{}, std::move(bytes), mime};
+}
+
+bool GetDocContentBytes(const std::string& token,
+                        std::vector<uint8_t>* out_bytes,
+                        std::string* out_mime) {
+  auto& m = GetDocContentMap();
+  auto it = m.find(token);
+  if (it == m.end() || it->second.bytes.empty()) return false;
+  if (out_bytes) *out_bytes = it->second.bytes;
+  if (out_mime) *out_mime = it->second.mime;
+  return true;
 }
 
 void UnregisterDocContent(const std::string& token) {
