@@ -1,8 +1,10 @@
 #include "otf_utils.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -320,6 +322,31 @@ bool WriteFileText(const std::string& utf8_path, const std::string& content) {
   if (!f) return false;
   f << content;
   return f.good();
+}
+
+bool WriteFileBinary(const std::string& utf8_path, const void* data, size_t size) {
+  std::ofstream f(Utf8Path(utf8_path), std::ios::binary | std::ios::trunc);
+  if (!f) return false;
+  if (size > 0) {
+    f.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+  }
+  return f.good();
+}
+
+std::string GetTempFilePath(const std::string& prefix) {
+  std::error_code ec;
+  std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+  if (ec) dir = std::filesystem::path(".");
+  // Unique within this process: monotonic clock + an atomic counter so two
+  // calls in the same tick still differ. Caller is responsible for writing/
+  // cleaning up the file; this only computes a collision-free path.
+  static std::atomic<uint64_t> counter{0};
+  const auto stamp =
+      std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::string unique =
+      prefix + "_" + std::to_string(static_cast<unsigned long long>(stamp)) +
+      "_" + std::to_string(counter.fetch_add(1, std::memory_order_relaxed));
+  return PathToUtf8(dir / unique);
 }
 
 std::string GetExecutableDir() {

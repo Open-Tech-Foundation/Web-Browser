@@ -44,6 +44,15 @@ std::string ReadFileText(const std::string& utf8_path);
 // Write text to a file, replacing existing contents. Returns true on success.
 bool WriteFileText(const std::string& utf8_path, const std::string& content);
 
+// Write raw bytes to a file (binary, truncating). Returns true on success.
+// Cross-platform: routes through Utf8Path so non-ASCII paths work on Windows.
+bool WriteFileBinary(const std::string& utf8_path, const void* data, size_t size);
+
+// Compute a unique, collision-free temp file path (UTF-8) under the platform
+// temp directory using the given prefix. Does NOT create the file — the caller
+// writes to it (e.g. via WriteFileBinary) and owns cleanup.
+std::string GetTempFilePath(const std::string& prefix);
+
 std::string ExtractOrigin(const std::string& url);
 std::string JsonEscape(const std::string& s);
 std::string JsonString(const std::string& s);

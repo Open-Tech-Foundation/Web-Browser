@@ -408,31 +408,21 @@ class DeferredDocFetchTask : public CefTask {
       if (response_bytes_.empty()) {
         handler->SetDocPreviewUrlForTab(tab_id_, url_);
       } else {
-        // Portable temp file (no POSIX mkstemp/write/close — those don't exist
-        // on Windows). Unique per tab + high-resolution timestamp.
-        std::error_code ec;
-        const std::filesystem::path temp_dir =
-            std::filesystem::temp_directory_path(ec);
-        const auto stamp =
-            std::chrono::steady_clock::now().time_since_epoch().count();
-        const std::filesystem::path temp_path =
-            temp_dir / ("otf_doc_fetch_" + std::to_string(tab_id_) + "_" +
-                        std::to_string(static_cast<unsigned long long>(stamp)));
-        std::ofstream out(temp_path, std::ios::binary);
-        if (out) {
-          out.write(response_bytes_.data(),
-                    static_cast<std::streamsize>(response_bytes_.size()));
-          out.close();
-          const std::string temp_path_str = temp_path.string();
+        // Materialize the fetched bytes to a temp file so the doc-preview
+        // resource handler can serve them by URL. Cross-platform via the
+        // otf_utils file interface (no POSIX mkstemp — that broke on MSVC).
+        const std::string temp_path =
+            otf::GetTempFilePath("otf_doc_fetch_" + std::to_string(tab_id_));
+        if (otf::WriteFileBinary(temp_path, response_bytes_.data(),
+                                 response_bytes_.size())) {
           const std::string name = url_.substr(url_.find_last_of('/') + 1);
           const std::string safe_name = name.empty() ? "document.txt" : name;
           const std::string content_token =
               "fetch/" + std::to_string(tab_id_) + "/" + safe_name;
           const std::string content_url =
               "browser://doc-preview/content/" + content_token;
-          otf::RegisterDocContent(content_token, temp_path_str);
-          handler->SetDocPreviewLocalFileForTab(
-              tab_id_, url_, temp_path_str);
+          otf::RegisterDocContent(content_token, temp_path);
+          handler->SetDocPreviewLocalFileForTab(tab_id_, url_, temp_path);
           handler->SetDocPreviewContentUrlForTab(tab_id_, content_url);
         }
       }
