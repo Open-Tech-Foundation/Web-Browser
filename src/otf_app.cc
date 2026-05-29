@@ -154,33 +154,26 @@ CefRefPtr<CefImage> LoadOtfWindowIcon() {
 
 bool ShouldInjectPagePolicyForFrame(CefRefPtr<CefFrame> frame) {
   const std::string url = frame->GetURL().ToString();
-  // data: / blob: subframes get their own V8 realm — parent prototype patches
-  // do NOT carry over. Walk ancestors; if any is an http(s) document we'd
-  // otherwise protect, inject here too so antifingerprint policy covers those
-  // opaque-origin children.
-  //
-  // about:blank is deliberately NOT included: anti-bot systems (e.g. Cloudflare
-  // Turnstile) create sandboxed about:blank iframes without 'allow-scripts' to
-  // extract pristine APIs, and any injection attempt there triggers a
-  // "Blocked script execution" violation that bubbles up via the parent's
-  // securitypolicyviolation event — a clear tamper signal. We accept the
-  // coverage gap on legitimately scripted about:blank frames in exchange for
-  // not advertising ourselves to anti-bot probes.
-  if (StartsWith(url, "data:") || StartsWith(url, "blob:")) {
+  // Inherited-URL frames (about:blank, empty, data:, blob:) each get their own
+  // V8 realm — parent prototype patches do NOT carry over, so a fingerprinter
+  // can read pristine APIs straight out of such a child (e.g. create an
+  // about:blank iframe and read iframe.contentWindow.navigator/screen/canvas).
+  // Walk ancestors; if any is an http(s) document we'd otherwise protect,
+  // inject here too so the antifingerprint policy reaches these realms.
+  // Top-level inherited frames (no protected ancestor) are skipped — those are
+  // transient placeholders the parent writes into, not real content realms.
+  if (IsInheritedFrameUrl(url)) {
     CefRefPtr<CefFrame> ancestor = frame->GetParent();
     while (ancestor) {
       const std::string a_url = ancestor->GetURL().ToString();
       if (StartsWith(a_url, "http://") || StartsWith(a_url, "https://")) {
         return true;
       }
-      if (!StartsWith(a_url, "data:") && !StartsWith(a_url, "blob:")) {
+      if (!IsInheritedFrameUrl(a_url)) {
         return false;
       }
       ancestor = ancestor->GetParent();
     }
-    return false;
-  }
-  if (IsInheritedFrameUrl(url)) {
     return false;
   }
   // about:srcdoc frames have their own V8 realm (not shared with the parent)
