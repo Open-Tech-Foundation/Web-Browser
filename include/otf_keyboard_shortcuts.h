@@ -37,6 +37,7 @@ namespace Key {
   constexpr int kN = 0x4E;
   constexpr int kP = 0x50;
   constexpr int kR = 0x52;
+  constexpr int kS = 0x53;
   constexpr int kT = 0x54;
   constexpr int kW = 0x57;
 
@@ -79,6 +80,7 @@ namespace Shortcut {
   inline constexpr const char* kFindNext   = "find-next";
   inline constexpr const char* kFindPrev   = "find-prev";
   inline constexpr const char* kFullscreen = "fullscreen";
+  inline constexpr const char* kSnip       = "start-snip";
 }
 
 inline void SendShortcut(OtfHandler* handler, const char* name) {

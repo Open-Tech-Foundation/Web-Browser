@@ -43,7 +43,8 @@ export default defineConfig({
         toast: resolve(__dirname, 'toast.html'),
         'popup-intent': resolve(__dirname, 'popup-intent.html'),
         'popup-intent-target': resolve(__dirname, 'popup-intent-target.html'),
-        console: resolve(__dirname, 'console.html')
+        console: resolve(__dirname, 'console.html'),
+        snipperview: resolve(__dirname, 'snipperview.html')
       }
     }
   }

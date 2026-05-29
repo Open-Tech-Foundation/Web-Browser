@@ -277,8 +277,9 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kImagePreviewBrowserViewId ||
           view_id == kQrBrowserViewId ||
           view_id == kLinkPreviewBrowserViewId ||
-          view_id == kToastNotificationBrowserViewId ||
-          view_id == kConsoleBrowserViewId;
+           view_id == kToastNotificationBrowserViewId ||
+           view_id == kConsoleBrowserViewId ||
+           view_id == kSnipPreviewBrowserViewId;
 }
 
 int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
@@ -4670,6 +4671,68 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }, *w_opt));
       }
       callback->Success("");
+    } else if (msg == "start-snip") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app || !handler->tab_manager_ || !handler->devtools_bridge_) {
+        callback->Failure(1, "not ready");
+        return true;
+      }
+      int cur = app->GetCurrentTabId();
+      CefRefPtr<CefBrowser> target = handler->tab_manager_->GetBrowser(cur);
+      if (!target) {
+        callback->Failure(1, "no active tab");
+        return true;
+      }
+      handler->devtools_bridge_->Attach(target);
+      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+      params->SetString("format", "png");
+      handler->devtools_bridge_->Execute(
+          "Page.captureScreenshot", params,
+          [handler](bool ok, const std::string& result_json) {
+            if (!ok) return;
+            OtfApp* app = OtfApp::GetInstance();
+            if (!app || !handler->snip_preview_browser_) return;
+            app->HideAppMenuOverlay();
+            app->ShowSnipPreviewOverlay();
+            const std::string js = "window.__otfSetSnipImage(" + result_json + ");";
+            handler->snip_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
+          });
+      callback->Success("");
+      return true;
+    } else if (msg.rfind("capture-viewport:", 0) == 0) {
+      const auto tab_id_opt = ParseIntStrict(
+          std::string_view(msg).substr(std::strlen("capture-viewport:")));
+      if (!tab_id_opt || !handler->tab_manager_) {
+        callback->Failure(1, "invalid tab id");
+        return true;
+      }
+      int tab_id = *tab_id_opt;
+      CefRefPtr<CefBrowser> target = handler->tab_manager_->GetBrowser(tab_id);
+      if (!target) {
+        callback->Failure(1, "no browser for tab");
+        return true;
+      }
+      if (!handler->devtools_bridge_) {
+        callback->Failure(1, "devtools bridge not attached");
+        return true;
+      }
+      handler->devtools_bridge_->Attach(target);
+      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+      params->SetString("format", "png");
+      handler->devtools_bridge_->Execute(
+          "Page.captureScreenshot", params,
+          [callback](bool ok, const std::string& result_json) {
+            if (!ok) {
+              callback->Failure(1, result_json);
+              return;
+            }
+            callback->Success(result_json);
+          });
+      return true;
+    } else if (msg == "hide-snip-preview") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) app->HideSnipPreviewOverlay();
+      callback->Success("");
     } else {
       return false;
     }
@@ -5578,13 +5641,16 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
                 browser_view->GetID() == kImagePreviewBrowserViewId ||
                 browser_view->GetID() == kLinkPreviewBrowserViewId ||
                 browser_view->GetID() == kToastNotificationBrowserViewId ||
-                browser_view->GetID() == kConsoleBrowserViewId) {
+                 browser_view->GetID() == kConsoleBrowserViewId ||
+                 browser_view->GetID() == kSnipPreviewBrowserViewId) {
       if (browser_view->GetID() == kFindBarBrowserViewId) {
         findbar_browser_ = browser;
       } else if (browser_view->GetID() == kLinkPreviewBrowserViewId) {
         link_preview_browser_ = browser;
       } else if (browser_view->GetID() == kToastNotificationBrowserViewId) {
         toast_browser_ = browser;
+      } else if (browser_view->GetID() == kSnipPreviewBrowserViewId) {
+        snip_preview_browser_ = browser;
       } else if (browser_view->GetID() == kCertificateBrowserViewId) {
         certificate_browser_ = browser;
         OtfApp* app = OtfApp::GetInstance();
@@ -6712,6 +6778,11 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   }
 
   if (M(Mod::kNone, Key::kEscape)) {
+    if (app->snip_preview_overlay_ && app->snip_preview_overlay_->IsVisible()) {
+      app->HideSnipPreviewOverlay();
+      app->FocusCurrentTabContent();
+      return true;
+    }
     if (app->downloads_overlay_ && app->downloads_overlay_->IsVisible()) {
       app->HideDownloadsOverlay();
       app->FocusCurrentTabContent();
@@ -6873,6 +6944,29 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   if (M(Mod::kCtrl|Mod::kShift, Key::kJ) || M(Mod::kNone, Key::kF12)) {
     *is_keyboard_shortcut = true;
     app->ToggleConsoleOverlay();
+    return true;
+  }
+
+  // ── Snip (Web Screenshot Tool) ─────────────────────────────
+  if (M(Mod::kCtrl|Mod::kShift, Key::kS)) {
+    *is_keyboard_shortcut = true;
+    auto b = tab_manager_->GetBrowser(cur);
+    if (b && devtools_bridge_) {
+      devtools_bridge_->Attach(b);
+      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+      params->SetString("format", "png");
+      devtools_bridge_->Execute(
+          "Page.captureScreenshot", params,
+          [](bool ok, const std::string& result_json) {
+            if (!ok) return;
+            OtfApp* app = OtfApp::GetInstance();
+            OtfHandler* handler = OtfHandler::GetInstance();
+            if (!app || !handler || !handler->snip_preview_browser_) return;
+            app->ShowSnipPreviewOverlay();
+            const std::string js = "window.__otfSetSnipImage(" + result_json + ");";
+            handler->snip_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
+          });
+    }
     return true;
   }
 

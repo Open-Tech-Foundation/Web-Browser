@@ -252,6 +252,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->CreateLinkPreviewOverlay();
     app->CreateToastOverlay();
     app->CreateConsoleOverlay();
+    app->CreateSnipPreviewOverlay();
     // Build any popup registered against the PopupOverlay framework.
     app->CreateAllPopups(window);
 
@@ -278,6 +279,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
       app->PositionBookmarkOverlay();
       app->PositionImagePreviewOverlay();
       app->PositionLinkPreviewOverlay();
+      app->PositionSnipPreviewOverlay();
       app->RepositionAllPopups();
     }
   }
@@ -1994,6 +1996,47 @@ void OtfApp::ToggleConsoleOverlay() {
     HideConsoleOverlay();
   } else {
     ShowConsoleOverlay();
+  }
+}
+
+void OtfApp::CreateSnipPreviewOverlay() {
+  if (!window_) return;
+  std::string url = "browser://snipperview";
+  CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+  if (cmd->HasSwitch("dev-ui-url")) {
+    url = cmd->GetSwitchValue("dev-ui-url").ToString() + "/snipperview.html";
+  }
+  CefBrowserSettings settings;
+  settings.background_color = CefColorSetARGB(0, 0, 0, 0);
+  CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), url, settings, MakeBrowserExtraInfo(), nullptr,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY, 0));
+  view->SetID(kSnipPreviewBrowserViewId);
+  view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
+  snip_preview_overlay_ = window_->AddOverlayView(
+      view, CEF_DOCKING_MODE_CUSTOM, true);
+  snip_preview_overlay_->SetVisible(false);
+  PositionSnipPreviewOverlay();
+}
+
+void OtfApp::PositionSnipPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!window_ || !snip_preview_overlay_ || !content_panel_) return;
+  CefRect panel = content_panel_->GetBounds();
+  snip_preview_overlay_->SetBounds(CefRect(panel.x, panel.y, panel.width, panel.height));
+}
+
+void OtfApp::ShowSnipPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!snip_preview_overlay_) return;
+  PositionSnipPreviewOverlay();
+  snip_preview_overlay_->SetVisible(true);
+}
+
+void OtfApp::HideSnipPreviewOverlay() {
+  CEF_REQUIRE_UI_THREAD();
+  if (snip_preview_overlay_) {
+    snip_preview_overlay_->SetVisible(false);
   }
 }
 

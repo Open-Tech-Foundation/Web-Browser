@@ -110,6 +110,10 @@ class OtfApp : public CefApp,
   void HideToastOverlay();
   void PositionToastOverlay();
   void CreateConsoleOverlay();
+  void CreateSnipPreviewOverlay();
+  void PositionSnipPreviewOverlay();
+  void ShowSnipPreviewOverlay();
+  void HideSnipPreviewOverlay();
   void PositionLinkPreviewOverlay();
   void SetLinkPreviewVisible(bool visible);
   void PositionConsoleOverlay();
@@ -165,6 +169,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefOverlayController> doc_preview_overlay_;
   CefRefPtr<CefOverlayController> link_preview_overlay_;
   CefRefPtr<CefOverlayController> toast_overlay_;
+  CefRefPtr<CefOverlayController> snip_preview_overlay_;
 
   // Console side panel — a proper CefBrowserView child of content_area_panel_,
   // not an overlay, so the tab content resizes when it is shown/hidden.
