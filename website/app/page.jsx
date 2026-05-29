@@ -226,11 +226,6 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
             {
-              title: "Intelligent Tab Strip",
-              desc: "Real-time counters and attention animations for hidden tabs provide the most intuitive multi-tab navigation experience.",
-              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20M2 5h20M2 19h20" /></svg>
-            },
-            {
               title: "WebGPU Compute Protection",
               desc: "Prevents GPU resource abuse by automatically blocking non-graphical WebGPU compute workloads, stopping stealth crypto mining and hardware strain.",
               icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M7 8h10M7 12h10M7 16h10" /></svg>
@@ -254,6 +249,11 @@ export default function HomePage() {
               desc: "Generate QR codes for any page directly from the address bar. UTM tracking parameters are automatically stripped before the code is generated, so you share clean links.",
               icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="3" height="3" /><path d="M14 17h3v4" /><path d="M20 14v3" /></svg>,
               badges: ["UTM stripped", "Copy & Download"],
+            },
+            {
+              title: "Intelligent Tab Strip",
+              desc: "Real-time counters and attention animations for hidden tabs provide the most intuitive multi-tab navigation experience.",
+              icon: <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20M2 5h20M2 19h20" /></svg>
             }
           ].map((feature) => (
             <div
