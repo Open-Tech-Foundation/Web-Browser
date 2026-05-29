@@ -272,3 +272,16 @@ else()
 endif()
 target_link_libraries(otf-browser-doc-preview-tests libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${VIPS_LIBS})
 add_test(NAME otf-browser-doc-preview-tests COMMAND otf-browser-doc-preview-tests)
+
+# Single source of truth for "all native tests". CI (release.yml) and the
+# package.json test:cpp script both build this one target, so adding a new test
+# executable above only needs a line here — never a second list in YAML/json.
+add_custom_target(otf-tests DEPENDS
+    otf-browser-native-tests
+    otf-browser-extra-tests
+    otf-browser-url-policy-tests
+    otf-browser-json-bridge-tests
+    otf-browser-tab-manager-tests
+    otf-browser-store-tests
+    otf-browser-doc-preview-tests
+)

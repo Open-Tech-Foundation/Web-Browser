@@ -370,13 +370,7 @@ jobs:
           cd build
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
           cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
-          ninja `
-            otf-browser-native-tests `
-            otf-browser-extra-tests `
-            otf-browser-url-policy-tests `
-            otf-browser-json-bridge-tests `
-            otf-browser-tab-manager-tests `
-            otf-browser-store-tests
+          ninja otf-tests
           ctest --output-on-failure -C Release
 
       - name: Run JS Tests
@@ -394,6 +388,7 @@ jobs:
           Remove-Item "$packageName/otf-browser-json-bridge-tests.exe" -ErrorAction SilentlyContinue
           Remove-Item "$packageName/otf-browser-tab-manager-tests.exe" -ErrorAction SilentlyContinue
           Remove-Item "$packageName/otf-browser-store-tests.exe" -ErrorAction SilentlyContinue
+          Remove-Item "$packageName/otf-browser-doc-preview-tests.exe" -ErrorAction SilentlyContinue
           Copy-Item LICENSE "$packageName/LICENSE"
           Copy-Item "third_party/cef/LICENSE.txt" "$packageName/LICENSE-cef.txt"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
