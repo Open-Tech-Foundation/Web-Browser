@@ -37,6 +37,7 @@ class OtfApp : public CefApp,
   }
 
   // CefBrowserProcessHandler methods:
+  void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) override;
   void OnContextInitialized() override;
   CefRefPtr<CefClient> GetDefaultClient() override;
 

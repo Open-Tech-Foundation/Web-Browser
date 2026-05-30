@@ -740,6 +740,16 @@ OtfApp* OtfApp::GetInstance() {
   return g_app_instance;
 }
 
+void OtfApp::OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) {
+#if defined(_WIN32)
+  if (!command_line) return;
+  command_line->AppendSwitch("no-sandbox");
+  std::string child_type = command_line->GetSwitchValue("type").ToString();
+  if (child_type.empty()) child_type = "unknown";
+  otf::DiagLog("child launch: type=" + child_type + " no-sandbox=YES");
+#endif
+}
+
 void OtfApp::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) {
   registrar->AddCustomScheme(
       "browser",
