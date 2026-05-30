@@ -371,6 +371,19 @@ void DiagLog(const std::string& line) {
 void ApplyProductionCommandLineSwitches(CefRefPtr<CefCommandLine> command_line) {
   if (!command_line) return;
 
+#if defined(_WIN32)
+  // CRITICAL on Windows: we run WITHOUT a sandbox (CefSettings.no_sandbox=true,
+  // no cef_sandbox.lib linked, nullptr sandbox_info). The browser process's
+  // command line is Reset() just before this call, which strips the --no-sandbox
+  // switch CEF would otherwise propagate to subprocesses. Without --no-sandbox on
+  // the command line, each spawned renderer/GPU/utility process tries to bring up
+  // a sandbox that doesn't exist and crashes on launch — before any of our code
+  // runs — so the process crash-loops and the window stays blank. Re-add it here
+  // (after Reset) so every subprocess inherits it. Linux is NOT affected: it uses
+  // the real SUID chrome-sandbox helper, so we must NOT disable the sandbox there.
+  command_line->AppendSwitch("no-sandbox");
+#endif
+
   command_line->AppendSwitch("enable-unsafe-webgpu");
 
   // Disable Service Workers entirely. They run in a separate realm outside
