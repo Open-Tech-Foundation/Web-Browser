@@ -15,6 +15,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -447,10 +448,19 @@ void ApplyProductionCommandLineSwitches(CefRefPtr<CefCommandLine> command_line) 
 
 std::string GetExecutableDir() {
 #if defined(_WIN32)
-  wchar_t module_path[MAX_PATH];
-  const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
-  if (len == 0 || len >= MAX_PATH) return "";
-  return PathToUtf8(std::filesystem::path(module_path).parent_path());
+  std::vector<wchar_t> module_path(MAX_PATH);
+  while (true) {
+    const DWORD len = GetModuleFileNameW(
+        nullptr, module_path.data(), static_cast<DWORD>(module_path.size()));
+    if (len == 0) return "";
+    if (len < module_path.size()) {
+      return PathToUtf8(
+          std::filesystem::path(std::wstring(module_path.data(), len))
+              .parent_path());
+    }
+    if (module_path.size() >= 32768) return "";
+    module_path.resize(module_path.size() * 2);
+  }
 #else
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
@@ -464,10 +474,18 @@ std::string GetExecutableDir() {
 
 std::string GetExecutablePath() {
 #if defined(_WIN32)
-  wchar_t module_path[MAX_PATH];
-  const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
-  if (len == 0 || len >= MAX_PATH) return "";
-  return PathToUtf8(std::filesystem::path(module_path));
+  std::vector<wchar_t> module_path(MAX_PATH);
+  while (true) {
+    const DWORD len = GetModuleFileNameW(
+        nullptr, module_path.data(), static_cast<DWORD>(module_path.size()));
+    if (len == 0) return "";
+    if (len < module_path.size()) {
+      return PathToUtf8(
+          std::filesystem::path(std::wstring(module_path.data(), len)));
+    }
+    if (module_path.size() >= 32768) return "";
+    module_path.resize(module_path.size() * 2);
+  }
 #else
   char result[PATH_MAX];
   ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
