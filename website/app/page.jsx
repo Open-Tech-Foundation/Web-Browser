@@ -315,8 +315,18 @@ export default function HomePage() {
                 <h3 className="text-xl font-bold mb-4" style="color: var(--foreground);">{feature.title}</h3>
                 <p className="text-sm leading-relaxed mb-5" style="color: var(--muted);">{feature.desc}</p>
 
+                {feature.link && (
+                  <a
+                    href={feature.link}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors hover:text-[var(--accent)]"
+                    style="color: var(--muted);"
+                  >
+                    View all supported formats
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                  </a>
+                )}
                 {feature.badges && (
-                  <div className="flex flex-wrap gap-2 mb-5">
+                  <div className="flex flex-wrap gap-2 mt-3">
                     {feature.badges.map((badge) => (
                       <span
                         key={badge}
@@ -327,16 +337,6 @@ export default function HomePage() {
                       </span>
                     ))}
                   </div>
-                )}
-                {feature.link && (
-                  <a
-                    href={feature.link}
-                    className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors hover:text-[var(--accent)]"
-                    style="color: var(--muted);"
-                  >
-                    View all supported formats
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
-                  </a>
                 )}
               </div>
             </div>
@@ -408,8 +408,18 @@ export default function HomePage() {
                 <h3 className="text-xl font-bold mb-4" style="color: var(--foreground);">{feature.title}</h3>
                 <p className="text-sm leading-relaxed mb-5" style="color: var(--muted);">{feature.desc}</p>
 
+                {feature.link && (
+                  <a
+                    href={feature.link}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors hover:text-[var(--accent)]"
+                    style="color: var(--muted);"
+                  >
+                    View all supported formats
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                  </a>
+                )}
                 {feature.badges && (
-                  <div className="flex flex-wrap gap-2 mb-5">
+                  <div className="flex flex-wrap gap-2 mt-3">
                     {feature.badges.map((badge) => (
                       <span
                         key={badge}
@@ -420,16 +430,6 @@ export default function HomePage() {
                       </span>
                     ))}
                   </div>
-                )}
-                {feature.link && (
-                  <a
-                    href={feature.link}
-                    className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-colors hover:text-[var(--accent)]"
-                    style="color: var(--muted);"
-                  >
-                    View all supported formats
-                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
-                  </a>
                 )}
               </div>
             </div>

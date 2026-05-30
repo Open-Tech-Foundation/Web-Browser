@@ -73,7 +73,7 @@ export default function FormatsPage() {
             Supported File Formats
           </h1>
           <p className="max-w-2xl mx-auto text-lg leading-relaxed" style="color: var(--muted);">
-            OTF Browser can preview <strong className="text-white">50+ file formats</strong> natively — no extensions, no plugins, no third-party tools required.
+            OTF Browser can preview <strong style="color: var(--accent);">50+ file formats</strong> natively — no extensions, no plugins, no third-party tools required.
           </p>
         </div>
       </section>
