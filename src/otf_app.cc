@@ -202,6 +202,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
 
   void OnWindowCreated(CefRefPtr<CefWindow> window) override {
     LOG(INFO) << "[otf] win 1: OnWindowCreated begin";
+    otf::DiagLog("win 1: OnWindowCreated begin");
     // Replace the default Chromium-derived icons with the OTF logo. Done
     // before any layout so the window is born with the right branding in
     // its title bar and taskbar entry.
@@ -272,8 +273,10 @@ class OtfWindowDelegate : public CefWindowDelegate {
       window->CenterWindow(CefSize(1280, 800));
       window->Show();
       LOG(INFO) << "[otf] win 4: window shown";
+      otf::DiagLog("win 4: window shown");
     }
     LOG(INFO) << "[otf] win 5: OnWindowCreated end";
+    otf::DiagLog("win 5: OnWindowCreated end");
   }
 
   void OnLayoutChanged(CefRefPtr<CefView> view, const CefRect& new_bounds) override {
@@ -451,9 +454,12 @@ CefRefPtr<CefResourceHandler> MakeFileResponse(const std::string& disk_path) {
   auto bytes = otf::ReadFileBinary(disk_path);
   if (!bytes) {
     LOG(ERROR) << "[otf] scheme: file NOT FOUND on disk: " << disk_path;
+    otf::DiagLog("scheme: file NOT FOUND on disk: " + disk_path);
     return MakeNotFound();
   }
   LOG(INFO) << "[otf] scheme: served " << bytes->size() << " bytes <- " << disk_path;
+  otf::DiagLog("scheme: served " + std::to_string(bytes->size()) +
+               " bytes <- " + disk_path);
   return MakeBytesResponse(GuessMimeType(disk_path), std::move(*bytes));
 }
 
@@ -519,6 +525,7 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
                                        CefRefPtr<CefRequest> request) override {
     const std::string url = request->GetURL().ToString();
     LOG(INFO) << "[otf] scheme request: " << url;
+    otf::DiagLog("scheme request: " + url);
 
     CefURLParts parts;
     if (!CefParseURL(url, parts)) {
@@ -2070,6 +2077,7 @@ void OtfApp::HideSnipPreviewOverlay() {
 void OtfApp::OnContextInitialized() {
   CEF_REQUIRE_UI_THREAD();
   LOG(INFO) << "[otf] ctx 1: OnContextInitialized begin";
+  otf::DiagLog("ctx 1: OnContextInitialized begin");
 
   // Resolve the screen-fingerprint profile once, here in the main process,
   // where filesystem access and CefDisplay are both available. The value
@@ -2228,6 +2236,8 @@ void OtfApp::OnContextInitialized() {
   LOG(INFO) << "[otf] ctx 6: settings parsed — startup_behavior="
             << startup_behavior_ << " ui_url=" << ui_url
             << " start_url=" << start_url;
+  otf::DiagLog("ctx 6: startup_behavior=" + startup_behavior_ +
+               " ui_url=" + ui_url + " start_url=" + start_url);
 
   LOG(INFO) << "[otf] ctx 7: creating UI shell browser view (" << ui_url << ")";
   CefRefPtr<CefBrowserView> ui_view = CefBrowserView::CreateBrowserView(
@@ -2236,6 +2246,8 @@ void OtfApp::OnContextInitialized() {
   ui_view->SetID(kUiBrowserViewId);
   LOG(INFO) << "[otf] ctx 8: UI shell browser view created="
             << (ui_view ? "OK" : "NULL") << " id=" << kUiBrowserViewId;
+  otf::DiagLog(std::string("ctx 8: UI shell browser view created=") +
+               (ui_view ? "OK" : "NULL"));
 
   bool startup_js_disabled = false;
   {
@@ -2282,15 +2294,20 @@ void OtfApp::OnContextInitialized() {
 
   if (ui_view && content_view) {
     LOG(INFO) << "[otf] ctx 11: creating top-level window";
+    otf::DiagLog("ctx 11: creating top-level window");
     CefWindow::CreateTopLevelWindow(new OtfWindowDelegate(
         ui_view, content_view, runtime_style, CEF_SHOW_STATE_NORMAL));
     LOG(INFO) << "[otf] ctx 12: OnContextInitialized end "
                  "(top-level window requested)";
+    otf::DiagLog("ctx 12: OnContextInitialized end (window requested)");
   } else {
     LOG(ERROR) << "[otf] ctx 11 FAILED: ui_view or content_view is NULL — "
                   "no window created (ui_view="
                << (ui_view ? "OK" : "NULL")
                << " content_view=" << (content_view ? "OK" : "NULL") << ")";
+    otf::DiagLog(std::string("ctx 11 FAILED: no window created (ui_view=") +
+                 (ui_view ? "OK" : "NULL") + " content_view=" +
+                 (content_view ? "OK" : "NULL") + ")");
   }
 }
 

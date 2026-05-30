@@ -179,8 +179,10 @@ static int RunApp(int argc, char* argv[]) {
               << ui_index.string() << " exists="
               << (std::filesystem::exists(ui_index, ec) ? "YES" : "NO");
   }
+  otf::DiagLog("startup: CefRunMessageLoop entered (app is now live)");
   CefRunMessageLoop();
   LOG(INFO) << "[otf] startup: message loop exited, calling CefShutdown";
+  otf::DiagLog("startup: MESSAGE LOOP EXITED — app is quitting (CefShutdown)");
   CefShutdown();
   return 0;
 }

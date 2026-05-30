@@ -5573,6 +5573,8 @@ bool OtfHandler::OnConsoleMessage(CefRefPtr<CefBrowser> browser,
   // unavailable (e.g. command-line flags are blocked).
   LOG(INFO) << "[otf][console:" << level << "] " << message.ToString()
             << " (" << source.ToString() << ":" << line << ")";
+  otf::DiagLog("console[" + std::to_string(level) + "]: " + message.ToString() +
+               " (" + source.ToString() + ":" + std::to_string(line) + ")");
 
   if (!tab_manager_) return false;
 
@@ -5661,6 +5663,9 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
   if (view && view->GetID() == kUiBrowserViewId) {
     LOG(INFO) << "[otf] UI shell OnLoadEnd: httpStatus=" << httpStatusCode
               << " url=" << frame->GetURL().ToString();
+    otf::DiagLog("UI shell OnLoadEnd: httpStatus=" +
+                 std::to_string(httpStatusCode) + " url=" +
+                 frame->GetURL().ToString());
   }
   if (!view || IsNonTabBrowserViewId(view->GetID())) return;
   const int tab_id = view->GetID();
@@ -5742,6 +5747,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     LOG(INFO) << "[otf] browser OnAfterCreated: view_id=" << vid
               << (vid == kUiBrowserViewId ? " (UI SHELL)" : "")
               << " url=" << u;
+    otf::DiagLog("browser OnAfterCreated: view_id=" + std::to_string(vid) +
+                 (vid == kUiBrowserViewId ? " (UI SHELL)" : "") + " url=" + u);
   }
 
   if (!message_router_) {
@@ -5873,6 +5880,9 @@ void OtfHandler::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
   LOG(ERROR) << "[otf] RENDER PROCESS TERMINATED: status=" << status
              << " error_code=" << error_code
              << " error=" << error_string.ToString() << " url=" << url;
+  otf::DiagLog("RENDER PROCESS TERMINATED: status=" + std::to_string(status) +
+               " error_code=" + std::to_string(error_code) +
+               " error=" + error_string.ToString() + " url=" + url);
 }
 
 void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
@@ -5887,6 +5897,9 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
   LOG(ERROR) << "[otf] load error: " << std::string(failedUrl) << " — "
              << std::string(errorText) << " (" << errorCode << ")"
              << (frame->IsMain() ? " [main frame]" : " [subframe]");
+  otf::DiagLog("LOAD ERROR: " + std::string(failedUrl) + " — " +
+               std::string(errorText) + " (" + std::to_string(errorCode) + ")" +
+               (frame->IsMain() ? " [main frame]" : " [subframe]"));
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
     if (view && tab_manager_ && IsCertificateErrorCode(errorCode)) {
