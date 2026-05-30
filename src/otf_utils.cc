@@ -83,6 +83,43 @@ std::string BrowserPageHtmlName(const std::string& page_name) {
   return page_name + ".html";
 }
 
+bool IsTrustedBrowserUiAuthority(const std::string& authority) {
+  static const std::set<std::string> kTrustedAuthorities = {
+      "shell",           "appmenu",       "newtab",
+      "settings",        "findbar",       "downloads",
+      "downloadsbar",    "zoombar",       "history",
+      "bookmarks",       "bookmarkbar",   "security",
+      "insecure-blocked", "pdfviewer",     "certificate",
+      "imagepreview",    "docpreview",    "cleardata",
+      "sitedata",        "workspace",     "qr",
+      "linkpreview",     "console",       "blockedpopup",
+      "downloadrequest", "toast",         "snipperview",
+  };
+  return kTrustedAuthorities.count(authority) > 0;
+}
+
+bool ExtractBrowserAuthorityIfPageRoot(const std::string& url,
+                                       std::string* authority) {
+  if (url.rfind(kBrowserSchemePrefix, 0) != 0) {
+    return false;
+  }
+  std::string rest = url.substr(std::strlen(kBrowserSchemePrefix));
+  const size_t suffix_pos = rest.find_first_of("?#");
+  if (suffix_pos != std::string::npos) {
+    rest = rest.substr(0, suffix_pos);
+  }
+  if (!rest.empty() && rest.back() == '/') {
+    rest.pop_back();
+  }
+  if (rest.empty() || rest.find('/') != std::string::npos) {
+    return false;
+  }
+  if (authority) {
+    *authority = rest;
+  }
+  return true;
+}
+
 std::string ToLowerCopy(const std::string& value) {
   std::string out = value;
   std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
@@ -1183,8 +1220,9 @@ bool IsInternalUiPagePath(const std::string& url) {
 }
 
 bool IsInternalBrowserUiUrl(const std::string& url) {
-  if (url.rfind("browser://", 0) == 0) {
-    return true;
+  std::string authority;
+  if (ExtractBrowserAuthorityIfPageRoot(url, &authority)) {
+    return IsTrustedBrowserUiAuthority(authority);
   }
   // Web origins (http/https) match separately via the dev-ui-url gate at the
   // call site — never here. file:// is also never trusted; production UI is

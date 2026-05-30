@@ -431,6 +431,21 @@ bool IsSafeUiRelativePath(const std::string& path) {
   return true;
 }
 
+bool IsKnownUiPageAuthority(const std::string& authority) {
+  static const std::set<std::string> kKnownAuthorities = {
+      "shell",           "appmenu",       "newtab",
+      "settings",        "findbar",       "downloads",
+      "downloadsbar",    "zoombar",       "history",
+      "bookmarks",       "bookmarkbar",   "security",
+      "insecure-blocked", "pdfviewer",     "certificate",
+      "imagepreview",    "docpreview",    "cleardata",
+      "sitedata",        "workspace",     "qr",
+      "linkpreview",     "console",       "blockedpopup",
+      "downloadrequest", "toast",         "snipperview",
+  };
+  return kKnownAuthorities.count(authority) > 0;
+}
+
 CefRefPtr<CefResourceHandler> MakeBytesResponse(
     const std::string& mime, std::vector<uint8_t> bytes) {
   CefRefPtr<CefBytesHolder> holder = new CefBytesHolder(std::move(bytes));
@@ -620,6 +635,7 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     const std::string ui_dir = exe_dir + "/ui";
     LOG(INFO) << "[otf] scheme prod: url=" << url << " ui_dir=" << ui_dir;
     std::string disk_path;
+    const bool is_known_ui_page_authority = IsKnownUiPageAuthority(authority);
     if (is_image_preview_asset) {
       if (!IsSafeUiRelativePath(path)) return MakeNotFound();
       disk_path = ui_dir + "/" + path;
@@ -631,9 +647,11 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
     } else if (is_doc_preview_route) {
       disk_path = ui_dir + "/docpreview.html";
     } else if (path.empty()) {
+      if (!is_known_ui_page_authority) return MakeNotFound();
       const std::string page = (authority == "shell") ? "index" : authority;
       disk_path = ui_dir + "/" + page + ".html";
     } else {
+      if (!is_known_ui_page_authority) return MakeNotFound();
       if (!IsSafeUiRelativePath(path)) return MakeNotFound();
       disk_path = ui_dir + "/" + path;
     }

@@ -49,6 +49,11 @@ void TestHttpAndStartupGates() {
 void TestInternalUiTrustBoundaries() {
   assert(otf::IsInternalBrowserUiUrl("browser://newtab"));
   assert(otf::IsInternalBrowserUiUrl("browser://settings?x=1"));
+  assert(otf::IsInternalBrowserUiUrl("browser://appmenu"));
+  assert(otf::IsInternalBrowserUiUrl("browser://docpreview"));
+  assert(!otf::IsInternalBrowserUiUrl("browser://popup-intent"));
+  assert(!otf::IsInternalBrowserUiUrl("browser://newtab/assets/app.js"));
+  assert(!otf::IsInternalBrowserUiUrl("browser://doc-preview/content/token"));
   assert(!otf::IsInternalBrowserUiUrl("http://localhost:3000/index.html"));
   assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/index.html"));
   assert(!otf::IsInternalBrowserUiUrl("https://example.com/settings.html"));

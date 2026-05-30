@@ -169,9 +169,14 @@ void TestIsInternalUiUrl() {
 }
 
 void TestIsInternalBrowserUiUrl() {
-  // browser:// scheme — always trusted.
+  // Only known browser:// UI page roots are trusted for the privileged bridge.
   assert(otf::IsInternalBrowserUiUrl("browser://newtab"));
   assert(otf::IsInternalBrowserUiUrl("browser://settings?foo=bar"));
+  assert(otf::IsInternalBrowserUiUrl("browser://appmenu"));
+  assert(otf::IsInternalBrowserUiUrl("browser://docpreview"));
+  assert(!otf::IsInternalBrowserUiUrl("browser://popup-intent"));
+  assert(!otf::IsInternalBrowserUiUrl("browser://newtab/assets/app.js"));
+  assert(!otf::IsInternalBrowserUiUrl("browser://doc-preview/content/token"));
   // file:// is never trusted, even when the path looks like packaged UI.
   assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/index.html"));
   assert(!otf::IsInternalBrowserUiUrl("file:///opt/otf/ui/newtab.html"));
