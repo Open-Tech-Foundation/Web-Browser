@@ -725,9 +725,9 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   // Production: hard-block switches that open security surfaces.
-  // Sandbox-related switches (no-sandbox etc.) are NOT listed here — they are
-  // silently stripped by the Reset()+whitelist pass below, so the binary
-  // ignores them rather than crashing when they are passed.
+  // Sandbox-related switches are stripped by default. Linux keeps --no-sandbox
+  // as an explicit release fallback for tarball users who cannot set the
+  // chrome-sandbox SUID bit.
   // Remote-debugging switches are blocked (fatal) because they open a network
   // attack surface that cannot be safely stripped after CEF processes them.
   static const std::set<std::string> kBlockedSwitches = {
@@ -745,7 +745,11 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   }
 
   // Whitelist of switches permitted in production.
-  static const std::set<std::string> kAllowedSwitches = {};
+  static const std::set<std::string> kAllowedSwitches = {
+#if defined(__linux__)
+    "no-sandbox",
+#endif
+  };
 
   CefCommandLine::SwitchMap all_switches;
   command_line->GetSwitches(all_switches);
