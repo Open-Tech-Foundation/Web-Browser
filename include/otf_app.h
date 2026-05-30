@@ -41,18 +41,25 @@ class OtfApp : public CefApp,
   CefRefPtr<CefClient> GetDefaultClient() override;
 
   // CefRenderProcessHandler methods:
+  void OnWebKitInitialized() override;
   // OnBrowserCreated receives the extra_info dictionary the main process
   // attached when calling CefBrowserView::CreateBrowserView — we use it to
   // ship the resolved screen profile across the process boundary so the
   // sandboxed renderer doesn't have to touch the filesystem.
   void OnBrowserCreated(CefRefPtr<CefBrowser> browser,
                         CefRefPtr<CefDictionaryValue> extra_info) override;
+  void OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) override;
   void OnContextCreated(CefRefPtr<CefBrowser> browser,
                         CefRefPtr<CefFrame> frame,
                         CefRefPtr<CefV8Context> context) override;
   void OnContextReleased(CefRefPtr<CefBrowser> browser,
                          CefRefPtr<CefFrame> frame,
                          CefRefPtr<CefV8Context> context) override;
+  void OnUncaughtException(CefRefPtr<CefBrowser> browser,
+                           CefRefPtr<CefFrame> frame,
+                           CefRefPtr<CefV8Context> context,
+                           CefRefPtr<CefV8Exception> exception,
+                           CefRefPtr<CefV8StackTrace> stackTrace) override;
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
                                 CefRefPtr<CefFrame> frame,
                                 CefProcessId source_process,

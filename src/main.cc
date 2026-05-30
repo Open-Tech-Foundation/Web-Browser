@@ -43,6 +43,26 @@ std::string GetOtfUserAgent() {
 #endif
 }
 
+std::string GetArgSwitchValue(int argc, char* argv[], const char* name) {
+  const std::string prefix = std::string("--") + name + "=";
+  const std::string exact = std::string("--") + name;
+  for (int i = 1; i < argc; ++i) {
+    const std::string arg = argv[i] ? argv[i] : "";
+    if (arg.rfind(prefix, 0) == 0) {
+      return arg.substr(prefix.size());
+    }
+    if (arg == exact && i + 1 < argc) {
+      return argv[i + 1] ? argv[i + 1] : "";
+    }
+  }
+  return "";
+}
+
+std::string GetProcessTypeForLog(int argc, char* argv[]) {
+  std::string type = GetArgSwitchValue(argc, argv, "type");
+  return type.empty() ? "browser" : type;
+}
+
 static int RunApp(int argc, char* argv[]) {
 #if defined(_WIN32)
   // GUI subsystem — no console, so --version is not useful here.
@@ -63,10 +83,17 @@ static int RunApp(int argc, char* argv[]) {
   CefMainArgs main_args(argc, argv);
 #endif
 
+  const std::string process_type = GetProcessTypeForLog(argc, argv);
+  otf::DiagLog("process start: type=" + process_type +
+               " argc=" + std::to_string(argc));
+
   CefRefPtr<otf::OtfApp> app(new otf::OtfApp());
 
   int exit_code = CefExecuteProcess(main_args, app.get(), nullptr);
   if (exit_code >= 0) {
+    otf::DiagLog("process exit: type=" + process_type +
+                 " CefExecuteProcess exit_code=" +
+                 std::to_string(exit_code));
     return exit_code;
   }
 
@@ -75,6 +102,7 @@ static int RunApp(int argc, char* argv[]) {
 
   CefSettings settings;
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
+  settings.uncaught_exception_stack_size = 50;
 
 #if defined(_WIN32)
   // The Windows sandbox is NOT linked: this CEF distribution ships only the

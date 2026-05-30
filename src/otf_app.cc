@@ -2422,16 +2422,27 @@ CefRefPtr<CefDictionaryValue> OtfApp::MakeBrowserExtraInfo() const {
   return info;
 }
 
+void OtfApp::OnWebKitInitialized() {
+  otf::DiagLog("[render] OnWebKitInitialized");
+}
+
 void OtfApp::OnBrowserCreated(CefRefPtr<CefBrowser> browser,
                               CefRefPtr<CefDictionaryValue> extra_info) {
   // Runs in the renderer. Cache the screen-profile JSON the main process
   // sent so OnContextCreated can substitute it into the page-policy script
   // without doing any filesystem I/O of its own.
-  otf::DiagLog(std::string("[render] OnBrowserCreated (renderer alive); extra_info screen_profile=") +
+  otf::DiagLog(std::string("[render] OnBrowserCreated: id=") +
+               (browser ? std::to_string(browser->GetIdentifier()) : "null") +
+               " extra_info screen_profile=" +
                (extra_info && extra_info->HasKey("otf_screen_profile") ? "present" : "absent"));
   if (extra_info && extra_info->HasKey("otf_screen_profile")) {
     screen_profile_json_ = extra_info->GetString("otf_screen_profile").ToString();
   }
+}
+
+void OtfApp::OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) {
+  otf::DiagLog(std::string("[render] OnBrowserDestroyed: id=") +
+               (browser ? std::to_string(browser->GetIdentifier()) : "null"));
 }
 
 void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
@@ -2495,6 +2506,20 @@ void OtfApp::OnContextReleased(CefRefPtr<CefBrowser> browser,
   if (!IsInheritedFrameUrl(frame_url)) {
     renderer_side_router_->OnContextReleased(browser, frame, context);
   }
+}
+
+void OtfApp::OnUncaughtException(CefRefPtr<CefBrowser> browser,
+                                 CefRefPtr<CefFrame> frame,
+                                 CefRefPtr<CefV8Context> context,
+                                 CefRefPtr<CefV8Exception> exception,
+                                 CefRefPtr<CefV8StackTrace> stackTrace) {
+  const std::string frame_url =
+      frame ? frame->GetURL().ToString() : std::string();
+  std::string message = exception ? exception->GetMessage().ToString()
+                                  : std::string("unknown exception");
+  int line = exception ? exception->GetLineNumber() : 0;
+  otf::DiagLog("[render] OnUncaughtException: " + message + " @ " +
+               frame_url + ":" + std::to_string(line));
 }
 
 bool OtfApp::OnProcessMessageReceived(
