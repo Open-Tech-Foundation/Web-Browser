@@ -5637,6 +5637,13 @@ void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
                                       bool canGoForward) {
   CEF_REQUIRE_UI_THREAD();
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view && view->GetID() == kUiBrowserViewId) {
+    LOG(INFO) << "[otf] UI shell OnLoadingStateChange: isLoading="
+              << (isLoading ? "true" : "false") << " url="
+              << (browser->GetMainFrame()
+                      ? browser->GetMainFrame()->GetURL().ToString()
+                      : std::string());
+  }
   if (view && !IsNonTabBrowserViewId(view->GetID())) {
     SendEvent(BuildTabPropertyEvent(view->GetID(), "loading", isLoading));
     SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoBack", canGoBack));
@@ -5650,6 +5657,10 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
   if (!frame->IsMain()) return;
 
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (view && view->GetID() == kUiBrowserViewId) {
+    LOG(INFO) << "[otf] UI shell OnLoadEnd: httpStatus=" << httpStatusCode
+              << " url=" << frame->GetURL().ToString();
+  }
   if (!view || IsNonTabBrowserViewId(view->GetID())) return;
   const int tab_id = view->GetID();
 
@@ -5721,6 +5732,16 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
 
 void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   CEF_REQUIRE_UI_THREAD();
+  {
+    CefRefPtr<CefBrowserView> bv = CefBrowserView::GetForBrowser(browser);
+    const int vid = bv ? bv->GetID() : -1;
+    const std::string u =
+        browser->GetMainFrame() ? browser->GetMainFrame()->GetURL().ToString()
+                                : std::string();
+    LOG(INFO) << "[otf] browser OnAfterCreated: view_id=" << vid
+              << (vid == kUiBrowserViewId ? " (UI SHELL)" : "")
+              << " url=" << u;
+  }
 
   if (!message_router_) {
     CefMessageRouterConfig config;

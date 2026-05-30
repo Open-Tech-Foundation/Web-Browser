@@ -85,30 +85,15 @@ static int RunApp(int argc, char* argv[]) {
     app_cache = otf::GetAppCacheDir();
   }
   const std::filesystem::path app_data = otf::GetAppDataDir();
-
-  // Pin a single, stable log file under app data. Without an explicit log_file
-  // CEF/Chromium falls back to "debug.log" in the current working directory,
-  // opened in DELETE_OLD_LOG_FILE mode — so every subprocess (GPU, renderer,
-  // utility) truncates and clobbers it on startup and the browser-process logs
-  // get wiped before they can be read. An explicit log_file is propagated to
-  // all subprocesses via --log-file=, so they all append to ONE ordered file.
-  const std::filesystem::path log_file = app_data / "otf-debug.log";
-#if defined(_WIN32)
-  CefString(&settings.log_file) = log_file.wstring();
-#else
-  CefString(&settings.log_file).FromString(log_file.string());
-#endif
-  settings.log_severity = LOGSEVERITY_INFO;
+  const std::string exe_dir = otf::GetExecutableDir();
 
   LOG(INFO) << "[otf] app data dir : " << app_data.string();
   LOG(INFO) << "[otf] app cache dir: " << app_cache.string();
-  LOG(INFO) << "[otf] log file     : " << log_file.string();
 
   // Diagnostics for production UI serving: the browser:// scheme handler serves
   // the UI from <exe dir>/ui. If that resolution is wrong (or the folder didn't
-  // ship), the app paints a blank window. Log it so debug.txt shows the truth.
+  // ship), the app paints a blank window. Log it so the log shows the truth.
   {
-    const std::string exe_dir = otf::GetExecutableDir();
     std::error_code ec;
     const std::filesystem::path ui_index =
         std::filesystem::path(exe_dir) / "ui" / "index.html";
@@ -132,8 +117,18 @@ static int RunApp(int argc, char* argv[]) {
   // Freeze runtime storage paths so mid-session changes don't take effect.
   otf::LockStoragePaths();
 
-  CefInitialize(main_args, settings, app.get(), nullptr);
+  LOG(INFO) << "[otf] startup 1/4: cef cache path = " << cef_cache.string();
+  LOG(INFO) << "[otf] startup 2/4: calling CefInitialize...";
+  const bool initialized =
+      CefInitialize(main_args, settings, app.get(), nullptr);
+  if (!initialized) {
+    LOG(ERROR) << "[otf] startup 2/4 FAILED: CefInitialize returned false";
+    return 1;
+  }
+  LOG(INFO) << "[otf] startup 3/4: CefInitialize OK, entering message loop "
+               "(OnContextInitialized fires next)";
   CefRunMessageLoop();
+  LOG(INFO) << "[otf] startup: message loop exited, calling CefShutdown";
   CefShutdown();
   return 0;
 }

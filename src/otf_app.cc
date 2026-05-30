@@ -201,6 +201,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
         initial_show_state_(initial_show_state) {}
 
   void OnWindowCreated(CefRefPtr<CefWindow> window) override {
+    LOG(INFO) << "[otf] win 1: OnWindowCreated begin";
     // Replace the default Chromium-derived icons with the OTF logo. Done
     // before any layout so the window is born with the right branding in
     // its title bar and taskbar entry.
@@ -222,6 +223,9 @@ class OtfWindowDelegate : public CefWindowDelegate {
     if (ui_view_) {
       window->AddChildView(ui_view_);
       layout->SetFlexForView(ui_view_.get(), 0);
+      LOG(INFO) << "[otf] win 2: UI shell view added to window";
+    } else {
+      LOG(ERROR) << "[otf] win 2 FAILED: ui_view_ is NULL";
     }
 
     // Horizontal split: tab content (flex=1) | console panel (flex=0, hidden by default)
@@ -241,6 +245,7 @@ class OtfWindowDelegate : public CefWindowDelegate {
     layout->SetFlexForView(app->content_area_panel_.get(), 1);
 
     window->Layout();
+    LOG(INFO) << "[otf] win 3: layout applied, creating overlays";
 
     app->CreateFindBarOverlay();
     app->CreateZoomBarOverlay();
@@ -266,7 +271,9 @@ class OtfWindowDelegate : public CefWindowDelegate {
     if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
       window->CenterWindow(CefSize(1280, 800));
       window->Show();
+      LOG(INFO) << "[otf] win 4: window shown";
     }
+    LOG(INFO) << "[otf] win 5: OnWindowCreated end";
   }
 
   void OnLayoutChanged(CefRefPtr<CefView> view, const CefRect& new_bounds) override {
@@ -2062,6 +2069,7 @@ void OtfApp::HideSnipPreviewOverlay() {
 
 void OtfApp::OnContextInitialized() {
   CEF_REQUIRE_UI_THREAD();
+  LOG(INFO) << "[otf] ctx 1: OnContextInitialized begin";
 
   // Resolve the screen-fingerprint profile once, here in the main process,
   // where filesystem access and CefDisplay are both available. The value
@@ -2071,6 +2079,8 @@ void OtfApp::OnContextInitialized() {
   // path used to throw std::filesystem_error EPERM in the renderer and
   // abort it on startup.
   screen_profile_json_ = otf::ResolveScreenProfileJson();
+  LOG(INFO) << "[otf] ctx 2: screen profile resolved ("
+            << screen_profile_json_.size() << " bytes)";
 
   // Register popups backed by the shared PopupOverlay framework. Each
   // entry: name + browser view id + size. The popup's content URL is
@@ -2094,7 +2104,10 @@ void OtfApp::OnContextInitialized() {
       "downloadrequest", kDownloadRequestBrowserViewId, /*width=*/400, /*height=*/240,
       /*top_margin=*/66, /*right_margin=*/18);
 
+  LOG(INFO) << "[otf] ctx 3: " << popups_.size() << " popups registered";
+
   CefRegisterSchemeHandlerFactory("browser", "", new BrowserSchemeHandlerFactory());
+  LOG(INFO) << "[otf] ctx 4: browser:// scheme handler factory registered";
 
   CefRefPtr<CefCommandLine> command_line =
       CefCommandLine::GetGlobalCommandLine();
@@ -2103,6 +2116,8 @@ void OtfApp::OnContextInitialized() {
 
   CefRefPtr<OtfHandler> handler(new OtfHandler(true));
   handler->tab_manager_ = &tab_manager_;
+  LOG(INFO) << "[otf] ctx 5: OtfHandler created, store="
+            << (handler->store_ ? "present" : "NULL");
 
   // Pre-populate per-origin zoom maps from the persisted store so tabs are
   // created at the correct zoom for their workspace and origin.
@@ -2210,10 +2225,17 @@ void OtfApp::OnContextInitialized() {
     }
   }
 
+  LOG(INFO) << "[otf] ctx 6: settings parsed — startup_behavior="
+            << startup_behavior_ << " ui_url=" << ui_url
+            << " start_url=" << start_url;
+
+  LOG(INFO) << "[otf] ctx 7: creating UI shell browser view (" << ui_url << ")";
   CefRefPtr<CefBrowserView> ui_view = CefBrowserView::CreateBrowserView(
       handler, ui_url, browser_settings, MakeBrowserExtraInfo(), nullptr,
       new OtfViewDelegate(runtime_style, 65));
   ui_view->SetID(kUiBrowserViewId);
+  LOG(INFO) << "[otf] ctx 8: UI shell browser view created="
+            << (ui_view ? "OK" : "NULL") << " id=" << kUiBrowserViewId;
 
   bool startup_js_disabled = false;
   {
@@ -2227,9 +2249,14 @@ void OtfApp::OnContextInitialized() {
   }
   CefRefPtr<CefRequestContext> startup_request_context =
       handler->GetActiveWorkspaceRequestContext();
+  LOG(INFO) << "[otf] ctx 9: creating content browser view (" << start_url
+            << "), request_context="
+            << (startup_request_context ? "workspace" : "global");
   CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
       handler, start_url, browser_settings, MakeBrowserExtraInfo(), startup_request_context,
       new OtfViewDelegate(runtime_style));
+  LOG(INFO) << "[otf] ctx 10: content browser view created="
+            << (content_view ? "OK" : "NULL");
 
   int tab_id = tab_manager_.AddTab(content_view);
   content_view->SetID(tab_id);
@@ -2254,8 +2281,16 @@ void OtfApp::OnContextInitialized() {
   }
 
   if (ui_view && content_view) {
+    LOG(INFO) << "[otf] ctx 11: creating top-level window";
     CefWindow::CreateTopLevelWindow(new OtfWindowDelegate(
         ui_view, content_view, runtime_style, CEF_SHOW_STATE_NORMAL));
+    LOG(INFO) << "[otf] ctx 12: OnContextInitialized end "
+                 "(top-level window requested)";
+  } else {
+    LOG(ERROR) << "[otf] ctx 11 FAILED: ui_view or content_view is NULL — "
+                  "no window created (ui_view="
+               << (ui_view ? "OK" : "NULL")
+               << " content_view=" << (content_view ? "OK" : "NULL") << ")";
   }
 }
 
