@@ -55,6 +55,14 @@ bool WriteFileBinary(const std::string& utf8_path, const void* data, size_t size
 // writes to it (e.g. via WriteFileBinary) and owns cleanup.
 std::string GetTempFilePath(const std::string& prefix);
 
+// Append a line to a self-controlled diagnostic log (otf-diag.log) next to the
+// executable. Independent of CEF/Chromium logging: it works before CefInitialize
+// and even when CefInitialize fails (when CEF logging is unavailable and only
+// stderr — a void for a GUI binary — would otherwise carry the message). Each
+// call opens, writes with a timestamp, flushes, and closes, so nothing is lost
+// on a crash. Best-effort and thread-safe; silently does nothing on failure.
+void DiagLog(const std::string& line);
+
 // Apply the production-mode hardening command-line switches to `command_line`:
 // engine-level feature disables (e.g. ServiceWorker), the User-Agent client-hint
 // platform spoof, and Linux display configuration. Shared between

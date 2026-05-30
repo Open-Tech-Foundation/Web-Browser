@@ -76,6 +76,18 @@ static int RunApp(int argc, char* argv[]) {
   CefSettings settings;
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
 
+#if defined(_WIN32)
+  // The Windows sandbox is NOT linked: this CEF distribution ships only the
+  // Linux chrome-sandbox helper, not cef_sandbox.lib, and the build never links
+  // a Windows sandbox library. With the sandbox enabled (the default) CEF
+  // expects a real sandbox_info pointer; we pass nullptr, so CefInitialize
+  // returns false and the app never starts (the cause of the blank window on
+  // Windows). Disabling the sandbox here is mandatory until cef_sandbox.lib is
+  // linked and CefScopedSandboxInfo is wired into CefExecuteProcess/CefInitialize.
+  // Linux is unaffected — it keeps its SUID chrome-sandbox helper.
+  settings.no_sandbox = true;
+#endif
+
   // Determine cache path: use user-configured cacheDir if set, otherwise default.
   std::filesystem::path app_cache;
   const auto configured_cache = otf::GetConfiguredCacheDir();
@@ -87,8 +99,30 @@ static int RunApp(int argc, char* argv[]) {
   const std::filesystem::path app_data = otf::GetAppDataDir();
   const std::string exe_dir = otf::GetExecutableDir();
 
+  // Direct CEF logging to debug.log NEXT TO THE BINARY. This is REQUIRED to see
+  // anything past CefInitialize: once CefInitialize applies the CefSettings
+  // logging config, an unset log_file makes Chromium log to stderr — which is a
+  // void for a GUI-subsystem (wWinMain, no console) binary, so every line after
+  // CefInitialize is silently discarded. Pointing log_file at the exe dir (which
+  // is guaranteed to exist and be writable) is the only way the startup-flow
+  // logs reach disk. CEF passes --log-file= to every subprocess so they append
+  // to this same file instead of clobbering a default debug.log.
+  const std::filesystem::path log_file =
+      std::filesystem::path(exe_dir) / "debug.log";
+#if defined(_WIN32)
+  CefString(&settings.log_file) = log_file.wstring();
+#else
+  CefString(&settings.log_file).FromString(log_file.string());
+#endif
+  settings.log_severity = LOGSEVERITY_INFO;
+
   LOG(INFO) << "[otf] app data dir : " << app_data.string();
   LOG(INFO) << "[otf] app cache dir: " << app_cache.string();
+  otf::DiagLog("app data dir : " + app_data.string());
+  otf::DiagLog("app cache dir: " + app_cache.string());
+#if defined(_WIN32)
+  otf::DiagLog("sandbox: DISABLED (no_sandbox=true; cef_sandbox.lib not linked)");
+#endif
 
   // Diagnostics for production UI serving: the browser:// scheme handler serves
   // the UI from <exe dir>/ui. If that resolution is wrong (or the folder didn't
@@ -100,6 +134,9 @@ static int RunApp(int argc, char* argv[]) {
     LOG(INFO) << "[otf] executable dir: [" << exe_dir << "]";
     LOG(INFO) << "[otf] ui index.html: " << ui_index.string()
               << " exists=" << (std::filesystem::exists(ui_index, ec) ? "YES" : "NO");
+    otf::DiagLog("exe dir: [" + exe_dir + "]");
+    otf::DiagLog("ui index.html exists=" +
+                 std::string(std::filesystem::exists(ui_index, ec) ? "YES" : "NO"));
   }
 
   // Point CEF at the platform-correct cache directory so cookies, HTTP cache,
@@ -119,14 +156,29 @@ static int RunApp(int argc, char* argv[]) {
 
   LOG(INFO) << "[otf] startup 1/4: cef cache path = " << cef_cache.string();
   LOG(INFO) << "[otf] startup 2/4: calling CefInitialize...";
+  otf::DiagLog("startup 1/4: cef cache path = " + cef_cache.string());
+  otf::DiagLog("startup 2/4: calling CefInitialize...");
   const bool initialized =
       CefInitialize(main_args, settings, app.get(), nullptr);
   if (!initialized) {
     LOG(ERROR) << "[otf] startup 2/4 FAILED: CefInitialize returned false";
+    otf::DiagLog("startup 2/4 FAILED: CefInitialize returned false — ABORTING");
     return 1;
   }
   LOG(INFO) << "[otf] startup 3/4: CefInitialize OK, entering message loop "
                "(OnContextInitialized fires next)";
+  otf::DiagLog("startup 3/4: CefInitialize OK, entering message loop");
+  // Re-log the UI path facts AFTER CefInitialize: opening log_file may have
+  // truncated the pre-init lines above, so repeat the ones that matter for the
+  // blank-window diagnosis here where they are guaranteed to persist.
+  {
+    std::error_code ec;
+    const std::filesystem::path ui_index =
+        std::filesystem::path(exe_dir) / "ui" / "index.html";
+    LOG(INFO) << "[otf] startup 4/4: exe dir=[" << exe_dir << "] ui index.html "
+              << ui_index.string() << " exists="
+              << (std::filesystem::exists(ui_index, ec) ? "YES" : "NO");
+  }
   CefRunMessageLoop();
   LOG(INFO) << "[otf] startup: message loop exited, calling CefShutdown";
   CefShutdown();

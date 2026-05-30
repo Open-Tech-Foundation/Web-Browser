@@ -350,6 +350,24 @@ std::string GetTempFilePath(const std::string& prefix) {
   return PathToUtf8(dir / unique);
 }
 
+void DiagLog(const std::string& line) {
+  static std::mutex m;
+  // Relative-to-first-call milliseconds: shows the order of startup steps and
+  // exactly where a hang or failure occurs, with no platform-specific
+  // localtime/timezone code.
+  static const auto t0 = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(m);
+  const std::string dir = GetExecutableDir();
+  if (dir.empty()) return;
+  std::ofstream f(Utf8Path(dir + "/otf-diag.log"), std::ios::app);
+  if (!f) return;
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - t0)
+                      .count();
+  f << "[+" << ms << "ms] " << line << "\n";
+  f.flush();
+}
+
 void ApplyProductionCommandLineSwitches(CefRefPtr<CefCommandLine> command_line) {
   if (!command_line) return;
 
