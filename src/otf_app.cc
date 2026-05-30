@@ -736,39 +736,10 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   for (const auto& arg : all_args)
     command_line->AppendArgument(arg);
 
-  command_line->AppendSwitch("enable-unsafe-webgpu");
-
-  // Disable Service Workers entirely. They run in a separate realm outside
-  // the page policy injection window and can persist state across origins
-  // (caching, background sync, push) in ways that conflict with our privacy
-  // and security model.
-  command_line->AppendSwitch("disable-features=ServiceWorker");
-  // (Previously we set --allow-file-access-from-files here so the file://-
-  // loaded UI shell could fetch its ES module bundles. That's no longer
-  // needed — the shell is now served via our browser:// custom scheme
-  // which is registered as STANDARD|SECURE|CORS_ENABLED and behaves like
-  // a proper HTTP origin.)
-
-#if defined(__linux__)
-  // Force X11 Ozone. CEF's Alloy runtime (which we use for the embedded UI
-  // surface) does not support Wayland — only the Chrome runtime does. On a
-  // Wayland session, XWayland transparently bridges X11 clients, so this is
-  // the correct, documented configuration for Alloy, not a workaround.
-  // Do not "fix" this to auto/wayland without first switching to
-  // CEF_RUNTIME_STYLE_CHROME everywhere.
-  command_line->AppendSwitchWithValue("ozone-platform", "x11");
-  // Set the window class and desktop name so that X11/Wayland task monitors
-  // map the process to our .desktop file instead of falling back to Chromium.
-  command_line->AppendSwitchWithValue("class", "otf-browser");
-  command_line->AppendSwitchWithValue("desktop-name", "otf-browser.desktop");
-  command_line->AppendSwitch("enable-transparent-visuals");
-#endif
-
-  // Override the User-Agent Client Hint platform to "Linux" regardless of
-  // the actual OS, so websites cannot fingerprint the OS via
-  // Sec-CH-UA-Platform (which bypasses our custom user-agent string).
-  command_line->AppendSwitchWithValue("user-agent-client-hints-platform", "Linux");
-
+  // Engine-level hardening switches (feature disables, UA client-hint spoof,
+  // Linux display config). Extracted to otf_utils so the exact switches are
+  // unit-testable without launching the browser.
+  otf::ApplyProductionCommandLineSwitches(command_line);
 }
 
 OtfApp* OtfApp::GetInstance() {

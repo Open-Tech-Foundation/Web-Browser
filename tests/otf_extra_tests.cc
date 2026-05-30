@@ -117,6 +117,30 @@ void TestIsAllowedSearchEngineId() {
     std::cout << "TestIsAllowedSearchEngineId passed" << std::endl;
 }
 
+void TestProductionCommandLineSwitches() {
+    CefRefPtr<CefCommandLine> cmd = CefCommandLine::CreateCommandLine();
+    cmd->SetProgram("otf-browser");
+    otf::ApplyProductionCommandLineSwitches(cmd);
+
+    // Service Worker must be disabled at the engine level via a real
+    // --disable-features switch carrying the value "ServiceWorker".
+    // Regression guard: AppendSwitch("disable-features=ServiceWorker") put the
+    // '=' inside the switch *name*, so Chromium ignored it and the Service
+    // Worker subsystem stayed live (the page-policy removal of
+    // navigator.serviceWorker hid the API but the backend remained).
+    assert(cmd->HasSwitch("disable-features"));
+    assert(cmd->GetSwitchValue("disable-features").ToString() == "ServiceWorker");
+    // The malformed form must not exist as a switch name.
+    assert(!cmd->HasSwitch("disable-features=ServiceWorker"));
+
+    // Sanity-check the rest of the production hardening switches are applied.
+    assert(cmd->HasSwitch("enable-unsafe-webgpu"));
+    assert(cmd->GetSwitchValue("user-agent-client-hints-platform").ToString() ==
+           "Linux");
+
+    std::cout << "TestProductionCommandLineSwitches passed" << std::endl;
+}
+
 } // namespace
 
 int main() {
@@ -129,6 +153,7 @@ int main() {
     TestParseUint32Strict();
     TestParseUint64Strict();
     TestIsAllowedSearchEngineId();
+    TestProductionCommandLineSwitches();
     std::cout << "All extra native tests passed!" << std::endl;
     return 0;
 }

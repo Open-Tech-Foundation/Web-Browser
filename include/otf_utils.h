@@ -10,6 +10,8 @@
 #include <string_view>
 #include <vector>
 
+#include "include/cef_command_line.h"
+
 struct CustomSearchEngine {
   std::string id;
   std::string name;
@@ -52,6 +54,14 @@ bool WriteFileBinary(const std::string& utf8_path, const void* data, size_t size
 // temp directory using the given prefix. Does NOT create the file — the caller
 // writes to it (e.g. via WriteFileBinary) and owns cleanup.
 std::string GetTempFilePath(const std::string& prefix);
+
+// Apply the production-mode hardening command-line switches to `command_line`:
+// engine-level feature disables (e.g. ServiceWorker), the User-Agent client-hint
+// platform spoof, and Linux display configuration. Shared between
+// OtfApp::OnBeforeCommandLineProcessing and the unit tests so the exact switches
+// are verifiable without launching the browser. Only runs for the production
+// path — callers must skip it in dev mode.
+void ApplyProductionCommandLineSwitches(CefRefPtr<CefCommandLine> command_line);
 
 std::string ExtractOrigin(const std::string& url);
 std::string JsonEscape(const std::string& s);
