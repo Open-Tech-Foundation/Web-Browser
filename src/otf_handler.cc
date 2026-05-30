@@ -184,6 +184,7 @@ const int MENU_ID_TAB_NEW_PRIVATE = 10010;
 const int MENU_ID_TAB_PIN = 10011;
 const int MENU_ID_TAB_UNPIN = 10012;
 const int MENU_ID_PREVIEW_DOC = 10013;
+const int MENU_ID_PASTE_GO = 10014;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -6369,6 +6370,9 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   }
 
   const bool is_editable = (params->GetTypeFlags() & CM_TYPEFLAG_EDITABLE) != 0;
+  if (is_editable) {
+    model->AddItem(MENU_ID_PASTE_GO, "Paste and Go");
+  }
   if (ui_browser_ && browser->IsSame(ui_browser_) && !is_editable &&
       params->GetLinkUrl().empty() && search_text.empty() &&
       !(params->HasImageContents() && !params->GetSourceUrl().empty())) {
@@ -6580,6 +6584,37 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     WriteToClipboard(params->GetLinkUrl().ToString());
     if (OtfApp* app = OtfApp::GetInstance()) {
       app->ShowToast("copy", "Link copied");
+    }
+    return true;
+  }
+
+  if (command_id == MENU_ID_PASTE_GO) {
+    if (browser) {
+#if defined(__APPLE__)
+      const int kModifier = EVENTFLAG_COMMAND_DOWN;
+#else
+      const int kModifier = EVENTFLAG_CONTROL_DOWN;
+#endif
+      CefKeyEvent ev;
+      ev.type = KEYEVENT_RAWKEYDOWN;
+      ev.modifiers = kModifier;
+      ev.windows_key_code = 86;
+      browser->GetHost()->SendKeyEvent(ev);
+      ev.type = KEYEVENT_CHAR;
+      ev.modifiers = kModifier;
+      ev.windows_key_code = 22;
+      browser->GetHost()->SendKeyEvent(ev);
+      ev.type = KEYEVENT_KEYUP;
+      ev.modifiers = kModifier;
+      ev.windows_key_code = 86;
+      browser->GetHost()->SendKeyEvent(ev);
+      browser->GetMainFrame()->ExecuteJavaScript(
+          "setTimeout(function(){"
+          "  var el=document.activeElement;"
+          "  if(el)el.dispatchEvent(new KeyboardEvent('keydown',"
+          "    {key:'Enter',code:'Enter',bubbles:true,cancelable:true}));"
+          "},30);",
+          browser->GetMainFrame()->GetURL(), 0);
     }
     return true;
   }
