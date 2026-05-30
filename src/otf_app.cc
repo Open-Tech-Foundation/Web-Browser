@@ -2427,6 +2427,8 @@ void OtfApp::OnBrowserCreated(CefRefPtr<CefBrowser> browser,
   // Runs in the renderer. Cache the screen-profile JSON the main process
   // sent so OnContextCreated can substitute it into the page-policy script
   // without doing any filesystem I/O of its own.
+  otf::DiagLog(std::string("[render] OnBrowserCreated (renderer alive); extra_info screen_profile=") +
+               (extra_info && extra_info->HasKey("otf_screen_profile") ? "present" : "absent"));
   if (extra_info && extra_info->HasKey("otf_screen_profile")) {
     screen_profile_json_ = extra_info->GetString("otf_screen_profile").ToString();
   }
@@ -2435,6 +2437,10 @@ void OtfApp::OnBrowserCreated(CefRefPtr<CefBrowser> browser,
 void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
                                CefRefPtr<CefFrame> frame,
                                CefRefPtr<CefV8Context> context) {
+  otf::DiagLog(std::string("[render] OnContextCreated: url=") +
+               frame->GetURL().ToString() +
+               (frame->IsMain() ? " [main frame]" : " [subframe]") +
+               " inject=" + (ShouldInjectPagePolicyForFrame(frame) ? "yes" : "no"));
   if (!renderer_side_router_) {
     CefMessageRouterConfig config;
     config.js_query_function = "cefQuery";
@@ -2454,7 +2460,15 @@ void OtfApp::OnContextCreated(CefRefPtr<CefBrowser> browser,
     if (context && context->Enter()) {
       context->Eval(policy_script, frame_url, 0, retval, exception);
       context->Exit();
+      if (exception) {
+        otf::DiagLog(std::string("[render] page-policy injection EXCEPTION: ") +
+                     exception->GetMessage().ToString() + " @ " + frame_url);
+      } else {
+        otf::DiagLog("[render] page-policy injected OK @ " + frame_url);
+      }
     } else {
+      otf::DiagLog("[render] context->Enter() FAILED @ " + frame_url +
+                   " — falling back to ExecuteJavaScript");
       frame->ExecuteJavaScript(policy_script, frame_url, 0);
     }
   }
