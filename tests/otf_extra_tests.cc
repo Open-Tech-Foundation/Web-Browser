@@ -134,7 +134,6 @@ void TestProductionCommandLineSwitches() {
     assert(!cmd->HasSwitch("disable-features=ServiceWorker"));
 
     // Sanity-check the rest of the production hardening switches are applied.
-    assert(cmd->HasSwitch("enable-unsafe-webgpu"));
     assert(cmd->GetSwitchValue("user-agent-client-hints-platform").ToString() ==
            "Linux");
 

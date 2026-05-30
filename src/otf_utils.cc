@@ -384,8 +384,6 @@ void ApplyProductionCommandLineSwitches(CefRefPtr<CefCommandLine> command_line) 
   command_line->AppendSwitch("no-sandbox");
 #endif
 
-  command_line->AppendSwitch("enable-unsafe-webgpu");
-
   // Disable Service Workers entirely. They run in a separate realm outside
   // the page policy injection window and can persist state across origins
   // (caching, background sync, push) in ways that conflict with our privacy
