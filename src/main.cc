@@ -86,8 +86,23 @@ static int RunApp(int argc, char* argv[]) {
   }
   const std::filesystem::path app_data = otf::GetAppDataDir();
 
+  // Pin a single, stable log file under app data. Without an explicit log_file
+  // CEF/Chromium falls back to "debug.log" in the current working directory,
+  // opened in DELETE_OLD_LOG_FILE mode — so every subprocess (GPU, renderer,
+  // utility) truncates and clobbers it on startup and the browser-process logs
+  // get wiped before they can be read. An explicit log_file is propagated to
+  // all subprocesses via --log-file=, so they all append to ONE ordered file.
+  const std::filesystem::path log_file = app_data / "otf-debug.log";
+#if defined(_WIN32)
+  CefString(&settings.log_file) = log_file.wstring();
+#else
+  CefString(&settings.log_file).FromString(log_file.string());
+#endif
+  settings.log_severity = LOGSEVERITY_INFO;
+
   LOG(INFO) << "[otf] app data dir : " << app_data.string();
   LOG(INFO) << "[otf] app cache dir: " << app_cache.string();
+  LOG(INFO) << "[otf] log file     : " << log_file.string();
 
   // Diagnostics for production UI serving: the browser:// scheme handler serves
   // the UI from <exe dir>/ui. If that resolution is wrong (or the folder didn't
