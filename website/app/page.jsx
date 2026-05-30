@@ -67,6 +67,9 @@ export default function HomePage() {
       <section className="py-12 px-6 max-w-7xl mx-auto w-full">
         <div className="text-center mb-6">
           <h2 className="text-2xl font-extrabold mb-1 tracking-tight" style="color: var(--foreground);">How We Compare</h2>
+          <p className="max-w-xl mx-auto text-sm" style="color: var(--muted);">
+            A transparent look at what OTF Browser does and doesn't do.
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse" style={{ minWidth: 800 }}>
