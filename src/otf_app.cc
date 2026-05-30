@@ -39,48 +39,6 @@ namespace {
 
 OtfApp* g_app_instance = nullptr;
 
-bool HasCommaSeparatedValue(const std::string& csv, const std::string& value) {
-  size_t start = 0;
-  while (start <= csv.size()) {
-    size_t end = csv.find(',', start);
-    if (end == std::string::npos) {
-      end = csv.size();
-    }
-    if (csv.substr(start, end - start) == value) {
-      return true;
-    }
-    if (end == csv.size()) {
-      break;
-    }
-    start = end + 1;
-  }
-  return false;
-}
-
-void AppendCommaSeparatedSwitchValue(CefRefPtr<CefCommandLine> command_line,
-                                     const std::string& name,
-                                     const std::string& value) {
-  if (!command_line || value.empty()) {
-    return;
-  }
-
-  if (!command_line->HasSwitch(name)) {
-    command_line->AppendSwitchWithValue(name, value);
-    return;
-  }
-
-  const std::string existing_value = command_line->GetSwitchValue(name).ToString();
-  if (HasCommaSeparatedValue(existing_value, value)) {
-    return;
-  }
-
-  if (existing_value.empty()) {
-    command_line->AppendSwitchWithValue(name, value);
-  } else {
-    command_line->AppendSwitchWithValue(name, existing_value + "," + value);
-  }
-}
-
 bool StartsWith(const std::string& value, const std::string& prefix) {
   return value.rfind(prefix, 0) == 0;
 }
