@@ -761,7 +761,10 @@ OtfApp* OtfApp::GetInstance() {
 }
 
 void OtfApp::OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) {
-  registrar->AddCustomScheme("browser", CEF_SCHEME_OPTION_STANDARD | CEF_SCHEME_OPTION_SECURE | CEF_SCHEME_OPTION_CORS_ENABLED);
+  registrar->AddCustomScheme(
+      "browser",
+      CEF_SCHEME_OPTION_STANDARD | CEF_SCHEME_OPTION_SECURE |
+          CEF_SCHEME_OPTION_CORS_ENABLED | CEF_SCHEME_OPTION_FETCH_ENABLED);
 }
 
 int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bool is_pinned) {
