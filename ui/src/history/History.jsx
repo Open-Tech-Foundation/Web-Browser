@@ -25,6 +25,9 @@ export default function History() {
   const [activeTab, setActiveTab] = useState('all');
   const [appearanceMode, setAppearanceMode] = useState('auto');
   const [ctxMenu, setCtxMenu] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const dateInputRef = React.useRef(null);
+  const pickerRef = React.useRef(null);
 
   const applyTheme = (mode) => {
     const root = document.documentElement;
@@ -86,11 +89,20 @@ export default function History() {
   }, [load]);
 
   const filteredItems = useMemo(() => {
-    return items.filter(item => 
-      item.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      item.url?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [items, searchQuery]);
+    const now = Date.now();
+    return items.filter(item => {
+      if (selectedDate) {
+        const itemDate = new Date(Number(item.lastVisitAt) * 1000);
+        const itemDay = `${itemDate.getFullYear()}-${String(itemDate.getMonth() + 1).padStart(2, '0')}-${String(itemDate.getDate()).padStart(2, '0')}`;
+        if (itemDay !== selectedDate) return false;
+      } else {
+        const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+        if (Number(item.lastVisitAt) * 1000 < sevenDaysAgo) return false;
+      }
+      return item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+             item.url?.toLowerCase().includes(searchQuery.toLowerCase());
+    });
+  }, [items, searchQuery, selectedDate]);
 
   const groupedItems = useMemo(() => {
     const groups = {};
@@ -168,10 +180,10 @@ export default function History() {
       {/* Content Area */}
       <main className="flex-grow p-12 md:p-20 overflow-y-auto">
         <div className="max-w-5xl mx-auto">
-          <div className="relative mb-12">
+          <div className="flex items-center gap-3 mb-12">
             <div className="flex items-center bg-card border border-main rounded-2xl
                             focus-within:border-orange-500/40 focus-within:bg-card
-                            transition-all duration-300 max-w-xl shadow-2xl backdrop-blur-md">
+                            transition-all duration-300 flex-1 max-w-xl shadow-2xl backdrop-blur-md">
               <svg className="w-5 h-5 ml-4 text-muted shrink-0" xmlns="http://www.w3.org/2000/svg"
                    width="24" height="24" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -194,7 +206,42 @@ export default function History() {
                 </button>
               )}
             </div>
+
+            <button
+              ref={pickerRef}
+              onClick={() => {
+                if (!dateInputRef.current) return;
+                const rect = pickerRef.current.getBoundingClientRect();
+                const input = dateInputRef.current;
+                input.style.position = 'fixed';
+                input.style.left = rect.left + 'px';
+                input.style.top = rect.top + 'px';
+                input.style.width = rect.width + 'px';
+                input.style.height = rect.height + 'px';
+                input.style.opacity = '0.01';
+                input.showPicker();
+              }}
+              className={`shrink-0 flex items-center gap-2 h-11 px-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
+                selectedDate
+                  ? 'bg-orange-500/10 border-orange-500/30 text-orange-500'
+                  : 'bg-card border-main text-muted hover:text-main hover:border-main/60'
+              }`}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span className="text-sm font-medium tabular-nums">
+                {selectedDate
+                  ? new Date(selectedDate + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
+                  : 'Last 7 days'}
+              </span>
+            </button>
           </div>
+
+          <input
+            ref={dateInputRef}
+            type="date"
+            onChange={(e) => setSelectedDate(e.target.value || null)}
+            style={{ position: 'fixed', left: 0, top: 0, width: 1, height: 1, padding: 0, border: 'none', margin: 0, opacity: 0, pointerEvents: 'none' }}
+          />
 
           <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
             {items.length === 0 ? (
@@ -207,7 +254,11 @@ export default function History() {
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="text-center py-20 text-muted">
-                No results found for "{searchQuery}"
+                {selectedDate
+                  ? `No history for ${new Date(selectedDate + 'T00:00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`
+                  : searchQuery
+                    ? `No results found for "${searchQuery}"`
+                    : 'No history in the last 7 days'}
               </div>
             ) : (
               Object.entries(groupedItems).map(([date, groupItems]) => (
