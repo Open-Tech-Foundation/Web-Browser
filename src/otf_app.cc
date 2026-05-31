@@ -1504,7 +1504,7 @@ void OtfApp::PositionZoomBarOverlay() {
   CEF_REQUIRE_UI_THREAD();
   if (!window_ || !zoombar_overlay_) return;
 
-  constexpr int kOverlayWidth = 146;
+  constexpr int kOverlayWidth = 186;
   constexpr int kOverlayHeight = 40;
   constexpr int kOverlayTop = 60;
   constexpr int kOverlayRightMargin = 54;

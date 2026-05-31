@@ -3860,6 +3860,12 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->HideZoomBarOverlay();
       }
       callback->Success("");
+    } else if (msg == "toggle-fullscreen") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        app->ToggleFullscreen();
+      }
+      callback->Success("");
     } else if (msg == "toggle-downloadsbar") {
       OtfApp* app = OtfApp::GetInstance();
       if (app && app->downloads_overlay_) {
