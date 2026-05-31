@@ -1276,7 +1276,7 @@ void OtfApp::CreateToastOverlay() {
   view->SetID(kToastNotificationBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   toast_overlay_ = window_->AddOverlayView(
-      view, CEF_DOCKING_MODE_CUSTOM, true);
+      view, CEF_DOCKING_MODE_CUSTOM, false);
   toast_overlay_->SetVisible(false);
   PositionToastOverlay();
 }
@@ -1540,6 +1540,7 @@ void OtfApp::HideZoomBarOverlay() {
   if (zoombar_overlay_) {
     zoombar_overlay_->SetVisible(false);
   }
+  FocusCurrentTabContent();
 }
 
 void OtfApp::PositionDownloadsOverlay() {
@@ -1591,6 +1592,7 @@ void OtfApp::HideDownloadsOverlay() {
   if (downloads_overlay_) {
     downloads_overlay_->SetVisible(false);
   }
+  FocusCurrentTabContent();
 }
 
 void OtfApp::ShowCertificateOverlay() {
@@ -1731,6 +1733,7 @@ void OtfApp::HideAppMenuOverlay() {
   if (appmenu_overlay_) {
     appmenu_overlay_->SetVisible(false);
   }
+  FocusCurrentTabContent();
 }
 
 void OtfApp::CreateBookmarkOverlay() {
@@ -1788,6 +1791,7 @@ void OtfApp::HideBookmarkOverlay() {
   if (bookmark_overlay_) {
     bookmark_overlay_->SetVisible(false);
   }
+  FocusCurrentTabContent();
 }
 
 void OtfApp::CreateImagePreviewOverlay() {

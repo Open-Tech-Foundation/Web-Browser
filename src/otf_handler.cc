@@ -4640,6 +4640,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           auto b = handler->tab_manager_->GetBrowser(app->GetCurrentTabId());
           if (b) b->GetHost()->StopFinding(true);
         }
+        app->FocusCurrentTabContent();
       }
       callback->Success("");
     } else if (msg.rfind("save-search-hist:", 0) == 0) {
