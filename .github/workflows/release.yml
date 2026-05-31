@@ -389,6 +389,8 @@ jobs:
           Remove-Item "$packageName/otf-browser-tab-manager-tests.exe" -ErrorAction SilentlyContinue
           Remove-Item "$packageName/otf-browser-store-tests.exe" -ErrorAction SilentlyContinue
           Remove-Item "$packageName/otf-browser-doc-preview-tests.exe" -ErrorAction SilentlyContinue
+          New-Item "$packageName/diagnostics" -ItemType Directory -Force | Out-Null
+          Copy-Item "scripts/collect-windows-crash-report.ps1" "$packageName/diagnostics/collect-windows-crash-report.ps1"
           Copy-Item LICENSE "$packageName/LICENSE"
           Copy-Item "third_party/cef/LICENSE.txt" "$packageName/LICENSE-cef.txt"
           Add-Type -AssemblyName System.IO.Compression.FileSystem
