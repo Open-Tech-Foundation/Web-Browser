@@ -4825,7 +4825,10 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     } else if (msg == "hide-snip-preview") {
       OtfApp* app = OtfApp::GetInstance();
-      if (app) app->HideSnipPreviewOverlay();
+      if (app) {
+        app->HideSnipPreviewOverlay();
+        app->FocusCurrentTabContent();
+      }
       callback->Success("");
     } else if (msg.rfind("toast:", 0) == 0) {
       // Format: toast:icon:message

@@ -1356,7 +1356,7 @@ void OtfApp::CreateLinkPreviewOverlay() {
   view->SetID(kLinkPreviewBrowserViewId);
   view->SetBackgroundColor(CefColorSetARGB(0, 0, 0, 0));
   link_preview_overlay_ = window_->AddOverlayView(
-      view, CEF_DOCKING_MODE_CUSTOM, true);
+      view, CEF_DOCKING_MODE_CUSTOM, false);
   link_preview_overlay_->SetVisible(false);
   PositionLinkPreviewOverlay();
 }
