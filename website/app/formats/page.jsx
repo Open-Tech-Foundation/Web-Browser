@@ -112,25 +112,6 @@ export default function FormatsPage() {
         </section>
       ))}
 
-      <section className="py-12 px-6 max-w-5xl mx-auto w-full text-center">
-        <div className="p-10 rounded-[32px] border" style="background-color: var(--bg-card); border-color: var(--border);">
-          <div className="w-14 h-14 mx-auto mb-5 rounded-2xl flex items-center justify-center" style="background-color: color-mix(in srgb, var(--accent) 12%, transparent);">
-            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style="color: var(--accent);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          </div>
-          <h3 className="text-xl font-bold mb-3" style="color: var(--foreground);">Try It Now</h3>
-          <p className="max-w-lg mx-auto text-sm leading-relaxed mb-6" style="color: var(--muted);">
-            Download a file, click any supported document link, or open a local file — the preview opens instantly in an overlay without leaving your current page.
-          </p>
-          <a
-            href="/"
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all hover:-translate-y-0.5"
-            style="background: linear-gradient(135deg, var(--accent), #f59e0b); color: white;"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Download OTF Browser
-          </a>
-        </div>
-      </section>
     </div>
   );
 }
