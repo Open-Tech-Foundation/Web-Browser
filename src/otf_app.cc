@@ -2320,12 +2320,20 @@ void OtfApp::ApplyFullscreenState() {
 void OtfApp::ToggleFullscreen() {
   fullscreen_ = !fullscreen_;
   ApplyFullscreenState();
+  if (fullscreen_) {
+    ShowToast("fullscreen", "Fullscreen \xc2\xb7 F11 to exit");
+  } else {
+    ShowToast("fullscreen", "Exited fullscreen");
+  }
 }
 
 void OtfApp::SetContentFullscreen(bool fullscreen) {
   if (fullscreen_ == fullscreen) return;
   fullscreen_ = fullscreen;
   ApplyFullscreenState();
+  if (fullscreen) {
+    ShowToast("fullscreen", "Fullscreen \xc2\xb7 F11 to exit");
+  }
 }
 
 PopupOverlay* OtfApp::GetPopup(const std::string& name) {
