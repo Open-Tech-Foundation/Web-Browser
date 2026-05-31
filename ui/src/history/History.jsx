@@ -219,7 +219,7 @@ export default function History() {
                 input.style.width = rect.width + 'px';
                 input.style.height = rect.height + 'px';
                 input.style.opacity = '0.01';
-                input.showPicker();
+                requestAnimationFrame(() => input.showPicker());
               }}
               className={`shrink-0 flex items-center gap-2 h-11 px-3.5 rounded-xl border transition-all duration-200 cursor-pointer ${
                 selectedDate
