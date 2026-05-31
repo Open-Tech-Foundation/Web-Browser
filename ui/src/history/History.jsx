@@ -24,6 +24,7 @@ export default function History() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [appearanceMode, setAppearanceMode] = useState('auto');
+  const [ctxMenu, setCtxMenu] = useState(null);
 
   const applyTheme = (mode) => {
     const root = document.documentElement;
@@ -115,6 +116,17 @@ export default function History() {
     window.cefQuery?.({ request: `navigate-current:${url}` });
   };
 
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [ctxMenu]);
+
   return (
     <div className="flex h-screen bg-main text-main font-sans overflow-hidden">
       {/* Sidebar */}
@@ -198,6 +210,10 @@ export default function History() {
                       <div 
                         key={item.id} 
                         className="group flex items-center gap-4 px-6 py-4 hover:bg-main/5 transition-all duration-200"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setCtxMenu({ x: e.clientX, y: e.clientY, url: item.url, title: item.title || item.url });
+                        }}
                       >
                         <div className="w-4 h-4 text-muted group-hover:text-orange-400 transition-colors shrink-0">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -233,6 +249,37 @@ export default function History() {
               ))
             )}
           </div>
+
+          {ctxMenu && (
+            <div
+              style={{ left: ctxMenu.x, top: ctxMenu.y, position: 'fixed' }}
+              className="z-50 min-w-[200px] bg-[var(--bg-card)] border border-[var(--border-main)] rounded-lg shadow-[0_8px_30px_rgba(0,0,0,0.25)] overflow-hidden py-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:text-white hover:bg-orange-500 flex items-center gap-3"
+                onClick={() => {
+                  window.cefQuery?.({ request: `new-tab:${ctxMenu.url}` });
+                  setCtxMenu(null);
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open in new tab
+              </button>
+              <div className="h-px bg-[var(--border-main)] mx-3" />
+              <button
+                className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:text-white hover:bg-orange-500 flex items-center gap-3"
+                onClick={() => {
+                  navigator.clipboard?.writeText(ctxMenu.url);
+                  window.cefQuery?.({ request: 'toast:copy:Link copied' });
+                  setCtxMenu(null);
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy link
+              </button>
+            </div>
+          )}
         </div>
       </main>
     </div>
