@@ -165,6 +165,7 @@ class OtfApp : public CefApp,
   static OtfApp* GetInstance();
   void ToggleFullscreen();
   void SetContentFullscreen(bool fullscreen);
+  bool IsFullscreen() const { return fullscreen_; }
 
   CefRefPtr<CefWindow> window_;
   CefRefPtr<CefPanel> content_panel_;

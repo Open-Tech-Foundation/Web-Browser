@@ -1033,7 +1033,7 @@ const Settings = () => {
                       ['Alt + →', 'Go forward'],
                       ['F5 / Ctrl + R', 'Reload'],
                       ['Ctrl + Shift + R', 'Hard reload / ignore cache'],
-                      ['Escape', 'Stop loading'],
+                      ['Escape', 'Exit fullscreen / stop loading'],
                       ['Ctrl + L / F6', 'Focus address bar'],
                     ]],
                     ['Tabs', [

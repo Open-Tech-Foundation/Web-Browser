@@ -7002,6 +7002,10 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   }
 
   if (M(Mod::kNone, Key::kEscape)) {
+    if (app->IsFullscreen()) {
+      app->ToggleFullscreen();
+      return true;
+    }
     if (app->snip_preview_overlay_ && app->snip_preview_overlay_->IsVisible()) {
       app->HideSnipPreviewOverlay();
       app->FocusCurrentTabContent();
