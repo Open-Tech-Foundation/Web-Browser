@@ -228,7 +228,13 @@ class OtfWindowDelegate : public CefWindowDelegate {
     app->OpenPendingStartupTabs();
 
     if (initial_show_state_ != CEF_SHOW_STATE_HIDDEN) {
-      window->CenterWindow(CefSize(1280, 800));
+      otf::WindowGeometry geo;
+      if (otf::LoadWindowGeometry(&geo) && geo.width > 0 && geo.height > 0) {
+        window->SetBounds(CefRect(geo.x, geo.y, geo.width, geo.height));
+        if (geo.maximized) window->Maximize();
+      } else {
+        window->CenterWindow(CefSize(1280, 800));
+      }
       window->Show();
       LOG(INFO) << "[otf] win 4: window shown";
       otf::DiagLog("win 4: window shown");
@@ -259,6 +265,17 @@ class OtfWindowDelegate : public CefWindowDelegate {
   }
 
   bool CanClose(CefRefPtr<CefWindow> window) override {
+    // Save geometry while the window is still alive — OnWindowDestroyed
+    // fires too late (bounds may already be invalid).
+    CefRect bounds = window->GetBounds();
+    otf::WindowGeometry geo;
+    geo.x = bounds.x;
+    geo.y = bounds.y;
+    geo.width = bounds.width;
+    geo.height = bounds.height;
+    geo.maximized = window->IsMaximized();
+    otf::SaveWindowGeometry(geo);
+
     CefRefPtr<CefBrowser> browser = ui_view_->GetBrowser();
     if (browser) {
       return browser->GetHost()->TryCloseBrowser();

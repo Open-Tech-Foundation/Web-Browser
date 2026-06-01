@@ -938,7 +938,10 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     if (key != "searchEngine" && key != "historyEnabled" && key != "downloadsEnabled" && 
         key != "startupBehavior" && key != "startupUrls" && key != "httpsOnly" && 
         key != "blockInsecure" && key != "appearanceMode" &&
-        key != "customSearchEngines" && key != "cacheDir" && key != "downloadDir") {
+        key != "customSearchEngines" && key != "cacheDir" && key != "downloadDir" &&
+        key != "windowX" && key != "windowY" &&
+        key != "windowWidth" && key != "windowHeight" &&
+        key != "windowMaximized") {
       return false;
     }
   }
@@ -1116,6 +1119,62 @@ bool SaveSettingsJson(const std::string& raw_json, std::string* normalized_json)
     *normalized_json = normalized;
   }
   return true;
+}
+
+// Window geometry persistence --------------------------------------------------
+
+bool SaveWindowGeometry(const WindowGeometry& geo) {
+  std::string raw = LoadSettingsJson();
+  auto root = CefParseJSON(raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root) return false;
+  auto dict = root->GetDictionary();
+  if (!dict) return false;
+
+  dict->SetInt("windowX", geo.x);
+  dict->SetInt("windowY", geo.y);
+  dict->SetInt("windowWidth", geo.width);
+  dict->SetInt("windowHeight", geo.height);
+  dict->SetBool("windowMaximized", geo.maximized);
+
+  std::string updated = CefWriteJSON(root, JSON_WRITER_DEFAULT).ToString();
+  if (updated.empty()) return false;
+
+  // Write directly to disk — bypassing SaveSettingsJson/NormalizeSettingsJson
+  // which would strip the window fields via BuildSettingsJson.
+  const std::filesystem::path fspath = GetAppDataDir() / "settings.json";
+  if (fspath.empty()) return false;
+  std::ofstream output(fspath);
+  if (!output.is_open()) return false;
+  output << updated;
+  return true;
+}
+
+bool LoadWindowGeometry(WindowGeometry* geo) {
+  if (!geo) return false;
+
+  // Read raw JSON directly — LoadSettingsJson normalizes through
+  // BuildSettingsJson which drops the window fields.
+  const std::filesystem::path fspath = GetAppDataDir() / "settings.json";
+  if (fspath.empty()) return false;
+  std::ifstream input(fspath);
+  if (!input.is_open()) return false;
+  std::ostringstream buffer;
+  buffer << input.rdbuf();
+
+  auto root = CefParseJSON(buffer.str(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root) return false;
+  auto dict = root->GetDictionary();
+  if (!dict) return false;
+
+  if (dict->HasKey("windowX")) geo->x = dict->GetInt("windowX");
+  if (dict->HasKey("windowY")) geo->y = dict->GetInt("windowY");
+  if (dict->HasKey("windowWidth")) geo->width = dict->GetInt("windowWidth");
+  if (dict->HasKey("windowHeight")) geo->height = dict->GetInt("windowHeight");
+  if (dict->HasKey("windowMaximized")) geo->maximized = dict->GetBool("windowMaximized");
+
+  if (geo->width < 400) geo->width = 400;
+  if (geo->height < 300) geo->height = 300;
+  return dict->HasKey("windowWidth");
 }
 
 bool IsAllowedBrowserPageUrl(const std::string& url) {

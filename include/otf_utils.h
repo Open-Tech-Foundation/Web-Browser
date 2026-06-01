@@ -269,6 +269,25 @@ struct ImagePreviewPayload {
 // completes. TIFFs are decoded page-by-page by the backend.
 ImagePreviewPayload BuildImagePreviewPayload(const std::string& url, int page);
 
+// Window geometry persistence --------------------------------------------------
+
+struct WindowGeometry {
+  int x = 0;
+  int y = 0;
+  int width = 1280;
+  int height = 800;
+  bool maximized = false;
+};
+
+// Save window geometry to <appDataDir>/window_geometry.json.
+// Returns true on success.
+bool SaveWindowGeometry(const WindowGeometry& geo);
+
+// Load window geometry from <appDataDir>/window_geometry.json.
+// Returns false if the file is missing or malformed (callers should fall
+// back to defaults).
+bool LoadWindowGeometry(WindowGeometry* geo);
+
 } // namespace otf
 
 #endif // OTF_BROWSER_UTILS_H_
