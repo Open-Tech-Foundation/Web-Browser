@@ -2340,6 +2340,7 @@ void OtfApp::ApplyFullscreenState() {
 
 void OtfApp::ToggleFullscreen() {
   fullscreen_ = !fullscreen_;
+  content_fullscreen_ = false;
   ApplyFullscreenState();
   if (fullscreen_) {
     ShowToast("fullscreen", "Fullscreen \xc2\xb7 Esc / F11 to exit");
@@ -2349,11 +2350,14 @@ void OtfApp::ToggleFullscreen() {
 }
 
 void OtfApp::SetContentFullscreen(bool fullscreen) {
+  content_fullscreen_ = fullscreen;
   if (fullscreen_ == fullscreen) return;
   fullscreen_ = fullscreen;
   ApplyFullscreenState();
   if (fullscreen) {
     ShowToast("fullscreen", "Fullscreen \xc2\xb7 Esc / F11 to exit");
+  } else {
+    ShowToast("fullscreen", "Exited fullscreen");
   }
 }
 

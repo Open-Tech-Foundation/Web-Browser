@@ -166,6 +166,7 @@ class OtfApp : public CefApp,
   void ToggleFullscreen();
   void SetContentFullscreen(bool fullscreen);
   bool IsFullscreen() const { return fullscreen_; }
+  bool IsContentFullscreen() const { return content_fullscreen_; }
 
   CefRefPtr<CefWindow> window_;
   CefRefPtr<CefPanel> content_panel_;
@@ -194,6 +195,7 @@ class OtfApp : public CefApp,
  private:
   void ApplyFullscreenState();
   bool fullscreen_ = false;
+  bool content_fullscreen_ = false;
 
   TabManager tab_manager_;
   int current_tab_id_ = -1;

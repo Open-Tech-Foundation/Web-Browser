@@ -7011,12 +7011,20 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
   // ── Fullscreen ────────────────────────────────────────────
   if (M(Mod::kNone, Key::kF11)) {
     *is_keyboard_shortcut = true;
-    app->ToggleFullscreen();
+    if (app->IsContentFullscreen()) {
+      auto b = tab_manager_ ? tab_manager_->GetBrowser(cur) : nullptr;
+      if (b) b->GetHost()->ExitFullscreen(true);
+    } else {
+      app->ToggleFullscreen();
+    }
     return true;
   }
 
   if (M(Mod::kNone, Key::kEscape)) {
-    if (app->IsFullscreen()) {
+    // During content-initiated fullscreen, let Chromium handle ESC so
+    // that fullscreenchange fires and document.fullscreenElement is
+    // properly cleared.  Only intercept for browser-initiated fullscreen.
+    if (app->IsFullscreen() && !app->IsContentFullscreen()) {
       app->ToggleFullscreen();
       return true;
     }
@@ -7080,6 +7088,11 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
         findbar_subscription_->Success(
             BuildFindbarClosedEvent(app->GetCurrentTabId()));
       }
+      return true;
+    }
+    if (app->IsContentFullscreen()) {
+      auto b = tab_manager_ ? tab_manager_->GetBrowser(cur) : nullptr;
+      if (b) b->GetHost()->ExitFullscreen(true);
       return true;
     }
     *is_keyboard_shortcut = true; nav(Shortcut::kEscape); return true;
