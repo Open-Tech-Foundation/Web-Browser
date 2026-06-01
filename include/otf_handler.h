@@ -386,6 +386,11 @@ class OtfHandler : public CefClient,
   // the source tab does not navigate to the same URL.
   std::set<std::string> pending_new_tab_urls_;
 
+  // Maps tab_id → original HTTP URL when OnBeforeBrowse upgrades http→https.
+  // Used by OnLoadError to fall back to the insecure-blocked page when the
+  // HTTPS version is unreachable.
+  std::map<int, std::string> http_upgraded_urls_;
+
   // Transient allow-once set for downloads. Populated by the
   // allow-download cefQuery handler, consumed (and erased) by CanDownload so
   // the next download from that origin proceeds immediately.

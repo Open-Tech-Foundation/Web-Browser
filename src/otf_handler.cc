@@ -5680,6 +5680,10 @@ void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
   if (!view || IsNonTabBrowserViewId(view->GetID())) return;
   const int tab_id = view->GetID();
 
+  // Clear any pending HTTP→HTTPS upgrade tracking — the page loaded
+  // successfully (or a different navigation superseded the upgrade).
+  http_upgraded_urls_.erase(tab_id);
+
   if (httpStatusCode >= 200 && httpStatusCode < 400 && store_ && tab_manager_) {
     const std::string url = frame->GetURL().ToString();
     CefRefPtr<CefNavigationEntry> entry =
@@ -5910,8 +5914,26 @@ void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
   otf::DiagLog("LOAD ERROR: " + std::string(failedUrl) + " — " +
                std::string(errorText) + " (" + std::to_string(errorCode) + ")" +
                (frame->IsMain() ? " [main frame]" : " [subframe]"));
+
   if (frame->IsMain()) {
     CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+
+    // If this URL was silently upgraded from HTTP to HTTPS by OnBeforeBrowse
+    // and the HTTPS version failed, fall back to the insecure-blocked page
+    // with the original HTTP URL.
+    if (view && tab_manager_) {
+      const int tab_id = view->GetID();
+      auto it = http_upgraded_urls_.find(tab_id);
+      if (it != http_upgraded_urls_.end()) {
+        const std::string original_http_url = it->second;
+        http_upgraded_urls_.erase(it);
+        browser->GetMainFrame()->LoadURL(
+            "browser://insecure-blocked?url=" +
+            CefURIEncode(original_http_url, true).ToString());
+        return;
+      }
+    }
+
     if (view && tab_manager_ && IsCertificateErrorCode(errorCode)) {
       const int tab_id = view->GetID();
       const std::string failed_url = failedUrl.ToString();
@@ -6864,24 +6886,16 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
 
   if (is_main_frame && url.rfind("http://", 0) == 0 &&
       !IsAllowedHttpUrl(url)) {
+    // Upgrade to HTTPS silently.  If the HTTPS version fails to load,
+    // OnLoadError will fall back to the insecure-blocked page.
+    const std::string https_url = "https://" + url.substr(7);
     if (view && tab_manager_) {
       const int tab_id = view->GetID();
-      tab_manager_->SetUrl(tab_id, url);
-      tab_manager_->SetSslError(tab_id, true);
-      SendEvent(JsonObjectBuilder()
-                    .AddInt("id", tab_id)
-                    .AddString("key", "sslError")
-                    .AddBool("value", true)
-                    .Build());
-      SendEvent(JsonObjectBuilder()
-                    .AddInt("id", tab_id)
-                    .AddString("key", "url")
-                    .AddString("value", url)
-                    .Build());
+      http_upgraded_urls_[tab_id] = url;
+      tab_manager_->SetSslError(tab_id, false);
     }
-    browser->GetMainFrame()->LoadURL("browser://insecure-blocked?url=" +
-                                     CefURIEncode(url, true).ToString());
-    return true;
+    request->SetURL(https_url);
+    return false;
   }
 
   std::string dev_ui_url = CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
