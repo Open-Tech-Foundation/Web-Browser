@@ -875,6 +875,10 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
     builder.AddBool("private", tab_manager->IsPrivate(tab_id));
     builder.AddBool("pinned", tab_manager->IsPinned(tab_id));
     builder.AddBool("guest", is_guest_tab);
+    const std::string favicon = tab_manager->GetFaviconUrl(tab_id);
+    if (!favicon.empty()) {
+      builder.AddString("favicon", favicon);
+    }
   }
   builder.AddBool("bookmarked",
                   store && tab_manager && !is_guest_tab && IsPersistableWebUrl(url) &&
@@ -3582,7 +3586,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Failure(1, "Invalid bookmark payload");
         return true;
       }
-      handler->store_->AddBookmark(url, title);
+      // Optional favicon field: add-bookmark:<url_len>:<url>:<title_len>:<title>[:<favicon_len>:<favicon>]
+      std::string favicon;
+      if (cursor < msg.size() && msg[cursor] == ':') {
+        ++cursor;
+        favicon = ParseLengthPrefixedField(msg, &cursor, &ok);
+        if (!ok) favicon.clear();
+      }
+      handler->store_->AddBookmark(url, title, favicon);
       handler->SendEvent(BuildBookmarkStateEvent(-1, url, true));
       callback->Success("");
       return true;
@@ -5504,6 +5515,16 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
       }
 
       SendEvent(BuildTabPropertyEvent(view->GetID(), "url", url_str));
+      // Clear stale favicon when navigating to a different origin.
+      if (tab_manager_) {
+        const std::string old_url = tab_manager_->GetUrl(view->GetID());
+        const std::string old_origin = ExtractOrigin(old_url);
+        const std::string new_origin = ExtractOrigin(url_str);
+        if (old_origin != new_origin) {
+          tab_manager_->SetFaviconUrl(view->GetID(), "");
+          SendEvent(BuildTabPropertyEvent(view->GetID(), "favicon", ""));
+        }
+      }
       if (store_ && IsPersistableWebUrl(url_str)) {
         SendEvent(BuildBookmarkSyncEvent(
             view->GetID(), url_str,
@@ -5516,16 +5537,19 @@ void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
 }
 
 void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
-                                    const std::vector<CefString>& icon_urls) {
+                                     const std::vector<CefString>& icon_urls) {
   CEF_REQUIRE_UI_THREAD();
-  if (icon_urls.empty()) return;
 
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
   if (view && !IsNonTabBrowserViewId(view->GetID())) {
     const int tab_id = view->GetID();
-    const std::string favicon_url = icon_urls[0].ToString();
+    std::string favicon_url;
+    if (!icon_urls.empty()) {
+      favicon_url = icon_urls[0].ToString();
+    }
+    if (favicon_url.empty()) return;
     const std::string page_url = tab_manager_ ? NormalizeBookmarkUrl(tab_manager_->GetUrl(tab_id))
-                                              : "";
+                                               : "";
     if (store_ && !page_url.empty() && IsPersistableWebUrl(page_url) &&
         store_->IsBookmarked(page_url)) {
       store_->AddBookmark(page_url, tab_manager_->GetTitle(tab_id), favicon_url);
@@ -7270,6 +7294,9 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
         id = app->CreateTab(info.url);
       }
       if (id >= 0) {
+        if (!info.favicon.empty() && tab_manager_) {
+          tab_manager_->SetFaviconUrl(id, info.favicon);
+        }
         if (OtfHandler* ui_handler = OtfHandler::GetInstance()) {
           ui_handler->NotifyNewTab(id, -1);
         }

@@ -108,6 +108,15 @@ class TabManager {
     pinned_map_.erase(tab_id);
     console_visible_map_.erase(tab_id);
     console_log_map_.erase(tab_id);
+    favicon_url_map_.erase(tab_id);
+    ssl_error_map_.erase(tab_id);
+    ssl_error_url_map_.erase(tab_id);
+    zoom_percent_map_.erase(tab_id);
+    find_count_map_.erase(tab_id);
+    find_active_map_.erase(tab_id);
+    find_visible_map_.erase(tab_id);
+    origin_zoom_map_.erase(tab_id);
+    private_origin_zoom_map_.erase(tab_id);
     
     auto it = std::find(tab_order_.begin(), tab_order_.end(), tab_id);
     if (it != tab_order_.end()) {

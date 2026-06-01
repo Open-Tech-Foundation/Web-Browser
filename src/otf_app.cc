@@ -848,6 +848,9 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
         tab.preview_local_path.empty() ? "browser://imagepreview" : tab.url;
     const int tab_id = CreateTab(preview_start_url, parent_id, false, tab.pinned);
     RestoreImagePreviewStateForTab(tab_id, tab);
+    if (!tab.favicon.empty()) {
+      tab_manager_.SetFaviconUrl(tab_id, tab.favicon);
+    }
     return tab_id;
   }
   if (tab.is_doc_preview) {
@@ -858,12 +861,19 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
         tab.preview_local_path.empty() ? "browser://docpreview" : tab.url;
     const int tab_id = CreateTab(preview_start_url, parent_id, false, tab.pinned);
     RestoreDocPreviewStateForTab(tab_id, tab);
+    if (!tab.favicon.empty()) {
+      tab_manager_.SetFaviconUrl(tab_id, tab.favicon);
+    }
     return tab_id;
   }
   if (!IsRestorableWorkspaceTab(tab)) {
     return CreateTab("browser://newtab", parent_id);
   }
-  return CreateTab(tab.url, parent_id, false, tab.pinned);
+  const int tab_id = CreateTab(tab.url, parent_id, false, tab.pinned);
+  if (!tab.favicon.empty()) {
+    tab_manager_.SetFaviconUrl(tab_id, tab.favicon);
+  }
+  return tab_id;
 }
 
 void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab) {
