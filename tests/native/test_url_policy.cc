@@ -105,6 +105,84 @@ void TestZoomAndImagePredicates() {
   assert(!otf::IsSupportedImageUrl("https://example.com/a.txt"));
 }
 
+void TestStripTrackingParamsFromUrl() {
+  // No query — unchanged
+  assert(otf::StripTrackingParamsFromUrl("https://example.com/path") ==
+         "https://example.com/path");
+
+  // No tracking params — unchanged
+  assert(otf::StripTrackingParamsFromUrl("https://example.com/path?q=1&page=2") ==
+         "https://example.com/path?q=1&page=2");
+
+  // UTM params stripped
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com/path?utm_source=newsletter&utm_medium=email&q=1") ==
+         "https://example.com/path?q=1");
+
+  // All tracking params stripped, query removed entirely
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com/path?utm_campaign=launch&_ga=abc") ==
+         "https://example.com/path");
+
+  // Multiple tracking param types
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com/path?keep=1&fbclid=abc&gclid=xyz&page=3") ==
+         "https://example.com/path?keep=1&page=3");
+
+  // Fragment preserved
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com/path?utm_source=x#section") ==
+         "https://example.com/path#section");
+
+  // Non-http scheme — unchanged
+  assert(otf::StripTrackingParamsFromUrl("ftp://example.com/file?utm_source=x") ==
+         "ftp://example.com/file?utm_source=x");
+
+  // Empty string — unchanged
+  assert(otf::StripTrackingParamsFromUrl("") == "");
+
+  // Single tracking param, no value
+  assert(otf::StripTrackingParamsFromUrl("https://example.com?fbclid=") ==
+         "https://example.com/");
+
+  // Tracking param without value
+  assert(otf::StripTrackingParamsFromUrl("https://example.com?fbclid&utm_source") ==
+         "https://example.com/");
+
+  // Port preserved
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com:8080/path?utm_source=x&q=1") ==
+         "https://example.com:8080/path?q=1");
+
+  // Path-only URL with query
+  assert(otf::StripTrackingParamsFromUrl("https://example.com/?gclid=abc") ==
+         "https://example.com/");
+
+  // Multiple equal signs in value
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com?utm_source=a=b&keep=1") ==
+         "https://example.com/?keep=1");
+
+  // All param types from kTrackingParams
+  assert(otf::StripTrackingParamsFromUrl(
+             "https://example.com?"
+             "utm_source=x&utm_medium=y&utm_campaign=z&utm_term=w&utm_content=v"
+             "&fbclid=a&gclid=b&gbraid=c&wbraid=d&msclkid=e&twclid=f&igshid=g"
+             "&mc_cid=h&mc_eid=i&_ga=j&_gl=k&yclid=l&dclid=m"
+             "&keep=1") ==
+         "https://example.com/?keep=1");
+
+  // http scheme works too
+  assert(otf::StripTrackingParamsFromUrl(
+             "http://example.com/path?utm_source=x&q=1") ==
+         "http://example.com/path?q=1");
+
+  // Invalid URL — unchanged
+  assert(otf::StripTrackingParamsFromUrl("not-a-url") == "not-a-url");
+
+  fprintf(stderr, "TestStripTrackingParamsFromUrl PASSED\n");
+}
+
 }  // namespace
 
 int main() {
@@ -114,6 +192,7 @@ int main() {
   TestInternalUiTrustBoundaries();
   TestPersistableAndFilesystemLikeUrls();
   TestBookmarkAndDownloadHelpers();
+  TestStripTrackingParamsFromUrl();
   TestZoomAndImagePredicates();
   return 0;
 }

@@ -1399,6 +1399,31 @@ std::string NormalizeBookmarkUrl(const std::string& url) {
   return fallback;
 }
 
+std::string StripTrackingParamsFromUrl(const std::string& url) {
+  CefURLParts parts;
+  if (!CefParseURL(url, parts)) return url;
+
+  const std::string scheme = CefString(&parts.scheme).ToString();
+  if (scheme != "http" && scheme != "https") return url;
+
+  std::string query = CefString(&parts.query).ToString();
+  if (query.empty()) return url;
+
+  query = StripTrackingParams(query);
+
+  std::string clean = scheme + "://";
+  clean += CefString(&parts.host).ToString();
+  const std::string port = CefString(&parts.port).ToString();
+  if (!port.empty()) clean += ":" + port;
+  std::string path = CefString(&parts.path).ToString();
+  if (path.empty()) path = "/";
+  clean += path;
+  if (!query.empty()) clean += "?" + query;
+  const std::string fragment = CefString(&parts.fragment).ToString();
+  if (!fragment.empty()) clean += "#" + fragment;
+  return clean;
+}
+
 std::string ExtractOrigin(const std::string& url) {
   CefURLParts parts;
   if (!CefParseURL(url, parts)) return {};

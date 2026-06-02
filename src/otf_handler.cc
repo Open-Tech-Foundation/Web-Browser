@@ -3969,26 +3969,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     } else if (msg.rfind("show-qr:", 0) == 0) {
       const std::string raw_url = msg.substr(8);
-      // Strip utm_* tracking params before shipping the URL to the popup.
-      std::string clean_url = raw_url;
-      {
-        const size_t q = raw_url.find('?');
-        if (q != std::string::npos) {
-          const std::string base = raw_url.substr(0, q);
-          const std::string query = raw_url.substr(q + 1);
-          std::string kept;
-          std::string param;
-          std::istringstream ss(query);
-          while (std::getline(ss, param, '&')) {
-            if (param.rfind("utm_", 0) != 0) {
-              if (!kept.empty()) kept += '&';
-              kept += param;
-            }
-          }
-          clean_url = kept.empty() ? base : base + '?' + kept;
-        }
-      }
-      handler->pending_qr_url_ = clean_url;
+      handler->pending_qr_url_ = otf::StripTrackingParamsFromUrl(raw_url);
       OtfApp* app = OtfApp::GetInstance();
       otf::PopupOverlay* popup = app ? app->GetPopup("qr") : nullptr;
       if (popup) {
@@ -6650,7 +6631,7 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
   if (command_id == IDC_CONTENT_CONTEXT_COPYLINKLOCATION) {
     // CEF Alloy does not route this command to a native handler, so we
     // handle it ourselves using the platform clipboard API.
-    WriteToClipboard(params->GetLinkUrl().ToString());
+    WriteToClipboard(StripTrackingParamsFromUrl(params->GetLinkUrl().ToString()));
     if (OtfApp* app = OtfApp::GetInstance()) {
       app->ShowToast("copy", "Link copied");
     }

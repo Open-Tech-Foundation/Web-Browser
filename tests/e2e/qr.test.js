@@ -103,3 +103,69 @@ test('user can open QR share popup for the current page',
       await server.close();
     }
   });
+
+test('QR share strips non-utm tracking params like fbclid and gclid',
+  { timeout: timeoutMs + 15000 },
+  async () => {
+    const server = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<!doctype html>
+        <html>
+          <head><title>QR Track Params</title></head>
+          <body><main><h1>QR Track Params</h1></main></body>
+        </html>`);
+    });
+
+    const pageUrl = `${server.origin}/share?q=1&fbclid=abc123&gclid=xyz789&_ga=GA1.2&_gl=GL1&utm_source=test&utm_medium=cpc&page=2#top`;
+    const expectedUrl = `${server.origin}/share?q=1&page=2`;
+    const browser = await launchDevBrowser();
+    let shellCdp = null;
+    let qrCdp = null;
+    try {
+      shellCdp = await browser.connectToTarget((target) =>
+        target.url === browser.devUrl || target.url === `${browser.devUrl}/`,
+        15000,
+      );
+      await navigateFromAddressBar(shellCdp, pageUrl);
+      await waitFor(
+        shellCdp,
+        `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
+        (value) => value.includes('/share'),
+        15000,
+      );
+
+      await sleep(500);
+      await waitFor(shellCdp, `!!document.querySelector('button[title="Share via QR Code"]')`, Boolean);
+      await clickSelector(shellCdp, 'button[title="Share via QR Code"]');
+
+      qrCdp = await browser.connectToTarget((target) =>
+        /qr\.html/i.test(target.url || '') ||
+        /Share via QR Code/i.test(target.title || ''),
+        15000,
+      );
+
+      const popupState = await waitFor(
+        qrCdp,
+        `(() => {
+          const input = document.querySelector('input[placeholder="Enter URL..."]');
+          return input?.value || '';
+        })()`,
+        (value) => value === expectedUrl || value === '',
+        15000,
+      );
+
+      assert.equal(popupState, expectedUrl,
+        `QR should strip fbclid, gclid, _ga, _gl, utm_* params and fragment`);
+    } finally {
+      if (qrCdp) qrCdp.close();
+      if (shellCdp) shellCdp.close();
+      await browser.close();
+      await server.close();
+    }
+  });

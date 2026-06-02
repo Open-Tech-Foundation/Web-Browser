@@ -216,6 +216,7 @@ bool IsInternalUiPagePath(const std::string& url);
 // gates: those need the strict IsInternalBrowserUiUrl above.
 bool IsInternalUiUrl(const std::string& url);
 std::string NormalizeBookmarkUrl(const std::string& url);
+std::string StripTrackingParamsFromUrl(const std::string& url);
 
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id);
 
