@@ -145,11 +145,14 @@ Copy-IfExists (Join-Path $ExeDir "otf-diag.log") $ReportDir
 Copy-IfExists (Join-Path $ExeDir "debug.log") $ReportDir
 
 $processLog = Join-Path $ReportDir "process-snapshots.jsonl"
-$browserArgs = @()
-$browserArgs += $ExtraArgs
+$browserArgs = @($ExtraArgs | Where-Object { $_ -ne $null -and $_ -ne "" })
 $proc = $null
 try {
-  $proc = Start-Process -FilePath $ResolvedExe -ArgumentList $browserArgs -WorkingDirectory $ExeDir -PassThru
+  if ($browserArgs.Count -gt 0) {
+    $proc = Start-Process -FilePath $ResolvedExe -ArgumentList $browserArgs -WorkingDirectory $ExeDir -PassThru
+  } else {
+    $proc = Start-Process -FilePath $ResolvedExe -WorkingDirectory $ExeDir -PassThru
+  }
   "started pid=$($proc.Id) at=$((Get-Date).ToString("o")) args=$($browserArgs -join ' ')" | Out-File -FilePath (Join-Path $ReportDir "run.txt") -Encoding utf8
 } catch {
   "failed to start: $($_.Exception.Message)" | Out-File -FilePath (Join-Path $ReportDir "run.txt") -Encoding utf8
@@ -207,7 +210,10 @@ New-Item -ItemType Directory -Path $werOut -Force | Out-Null
 foreach ($root in $werRoots) {
   if (Test-Path -LiteralPath $root) {
     Get-ChildItem -LiteralPath $root -Recurse -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -match "otf-browser|AppCrash" } |
+      Where-Object {
+        $_.LastWriteTime -ge $eventStart -and
+        $_.FullName -match "otf-browser|AppCrash"
+      } |
       ForEach-Object {
         try {
           Copy-Item -LiteralPath $_.FullName -Destination $werOut -Recurse -Force -ErrorAction SilentlyContinue
