@@ -23,6 +23,7 @@ const normalizeTab = (tab) => ({
   private: Boolean(tab.private),
   pinned: Boolean(tab.pinned),
   guest: Boolean(tab.guest),
+  memoryBytes: Number(tab.memoryBytes ?? -1),
 });
 
 const tabReducer = (state, action) => {
@@ -493,6 +494,7 @@ const App = () => {
             onShowCertificate={handleShowCertificate}
             onShowQr={handleShowQr}
             onShowClearSiteData={handleShowClearSiteData}
+            memoryBytes={currentActiveTab?.memoryBytes ?? -1}
           />
           <div className="flex items-center ml-2 gap-1">
             <NavButton

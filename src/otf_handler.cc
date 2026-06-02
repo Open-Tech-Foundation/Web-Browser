@@ -919,12 +919,22 @@ std::string BuildTabPropertyEvent(int tab_id,
 }
 
 std::string BuildTabPropertyEvent(int tab_id,
-                                  const std::string& key,
-                                  bool value) {
+                                   const std::string& key,
+                                   bool value) {
   return JsonObjectBuilder()
       .AddInt("id", tab_id)
       .AddString("key", key)
       .AddBool("value", value)
+      .Build();
+}
+
+std::string BuildTabPropertyEvent(int tab_id,
+                                   const std::string& key,
+                                   int64_t value) {
+  return JsonObjectBuilder()
+      .AddInt("id", tab_id)
+      .AddString("key", key)
+      .AddRaw("value", std::to_string(value))
       .Build();
 }
 
@@ -2095,7 +2105,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           int64_t task_id = tm->GetTaskIdForBrowserId(tab_browser->GetIdentifier());
           if (task_id >= 0) {
             CefTaskInfo info;
-            info.size = sizeof(info);
             if (tm->GetTaskInfo(task_id, info) && info.memory >= 0) {
               memory_bytes = info.memory;
             }
@@ -5454,7 +5463,58 @@ void OtfHandler::SendEvent(const std::string& event_json) {
   }
 }
 
+// ── Periodic per-tab memory logging ──
 
+class MemoryLogTask : public CefTask {
+ public:
+  explicit MemoryLogTask(OtfHandler* handler) : handler_(handler) {}
+  void Execute() override {
+    if (handler_ && handler_->IsMemoryLoggingRunning()) {
+      handler_->LogTabMemoryUsage();
+      CefPostDelayedTask(TID_UI, new MemoryLogTask(handler_), 10000);
+    }
+  }
+ private:
+  OtfHandler* handler_;
+  IMPLEMENT_REFCOUNTING(MemoryLogTask);
+};
+
+void OtfHandler::StartMemoryLogging() {
+  CEF_REQUIRE_UI_THREAD();
+  if (memory_log_running_ || !tab_manager_) return;
+  memory_log_running_ = true;
+  memory_task_manager_ = CefTaskManager::GetTaskManager();
+  CefPostDelayedTask(TID_UI, new MemoryLogTask(this), 10000);
+}
+
+void OtfHandler::StopMemoryLogging() {
+  CEF_REQUIRE_UI_THREAD();
+  memory_log_running_ = false;
+  memory_task_manager_ = nullptr;
+}
+
+void OtfHandler::LogTabMemoryUsage() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!tab_manager_) return;
+
+  auto tm = memory_task_manager_;
+  if (!tm) return;
+
+  const auto tab_ids = tab_manager_->GetAllTabIds();
+  if (tab_ids.empty()) return;
+
+  for (int tab_id : tab_ids) {
+    CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(tab_id);
+    if (!b) continue;
+    int64_t task_id = tm->GetTaskIdForBrowserId(b->GetIdentifier());
+    if (task_id < 0) continue;
+    CefTaskInfo info;
+    if (!tm->GetTaskInfo(task_id, info)) continue;
+
+    int64_t ram = info.memory;
+    SendEvent(BuildTabPropertyEvent(tab_id, "memoryBytes", ram));
+  }
+}
 
 void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
                                const CefString& title) {
@@ -5914,6 +5974,8 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
           browser->GetMainFrame()->LoadURL(stored);
         }
       }
+      // Start periodic memory logging on first content tab
+      StartMemoryLogging();
     }
   } else if (pending_external_popups_ > 0) {
     // Browser created via CefBrowserHost::CreateBrowser (no CefBrowserView).
@@ -5948,6 +6010,7 @@ void OtfHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   }
 
   if (browser_list_.empty()) {
+    StopMemoryLogging();
     CefQuitMessageLoop();
   }
 }

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import SecurityIconButton from './SecurityIconButton';
+import MemoryChip from './MemoryChip';
 
-const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate, onShowClearSiteData, onShowQr, blockedPopupOrigin, onShowBlockedPopup }, ref) => {
+const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarked, onToggleBookmark, sslError, onShowCertificate, onShowClearSiteData, onShowQr, blockedPopupOrigin, onShowBlockedPopup, memoryBytes }, ref) => {
   const [url, setUrl] = useState(initialUrl);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef(null);
@@ -182,6 +183,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
           </svg>
         </button>
       )}
+      <MemoryChip memoryBytes={memoryBytes} />
     </div>
   );
 });

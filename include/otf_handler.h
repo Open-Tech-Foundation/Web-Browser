@@ -11,6 +11,7 @@
 #include "include/cef_client.h"
 #include "include/cef_download_handler.h"
 #include "include/cef_resource_request_handler.h"
+#include "include/cef_task_manager.h"
 #include "include/wrapper/cef_message_router.h"
 #include "otf_browser_shell.h"
 #include "otf_devtools_bridge.h"
@@ -221,6 +222,11 @@ class OtfHandler : public CefClient,
   void NotifyDownloadBadge();
   void NotifyBookmarkStateForTab(int tab_id);
   void NotifyNewTab(int new_tab_id, int parent_tab_id = -1);
+
+  void StartMemoryLogging();
+  void StopMemoryLogging();
+  void LogTabMemoryUsage();
+  bool IsMemoryLoggingRunning() const { return memory_log_running_; }
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
@@ -469,6 +475,8 @@ class OtfHandler : public CefClient,
   typedef std::list<CefRefPtr<CefBrowser>> BrowserList;
   BrowserList browser_list_;
   bool is_closing_;
+  bool memory_log_running_ = false;
+  CefRefPtr<CefTaskManager> memory_task_manager_;
 
   std::set<int> js_disabled_tabs_;
 
