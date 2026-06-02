@@ -2,7 +2,9 @@ import React, { useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 
 const guessLanguage = (mimeType, fileName) => {
-  if (mimeType === 'application/json') return 'json';
+  if (mimeType === 'application/json' || mimeType === 'application/json5') return 'json';
+  if (mimeType === 'application/ld+json' || mimeType === 'application/geo+json' ||
+      mimeType === 'application/x-ndjson' || mimeType === 'text/hjson') return 'json';
   if (mimeType === 'application/xml' || mimeType === 'text/xml') return 'xml';
   if (mimeType === 'text/html') return 'html';
   if (mimeType === 'text/css') return 'css';
@@ -24,7 +26,9 @@ const guessLanguage = (mimeType, fileName) => {
   if (mimeType === 'text/csv') return 'plaintext';
   const ext = (fileName || '').split('.').pop().toLowerCase();
   const extMap = {
-    json: 'json', jsonl: 'json', xml: 'xml', html: 'html', htm: 'html', css: 'css',
+    json: 'json', jsonl: 'json', json5: 'json', jsonc: 'jsonc', jsonld: 'json',
+    geojson: 'json', ndjson: 'json', ndjsonl: 'json', hjson: 'json',
+    xml: 'xml', html: 'html', htm: 'html', css: 'css',
     js: 'javascript', mjs: 'javascript', jsx: 'javascript',
     ts: 'typescript', tsx: 'typescript',
     py: 'python', sh: 'shell', bash: 'shell', zsh: 'shell',

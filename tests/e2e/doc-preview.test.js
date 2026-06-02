@@ -26,6 +26,10 @@ const FIXTURE_PDF = Buffer.from(
 
 const FIXTURE_JSON = Buffer.from('{"key": "value", "number": 42}', 'utf-8');
 
+const FIXTURE_JSON5 = Buffer.from('{\n  key: "value",\n  number: 42,\n  // comment\n  nested: {\n    flag: true,\n  },\n}', 'utf-8');
+
+const FIXTURE_JSONC = Buffer.from('{\n  "key": "value",\n  // comment\n  "number": 42\n}', 'utf-8');
+
 const FIXTURE_CSV = Buffer.from('Name,Age,City\nAlice,30,New York\nBob,25,Los Angeles\nCharlie,35,Chicago\n"Doe, Jane",28,Miami\n', 'utf-8');
 
 const DOC_FIXTURES = [
@@ -40,6 +44,18 @@ const DOC_FIXTURES = [
     format: 'JSON',
     mime: 'application/json',
     body: FIXTURE_JSON,
+  },
+  {
+    name: 'doc-preview-test.json5',
+    format: 'JSON5',
+    mime: 'application/json5',
+    body: FIXTURE_JSON5,
+  },
+  {
+    name: 'doc-preview-test.jsonc',
+    format: 'JSONC',
+    mime: 'application/json',
+    body: FIXTURE_JSONC,
   },
   {
     name: 'doc-preview-test.csv',
@@ -226,6 +242,90 @@ serialTest('doc preview opens JSON from downloads',
       // JSON should be rendered in Monaco editor
       assert.ok(state.hasMonaco || state.text.includes('key'),
         `JSON preview should show Monaco editor, got: ${JSON.stringify(state)}`);
+    } finally {
+      if (previewCdp) previewCdp.close();
+      if (downloadsCdp) downloadsCdp.close();
+      if (pageCdp) pageCdp.close();
+      await browser.close();
+      await server.close();
+    }
+  });
+
+serialTest('doc preview opens JSON5 from downloads',
+  { timeout: timeoutMs + 30000 },
+  async () => {
+    const fixture = DOC_FIXTURES.find((f) => f.name === 'doc-preview-test.json5');
+    const server = await startStaticServer(docFixtureServer([fixture]));
+    const browser = await launchDevBrowser({ settings: { downloadsEnabled: true } });
+    let pageCdp = null;
+    let downloadsCdp = null;
+    let previewCdp = null;
+    try {
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((t) =>
+        (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
+      );
+      await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
+      await openDownloadedPreview(downloadsCdp);
+
+      previewCdp = await connectToReadyTarget(
+        (t) =>
+          (t.url || '').includes('docpreview.html') ||
+          (t.url || '').startsWith('browser://doc-preview/'),
+        docPreviewStateExpression,
+        (s) => s.text.includes('key') || s.hasMonaco,
+        20000,
+      );
+
+      const state = await previewCdp.evaluate(docPreviewStateExpression);
+      console.log('[DOC-PREVIEW E2E] JSON5 preview state:', JSON.stringify(state));
+
+      assert.ok(state.hasMonaco || state.text.includes('key'),
+        `JSON5 preview should show Monaco editor, got: ${JSON.stringify(state)}`);
+    } finally {
+      if (previewCdp) previewCdp.close();
+      if (downloadsCdp) downloadsCdp.close();
+      if (pageCdp) pageCdp.close();
+      await browser.close();
+      await server.close();
+    }
+  });
+
+serialTest('doc preview opens JSONC from downloads',
+  { timeout: timeoutMs + 30000 },
+  async () => {
+    const fixture = DOC_FIXTURES.find((f) => f.name === 'doc-preview-test.jsonc');
+    const server = await startStaticServer(docFixtureServer([fixture]));
+    const browser = await launchDevBrowser({ settings: { downloadsEnabled: true } });
+    let pageCdp = null;
+    let downloadsCdp = null;
+    let previewCdp = null;
+    try {
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((t) =>
+        (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
+      );
+      await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
+      await openDownloadedPreview(downloadsCdp);
+
+      previewCdp = await connectToReadyTarget(
+        (t) =>
+          (t.url || '').includes('docpreview.html') ||
+          (t.url || '').startsWith('browser://doc-preview/'),
+        docPreviewStateExpression,
+        (s) => s.text.includes('key') || s.hasMonaco,
+        20000,
+      );
+
+      const state = await previewCdp.evaluate(docPreviewStateExpression);
+      console.log('[DOC-PREVIEW E2E] JSONC preview state:', JSON.stringify(state));
+
+      assert.ok(state.hasMonaco || state.text.includes('key'),
+        `JSONC preview should show Monaco editor, got: ${JSON.stringify(state)}`);
     } finally {
       if (previewCdp) previewCdp.close();
       if (downloadsCdp) downloadsCdp.close();

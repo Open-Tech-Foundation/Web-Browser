@@ -20,6 +20,13 @@ void TestIsSupportedDocumentUrl() {
 
   // Data formats
   assert(otf::IsSupportedDocumentUrl("data.json"));
+  assert(otf::IsSupportedDocumentUrl("config.json5"));
+  assert(otf::IsSupportedDocumentUrl("config.jsonc"));
+  assert(otf::IsSupportedDocumentUrl("schema.jsonld"));
+  assert(otf::IsSupportedDocumentUrl("map.geojson"));
+  assert(otf::IsSupportedDocumentUrl("stream.ndjson"));
+  assert(otf::IsSupportedDocumentUrl("stream.ndjsonl"));
+  assert(otf::IsSupportedDocumentUrl("config.hjson"));
   assert(otf::IsSupportedDocumentUrl("config.xml"));
   assert(otf::IsSupportedDocumentUrl("data.csv"));
   assert(otf::IsSupportedDocumentUrl("config.yaml"));
@@ -64,6 +71,13 @@ void TestIsSupportedDocumentUrl() {
 void TestGuessDocumentMimeType() {
   assert(otf::GuessDocumentMimeType("report.pdf") == "application/pdf");
   assert(otf::GuessDocumentMimeType("data.json") == "application/json");
+  assert(otf::GuessDocumentMimeType("data.json5") == "application/json5");
+  assert(otf::GuessDocumentMimeType("data.jsonc") == "application/json");
+  assert(otf::GuessDocumentMimeType("schema.jsonld") == "application/ld+json");
+  assert(otf::GuessDocumentMimeType("map.geojson") == "application/geo+json");
+  assert(otf::GuessDocumentMimeType("stream.ndjson") == "application/x-ndjson");
+  assert(otf::GuessDocumentMimeType("stream.ndjsonl") == "application/x-ndjson");
+  assert(otf::GuessDocumentMimeType("config.hjson") == "text/hjson");
   assert(otf::GuessDocumentMimeType("config.xml") == "application/xml");
   assert(otf::GuessDocumentMimeType("index.html") == "text/html");
   assert(otf::GuessDocumentMimeType("style.css") == "text/css");

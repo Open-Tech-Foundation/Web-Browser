@@ -1597,6 +1597,10 @@ bool IsSupportedDocumentUrl(const std::string& url) {
   };
   return ends_with(path, ".pdf") || ends_with(path, ".txt") ||
          ends_with(path, ".json") || ends_with(path, ".jsonl") ||
+         ends_with(path, ".json5") || ends_with(path, ".jsonc") ||
+         ends_with(path, ".jsonld") || ends_with(path, ".geojson") ||
+         ends_with(path, ".ndjson") || ends_with(path, ".ndjsonl") ||
+         ends_with(path, ".hjson") ||
          ends_with(path, ".xml") ||
          ends_with(path, ".csv") || ends_with(path, ".md") ||
          ends_with(path, ".js") || ends_with(path, ".ts") ||
@@ -1626,7 +1630,14 @@ std::string GuessDocumentMimeType(const std::string& url) {
   };
   if (ends_with(".pdf")) return "application/pdf";
   if (ends_with(".json")) return "application/json";
-  if (ends_with(".jsonl")) return "application/json";
+  if (ends_with(".jsonl")) return "application/x-ndjson";
+  if (ends_with(".json5")) return "application/json5";
+  if (ends_with(".jsonc")) return "application/json";
+  if (ends_with(".jsonld")) return "application/ld+json";
+  if (ends_with(".geojson")) return "application/geo+json";
+  if (ends_with(".ndjson")) return "application/x-ndjson";
+  if (ends_with(".ndjsonl")) return "application/x-ndjson";
+  if (ends_with(".hjson")) return "text/hjson";
   if (ends_with(".xml")) return "application/xml";
   if (ends_with(".html")) return "text/html";
   if (ends_with(".css")) return "text/css";
