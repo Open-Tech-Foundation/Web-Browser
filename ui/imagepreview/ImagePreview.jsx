@@ -432,10 +432,25 @@ const ImagePreview = () => {
   const rotateRight = () => setRotation(r => r + 90);
   const reset = () => { setScale(1); setRotation(0); setPosition({ x: 0, y: 0 }); };
 
-  const handleWheel = (e) => {
-    if (e.deltaY < 0) zoomIn();
-    else zoomOut();
-  };
+  // Suppress Chromium's native Ctrl+wheel page zoom inside the image preview.
+  // React's synthetic onWheel cannot prevent it — Chromium applies zoom at the
+  // renderer level before the DOM event fires.  A native non-passive listener
+  // on this component's root element is the only way to call preventDefault()
+  // in time.
+  const containerRef = useRef(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) zoomIn();
+        else zoomOut();
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [zoomIn, zoomOut]);
 
   const handleMouseDown = (e) => {
     e.preventDefault();
@@ -535,13 +550,13 @@ const ImagePreview = () => {
 
   return (
     <div 
+      ref={containerRef}
       style={{
         position: 'fixed', inset: 0,
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
         display: 'flex', flexDirection: 'column',
         backdropFilter: 'blur(4px)',
       }}
-      onWheel={handleWheel}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
