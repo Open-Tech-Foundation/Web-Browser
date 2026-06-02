@@ -289,6 +289,11 @@ const DownloadsBar = () => {
                 {!item.isComplete && !item.isCanceled && !item.isInterrupted && <span>{formatProgress(item)}</span>}
                 {item.speedBytesPerSec > 0 && <span>{formatBytes(item.speedBytesPerSec)}/s</span>}
               </div>
+              {item.isInterrupted && item.failureMessage && (
+                <div style={{ fontSize: 11, color: '#ef4444', lineHeight: 1.4 }}>
+                  {item.failureMessage}
+                </div>
+              )}
               {shouldShowProgress(item) && (
                 <div style={S.progressTrack}>
                   <div style={{ ...S.progressFill, width: `${Math.max(0, item.percent >= 0 ? item.percent : 0)}%` }} />
@@ -298,6 +303,7 @@ const DownloadsBar = () => {
                 {item.canCancel && <button style={S.button} onClick={() => run(`cancel-download:${item.id}`)}>Cancel</button>}
                 {item.canPause && <button style={S.button} onClick={() => run(`pause-download:${item.id}`)}>Pause</button>}
                 {item.canResume && <button style={S.button} onClick={() => run(`resume-download:${item.id}`)}>Resume</button>}
+                {item.canRetry && <button style={S.button} onClick={() => run(`retry-download:${item.id}`)}>Retry</button>}
                 {item.canOpen && (
                   <button
                     style={S.button}
@@ -308,6 +314,7 @@ const DownloadsBar = () => {
                   </button>
                 )}
                 {item.canShowInFolder && <button style={S.button} onClick={() => run(`show-download-in-folder:${item.id}`)}>Show in Folder</button>}
+                <button style={S.button} onClick={() => run(`copy-download-link:${item.id}`)}>Copy Link</button>
               </div>
             </div>
           ))}

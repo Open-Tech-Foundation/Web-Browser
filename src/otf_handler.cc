@@ -1089,6 +1089,39 @@ bool ApplyPrivateTabZoom(CefRefPtr<CefBrowser> browser,
   return true;
 }
 
+std::string DownloadFailureMessage(int reason) {
+  switch (reason) {
+    case 0: return "";
+    case 1: return "File operation failed";
+    case 2: return "File access denied";
+    case 3: return "No space left on device";
+    case 5: return "File name too long";
+    case 6: return "File too large";
+    case 7: return "File blocked by virus scanner";
+    case 10: return "File temporarily unavailable";
+    case 11: return "File blocked by policy";
+    case 12: return "Security check failed";
+    case 13: return "File too short to resume";
+    case 14: return "File hash mismatch";
+    case 15: return "Source equals destination";
+    case 20: return "Network error";
+    case 21: return "Connection timed out";
+    case 22: return "Connection lost";
+    case 23: return "Server unavailable";
+    case 24: return "Invalid request";
+    case 30: return "Server error";
+    case 31: return "Server does not support resume";
+    case 33: return "Server returned bad content";
+    case 34: return "Unauthorized access";
+    case 35: return "Certificate error";
+    case 36: return "Access forbidden";
+    case 37: return "Server unreachable";
+    case 38: return "Content length mismatch";
+    case 39: return "Unexpected redirect";
+    default: return "Download failed";
+  }
+}
+
 std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
   return JsonObjectBuilder()
       .AddInt("id", item.id)
@@ -1111,6 +1144,9 @@ std::string BuildDownloadItemJson(const OtfHandler::DownloadState& item) {
       .AddBool("canResume", item.can_resume)
       .AddBool("canOpen", item.can_open)
       .AddBool("canShowInFolder", item.can_show_in_folder)
+      .AddBool("canRetry", item.is_interrupted || item.is_canceled)
+      .AddInt("failureReason", item.failure_reason)
+      .AddString("failureMessage", DownloadFailureMessage(item.failure_reason))
       .AddRaw("endedAt", std::to_string(item.ended_at))
       .Build();
 }
@@ -4504,6 +4540,37 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         RevealPathInFolder(it->second.full_path);
       }
       callback->Success("");
+    } else if (msg.find("retry-download:") == 0) {
+      if (handler->guest_session_active_) {
+        callback->Success("");
+        return true;
+      }
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(15));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->downloads_.find(*download_id);
+      if (it != handler->downloads_.end()) {
+        const std::string retry_url = it->second.original_url.empty()
+                                         ? it->second.url
+                                         : it->second.original_url;
+        if (!retry_url.empty() && browser) {
+          browser->GetHost()->StartDownload(retry_url);
+        }
+      }
+      callback->Success("");
+    } else if (msg.find("copy-download-link:") == 0) {
+      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(19));
+      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
+      auto it = handler->downloads_.find(*download_id);
+      if (it != handler->downloads_.end()) {
+        const std::string link = it->second.original_url.empty()
+                                    ? it->second.url
+                                    : it->second.original_url;
+        WriteToClipboard(link);
+        if (OtfApp* app = OtfApp::GetInstance()) {
+          app->ShowToast("copy", "Download link copied");
+        }
+      }
+      callback->Success("");
     } else if (msg == "clear-finished-downloads") {
       if (handler->guest_session_active_) {
         callback->Success("");
@@ -6215,6 +6282,7 @@ void OtfHandler::OnDownloadUpdated(CefRefPtr<CefBrowser> browser,
   state.is_complete = download_item->IsComplete();
   state.is_canceled = download_item->IsCanceled();
   state.is_interrupted = download_item->IsInterrupted();
+  state.failure_reason = static_cast<int>(download_item->GetInterruptReason());
 #if CEF_API_ADDED(14400)
   state.is_paused = download_item->IsPaused();
 #else

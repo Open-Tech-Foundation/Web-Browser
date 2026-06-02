@@ -254,7 +254,7 @@ export default function Downloads() {
                                 item.isCanceled || item.isInterrupted ? 'bg-red-500/10 text-red-500' :
                                 'bg-orange-500/10 text-orange-500'
                               }`}>
-                                {item.status}
+                                {item.isInterrupted ? 'Failed' : item.status}
                               </span>
                             )}
                             {item.endedAt > 0 && (
@@ -274,6 +274,11 @@ export default function Downloads() {
                               </>
                             )}
                           </div>
+                          {item.isInterrupted && item.failureMessage && (
+                            <div className="mt-1.5 text-xs text-red-400">
+                              {item.failureMessage}
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex gap-2 pr-2">
@@ -313,6 +318,15 @@ export default function Downloads() {
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </button>
                           )}
+                          {item.canRetry && (
+                            <button 
+                              onClick={() => handleAction('retry', item.id)}
+                              className="p-2.5 rounded-xl bg-main/5 hover:bg-orange-500/20 text-muted hover:text-orange-500 transition-all border border-main"
+                              title="Retry download"
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.72 2.38L21 8"/><path d="M21 3v5h-5"/></svg>
+                            </button>
+                          )}
                           {item.canCancel && (
                             <button 
                               onClick={() => handleAction('cancel', item.id)}
@@ -322,6 +336,13 @@ export default function Downloads() {
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
                           )}
+                          <button 
+                            onClick={() => handleAction('copy-download-link', item.id)}
+                            className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
+                            title="Copy download link"
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          </button>
                         </div>
                       </div>
                     ))}

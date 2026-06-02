@@ -360,6 +360,7 @@ class OtfHandler : public CefClient,
     bool can_resume = false;
     bool can_open = false;
     bool can_show_in_folder = false;
+    int failure_reason = 0;
   };
 
   std::map<int, DownloadState> downloads_;
