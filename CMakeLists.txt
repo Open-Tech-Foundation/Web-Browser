@@ -124,6 +124,19 @@ target_compile_definitions(otf-browser PRIVATE OTF_VERSION="${OTF_VERSION}")
 # Link libraries
 target_link_libraries(otf-browser libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBS})
 
+if(WIN32 AND MSVC)
+    # The same executable is used for Chromium renderer/GPU/utility child
+    # processes. Keep libvips/GLib out of child-process startup; only the
+    # browser process should load them when TIFF/document preview code first
+    # calls into libvips.
+    target_link_libraries(otf-browser delayimp.lib)
+    target_link_options(otf-browser PRIVATE
+        "/DELAYLOAD:libvips-42.dll"
+        "/DELAYLOAD:libglib-2.0-0.dll"
+        "/DELAYLOAD:libgobject-2.0-0.dll"
+    )
+endif()
+
 # Set rpath so that libraries can be placed next to the executable
 if(OS_LINUX)
     set_target_properties(otf-browser PROPERTIES INSTALL_RPATH "$ORIGIN")
