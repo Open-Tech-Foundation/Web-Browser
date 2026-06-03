@@ -106,12 +106,15 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
     let rightCount = 0;
     const viewportRect = viewport.getBoundingClientRect();
 
+    // Account for the sticky new-tab button (w-9 = 36px) that overlays tabs at the right edge
+    const stickyBtnWidth = 36;
+
     tabRefs.current.forEach((el) => {
       if (!el || !viewport.contains(el)) return;
       const rect = el.getBoundingClientRect();
       if (rect.right < viewportRect.left + 5) {
         leftCount++;
-      } else if (rect.left > viewportRect.right - 5) {
+      } else if (rect.left > viewportRect.right - stickyBtnWidth - 5) {
         rightCount++;
       }
     });
@@ -262,7 +265,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
 
       {/* Separator between pinned and unpinned */}
       {pinnedTabs.length > 0 && unpinnedTabs.length > 0 && (
-        <div className="w-[1px] h-4 shrink-0 bg-slate-400/30 dark:bg-white/10 mb-1.5 mx-0.5" />
+        <div className="w-px h-4 shrink-0 bg-slate-500/50 dark:bg-white/20 mb-1.5 mx-1" />
       )}
 
       {/* Scroll arrows left */}
