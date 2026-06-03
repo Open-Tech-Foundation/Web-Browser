@@ -20,6 +20,7 @@ const ImagePreview = () => {
   const [isDecoding, setIsDecoding] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(null);
+  const [thumbnails, setThumbnails] = useState([]);
 
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef(null);
@@ -28,10 +29,11 @@ const ImagePreview = () => {
   const previewTabIdRef = useRef(-1);
   const decodeNonceRef = useRef(0);
   const applyLoadImageRef = useRef(null);
-  // Page index the current displayUrl was decoded for. Lets the decode
-  // effect skip the round-trip when the server already shipped a matching
-  // data: URL (initial load and tab switches both come pre-decoded).
   const displayedPageRef = useRef(-1);
+  const containerRef = useRef(null);
+  const cursorRef = useRef({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
+  const posRef = useRef({ x: 0, y: 0 });
 
   const applyLoadedImageMeta = (ev) => {
     if (!ev || ev.key !== 'load-image') return;
@@ -204,7 +206,14 @@ const ImagePreview = () => {
           ? `close-imagepreview:${previewTabIdRef.current}`
           : 'close-imagepreview';
         window.cefQuery({ request });
+        return;
       }
+      if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomIn(); }
+      else if (event.key === '-' || event.key === '_') { event.preventDefault(); zoomOut(); }
+      else if (event.key === '0') { event.preventDefault(); reset(); }
+      else if (event.key === 'r' || event.key === 'R') { event.preventDefault(); rotateRight(); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); prevPage(); }
+      else if (event.key === 'ArrowRight') { event.preventDefault(); nextPage(); }
     };
     window.addEventListener('keydown', onKeyDown);
 
@@ -387,6 +396,36 @@ const ImagePreview = () => {
     };
   }, [url, currentPage, decodeNonce, previewError, isTiffPreview]);
 
+  // Generate thumbnails for multi-page images
+  useEffect(() => {
+    if (pageCount <= 1 || !url) { setThumbnails([]); return; }
+    const isTiff = isTiffPreview;
+    const isRemote = url.startsWith('http://') || url.startsWith('https://');
+    if (!isTiff && !isRemote) { setThumbnails([]); return; }
+    if (!window.cefQuery) return;
+    let cancelled = false;
+    const nonces = [];
+    const results = new Array(pageCount).fill(null);
+    const tabIdPrefix = previewTabIdRef.current >= 0 ? `:${previewTabIdRef.current}` : '';
+    for (let p = 0; p < pageCount; p++) {
+      const nonce = Date.now() + p;
+      nonces.push(nonce);
+      window.cefQuery({
+        request: `preview-image:${nonce}:${p}${tabIdPrefix}:${url}`,
+        onSuccess: (json) => {
+          if (cancelled) return;
+          try {
+            const res = JSON.parse(json);
+            if (res && res.displayUrl) results[p] = res.displayUrl;
+          } catch (_) {}
+          if (results.every(r => r !== null)) setThumbnails([...results]);
+        },
+        onFailure: () => {},
+      });
+    }
+    return () => { cancelled = true; };
+  }, [url, pageCount, isTiffPreview]);
+
   const handleClose = () => {
     const sourceTabId = previewTabIdRef.current;
     setUrl('');
@@ -426,18 +465,41 @@ const ImagePreview = () => {
     }
   };
 
-  const zoomIn = () => setScale(s => Math.min(s * 1.5, 10));
-  const zoomOut = () => setScale(s => Math.max(s / 1.5, 0.1));
+  const zoomIn = () => zoomAt(Math.min(scaleRef.current * 1.5, 10));
+  const zoomOut = () => zoomAt(Math.max(scaleRef.current / 1.5, 0.1));
   const rotateLeft = () => setRotation(r => r - 90);
   const rotateRight = () => setRotation(r => r + 90);
   const reset = () => { setScale(1); setRotation(0); setPosition({ x: 0, y: 0 }); };
+
+  const zoomAt = (newScale) => {
+    const cx = cursorRef.current.x;
+    const cy = cursorRef.current.y;
+    const container = containerRef.current;
+    if (!container || cx == null || cy == null) {
+      setScale(newScale);
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const cursorOffsetX = cx - rect.left - centerX;
+    const cursorOffsetY = cy - rect.top - centerY;
+    const oldScale = scaleRef.current;
+    const oldPos = posRef.current;
+    const imgX = (cursorOffsetX - oldPos.x) / oldScale;
+    const imgY = (cursorOffsetY - oldPos.y) / oldScale;
+    setPosition({ x: cursorOffsetX - imgX * newScale, y: cursorOffsetY - imgY * newScale });
+    setScale(newScale);
+  };
+
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { posRef.current = position; }, [position]);
 
   // Suppress Chromium's native Ctrl+wheel page zoom inside the image preview.
   // React's synthetic onWheel cannot prevent it — Chromium applies zoom at the
   // renderer level before the DOM event fires.  A native non-passive listener
   // on this component's root element is the only way to call preventDefault()
   // in time.
-  const containerRef = useRef(null);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -461,6 +523,7 @@ const ImagePreview = () => {
   };
 
   const handleMouseMove = (e) => {
+    cursorRef.current = { x: e.clientX, y: e.clientY };
     if (!isDragging) return;
     setPosition({
       x: e.clientX - dragStart.current.x,
@@ -634,47 +697,47 @@ const ImagePreview = () => {
         }
       `}</style>
       <div style={{
-        padding: '16px', display: 'flex', justifyContent: 'center', gap: '12px',
+        padding: '12px 16px', display: 'flex', justifyContent: 'center', gap: '8px',
         backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 10, alignItems: 'center'
       }}>
-        <button onClick={zoomIn} className="btn-action" title="Zoom In">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
-          Zoom In
-        </button>
-        <button onClick={zoomOut} className="btn-action" title="Zoom Out">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
-          Zoom Out
-        </button>
-        <button onClick={rotateLeft} className="btn-action" title="Rotate Left">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-          Rotate Left
-        </button>
-        <button onClick={rotateRight} className="btn-action" title="Rotate Right">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
-          Rotate Right
-        </button>
-        <button onClick={reset} className="btn-action" title="Reset view">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
-          Reset
+        {/* Zoom pill */}
+        <div style={pillStyle}>
+          <button onClick={zoomOut} style={pillBtnStyle} title="Zoom Out (-)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+          </button>
+          <span style={pillLabelStyle}>{Math.round(scale * 100)}%</span>
+          <button onClick={zoomIn} style={pillBtnStyle} title="Zoom In (+)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+          </button>
+        </div>
+
+        <button onClick={reset} className="btn-action" title="Reset view (0)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
         </button>
 
-        <div style={{ width: '1px', height: '20px', backgroundColor: 'rgba(255,255,255,0.15)', margin: '0 4px' }}></div>
+        <div style={dividerStyle} />
+
+        <button onClick={rotateLeft} className="btn-action" title="Rotate Left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+        </button>
+        <button onClick={rotateRight} className="btn-action" title="Rotate Right (R)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+        </button>
+
+        <div style={dividerStyle} />
 
         <button onClick={handleSave} className="btn-action" title="Download Image">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-          Save
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         </button>
         <button onClick={handleCopyImage} className="btn-action" title="Copy Image to Clipboard">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          Copy Image
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
         <button onClick={handleCopyUrl} className="btn-action" title="Copy Image URL">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          Copy URL
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
         </button>
 
         <div style={{flex: 1}}></div>
-        <button onClick={handleClose} className="btn-close" title="Close Preview">
+        <button onClick={handleClose} className="btn-close" title="Close Preview (Esc)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
@@ -731,29 +794,44 @@ const ImagePreview = () => {
         </button>
       )}
 
-      {/* Bottom Page Controls Overlay */}
+      {/* Bottom Thumbnail Strip */}
       {pageCount > 1 && (
-        <div style={bottomOverlayStyle}>
+        <div style={thumbStripStyle}>
           <button
             onClick={prevPage}
             disabled={currentPage === 0 || isDecoding}
             className="btn-nav-page"
-            title="Previous Page"
+            title="Previous Page (Left Arrow)"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </button>
-
-          <span style={pageInfoStyle}>
-            {isDecoding ? 'Rendering...' : `${currentPage + 1} / ${pageCount}`}
-          </span>
-
+          <div style={thumbScrollStyle}>
+            {Array.from({ length: pageCount }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => { if (!isDecoding) { setPreviewError(''); setDisplayUrl(''); setCurrentPage(i); } }}
+                style={{
+                  ...thumbItemStyle,
+                  ...(i === currentPage ? thumbItemActiveStyle : {}),
+                  opacity: isDecoding ? 0.5 : 1,
+                }}
+                title={`Page ${i + 1}`}
+              >
+                {thumbnails[i] ? (
+                  <img src={thumbnails[i]} style={thumbImgStyle} draggable="false" alt={`Page ${i + 1}`} />
+                ) : (
+                  <span style={thumbFallbackStyle}>{i + 1}</span>
+                )}
+              </button>
+            ))}
+          </div>
           <button
             onClick={nextPage}
             disabled={currentPage === pageCount - 1 || isDecoding}
             className="btn-nav-page"
-            title="Next Page"
+            title="Next Page (Right Arrow)"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
         </div>
       )}
@@ -827,31 +905,66 @@ const isTiffSource = (format, value) => {
   return guessed === 'TIF' || guessed === 'TIFF';
 };
 
-const bottomOverlayStyle = {
+const thumbStripStyle = {
   position: 'absolute',
-  bottom: '32px',
+  bottom: '16px',
   left: '50%',
   transform: 'translateX(-50%)',
-  background: 'rgba(15, 23, 42, 0.75)',
+  background: 'rgba(15, 23, 42, 0.8)',
   backdropFilter: 'blur(16px)',
   border: '1px solid rgba(255, 255, 255, 0.12)',
-  padding: '6px 12px',
-  borderRadius: '9999px',
+  padding: '6px 8px',
+  borderRadius: '12px',
   zIndex: 30,
   display: 'flex',
   alignItems: 'center',
-  gap: '12px',
+  gap: '6px',
   boxShadow: '0 12px 24px rgba(0, 0, 0, 0.5)',
   animation: 'fadeIn 0.25s ease-out',
+  maxWidth: '80vw',
 };
 
-const pageInfoStyle = {
-  color: 'rgba(255, 255, 255, 0.9)',
-  fontSize: '12px',
+const thumbScrollStyle = {
+  display: 'flex',
+  gap: '4px',
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  maxHeight: '56px',
+  scrollbarWidth: 'none',
+};
+
+const thumbItemStyle = {
+  width: '40px',
+  height: '48px',
+  borderRadius: '6px',
+  border: '2px solid rgba(255,255,255,0.12)',
+  background: 'rgba(255,255,255,0.06)',
+  cursor: 'pointer',
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  overflow: 'hidden',
+  padding: 0,
+  transition: 'border-color 0.15s, background 0.15s',
+};
+
+const thumbItemActiveStyle = {
+  borderColor: '#f97316',
+  background: 'rgba(249, 115, 22, 0.15)',
+};
+
+const thumbImgStyle = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  pointerEvents: 'none',
+};
+
+const thumbFallbackStyle = {
+  color: 'rgba(255,255,255,0.7)',
+  fontSize: '11px',
   fontWeight: '700',
-  padding: '0 4px',
-  userSelect: 'none',
-  fontFamily: 'system-ui, -apple-system, sans-serif',
 };
 
 const infoPanelStyle = {
@@ -964,6 +1077,45 @@ const progressSubtextStyle = {
   color: 'rgba(255,255,255,0.68)',
 };
 
-const btnStyle = {};
+const pillStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  background: 'rgba(255,255,255,0.08)',
+  border: '1px solid rgba(255,255,255,0.15)',
+  borderRadius: '8px',
+  overflow: 'hidden',
+};
+
+const pillBtnStyle = {
+  padding: '6px 8px',
+  background: 'transparent',
+  border: 'none',
+  color: 'rgba(255,255,255,0.85)',
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transition: 'background 0.15s, color 0.15s',
+};
+
+const pillLabelStyle = {
+  color: 'rgba(255,255,255,0.9)',
+  fontSize: '12px',
+  fontWeight: '700',
+  minWidth: '44px',
+  textAlign: 'center',
+  userSelect: 'none',
+  fontFamily: 'system-ui, -apple-system, sans-serif',
+  padding: '0 2px',
+  borderLeft: '1px solid rgba(255,255,255,0.1)',
+  borderRight: '1px solid rgba(255,255,255,0.1)',
+};
+
+const dividerStyle = {
+  width: '1px',
+  height: '20px',
+  backgroundColor: 'rgba(255,255,255,0.15)',
+  margin: '0 2px',
+};
 
 export default ImagePreview;
