@@ -444,9 +444,11 @@ const ImagePreview = () => {
     const onWheel = (e) => {
       if (e.ctrlKey) {
         e.preventDefault();
-        if (e.deltaY < 0) zoomIn();
-        else zoomOut();
+        return;
       }
+      e.preventDefault();
+      if (e.deltaY < 0) zoomIn();
+      else zoomOut();
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
