@@ -3443,7 +3443,170 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (handler->store_) {
         history_origins = handler->store_->GetDistinctOrigins();
       }
-      callback->Success(otf::BuildSiteUsageJson(history_origins));
+      CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
+      if (mgr) {
+        class CookieSizeVisitor : public CefCookieVisitor {
+         public:
+          CookieSizeVisitor(CefRefPtr<Callback> cb,
+                            std::vector<std::string> extra)
+              : callback_(cb), extra_origins_(std::move(extra)) {}
+          bool Visit(const CefCookie& cookie, int count, int total,
+                     bool& delete_cookie) override {
+            delete_cookie = false;
+            std::string domain = CefString(&cookie.domain).ToString();
+            if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
+            if (domain.empty()) return true;
+            std::string origin =
+                cookie.secure ? "https://" + domain : "http://" + domain;
+            // Approximate cookie size: name + value + domain + path + overhead
+            uint64_t size = CefString(&cookie.name).length()
+                          + CefString(&cookie.value).length()
+                          + CefString(&cookie.domain).length()
+                          + CefString(&cookie.path).length() + 50;
+            cookie_sizes_[origin] += size;
+            cookie_counts_[origin] += 1;
+            if (count + 1 >= total) Resolve();
+            return true;
+          }
+          void Resolve() {
+            if (resolved_) return;
+            resolved_ = true;
+            callback_->Success(
+                otf::BuildSiteUsageJson(extra_origins_, cookie_sizes_,
+                                        cookie_counts_));
+          }
+         private:
+          CefRefPtr<Callback> callback_;
+          std::vector<std::string> extra_origins_;
+          std::map<std::string, uint64_t> cookie_sizes_;
+          std::map<std::string, uint64_t> cookie_counts_;
+          bool resolved_ = false;
+          IMPLEMENT_REFCOUNTING(CookieSizeVisitor);
+        };
+        class FallbackTask : public CefTask {
+         public:
+          FallbackTask(CefRefPtr<CookieSizeVisitor> v) : visitor_(v) {}
+          void Execute() override { visitor_->Resolve(); }
+         private:
+          CefRefPtr<CookieSizeVisitor> visitor_;
+          IMPLEMENT_REFCOUNTING(FallbackTask);
+        };
+        CefRefPtr<CookieSizeVisitor> visitor =
+            new CookieSizeVisitor(callback, std::move(history_origins));
+        mgr->VisitAllCookies(visitor);
+        CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 500);
+      } else {
+        callback->Success(otf::BuildSiteUsageJson(history_origins));
+      }
+      return true;
+    }
+
+    if (msg == "get-storage-totals") {
+      callback->Success(otf::BuildStorageTotalsJson());
+      return true;
+    }
+
+    if (msg.rfind("clear-browsing-data:", 0) == 0) {
+      const std::string payload = msg.substr(20);
+      std::vector<std::string> categories;
+      CefRefPtr<CefValue> parsed = CefParseJSON(payload, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+      if (parsed && parsed->GetType() == VTYPE_DICTIONARY) {
+        CefRefPtr<CefDictionaryValue> d = parsed->GetDictionary();
+        if (d->HasKey("categories")) {
+          CefRefPtr<CefListValue> list = d->GetList("categories");
+          if (list) {
+            for (size_t i = 0; i < list->GetSize(); ++i)
+              categories.push_back(list->GetString(i).ToString());
+          }
+        }
+      }
+      auto has = [&](const std::string& cat) {
+        return std::find(categories.begin(), categories.end(), cat) != categories.end();
+      };
+
+      if (has("cookies")) {
+        CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
+        if (mgr) mgr->DeleteCookies("", "", nullptr);
+      }
+      if (has("cache")) {
+        CefRefPtr<CefRequestContext> ctx = CefRequestContext::GetGlobalContext();
+        if (ctx) ctx->ClearHttpCache(nullptr);
+      }
+      if (has("history") && handler->store_) {
+        handler->store_->ClearHistory();
+        // Suppress history re-recording for open tabs so the current page
+        // isn't immediately re-added after clearing.
+        if (handler->tab_manager_) {
+          for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
+            const std::string url = handler->tab_manager_->GetUrl(tab_id);
+            if (IsPersistableWebUrl(url) && !IsInternalUiUrl(url)) {
+              handler->tab_manager_->SetHistorySuppressedUrl(tab_id, url);
+            }
+          }
+        }
+        handler->SendEvent(JsonObjectBuilder()
+                               .AddString("key", "history-changed")
+                               .Build());
+      }
+      if (has("downloads") && handler->store_) {
+        handler->store_->ClearDownloads();
+        // Cancel in-flight downloads and clear runtime state so the
+        // downloads page doesn't show stale entries.
+        for (const auto& entry : handler->download_callbacks_) {
+          if (entry.second) entry.second->Cancel();
+        }
+        handler->downloads_.clear();
+        handler->download_callbacks_.clear();
+        handler->runtime_download_ids_.clear();
+        handler->NotifyDownloadsChanged();
+        handler->NotifyDownloadBadge();
+      }
+      if (has("siteData")) {
+        CefRefPtr<CefRequestContext> ctx = CefRequestContext::GetGlobalContext();
+        if (ctx) {
+          ctx->ClearHttpAuthCredentials(nullptr);
+          ctx->ClearCertificateExceptions(nullptr);
+        }
+        if (handler->store_) {
+          handler->store_->ClearAllSitePermissions();
+        }
+        // Clear actual site storage (IndexedDB, LocalStorage, etc.) by
+        // enumerating origins from cookies and firing per-origin CDP clears.
+        CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
+        if (mgr && browser) {
+          class StorageClearVisitor : public CefCookieVisitor {
+           public:
+            StorageClearVisitor(CefRefPtr<CefBrowser> b)
+                : browser_(b) {}
+            bool Visit(const CefCookie& cookie, int count, int total,
+                       bool& delete_cookie) override {
+              delete_cookie = false;
+              std::string domain = CefString(&cookie.domain).ToString();
+              if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
+              if (domain.empty()) return true;
+              std::string origin =
+                  cookie.secure ? "https://" + domain : "http://" + domain;
+              if (origins_.insert(origin).second) {
+                CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+                params->SetString("origin", origin);
+                params->SetString("storageTypes",
+                    "appcache,file_systems,indexeddb,local_storage,"
+                    "shader_cache,websql,service_workers,cache_storage");
+                browser_->GetHost()->ExecuteDevToolsMethod(
+                    0, "Storage.clearDataForOrigin", params);
+              }
+              return true;
+            }
+           private:
+            CefRefPtr<CefBrowser> browser_;
+            std::set<std::string> origins_;
+            IMPLEMENT_REFCOUNTING(StorageClearVisitor);
+          };
+          mgr->VisitAllCookies(new StorageClearVisitor(browser));
+        }
+      }
+
+      callback->Success("");
       return true;
     }
 
@@ -4196,16 +4359,43 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             "storageTypes",
             "appcache,file_systems,indexeddb,local_storage,"
             "shader_cache,websql,service_workers,cache_storage");
+        class StorageClearObserver : public CefDevToolsMessageObserver {
+         public:
+          StorageClearObserver(CefRefPtr<Callback> cb) : callback_(cb) {}
+          bool OnDevToolsMessage(CefRefPtr<CefBrowser> browser,
+                                 const void* message,
+                                 size_t message_size) override {
+            return false;
+          }
+          void OnDevToolsMethodResult(CefRefPtr<CefBrowser> browser,
+                                      int message_id, bool success,
+                                      const void* result,
+                                      size_t result_size) override {
+            if (!resolved_) {
+              resolved_ = true;
+              if (success) callback_->Success("ok");
+              else callback_->Failure(1, "Storage clear failed");
+            }
+          }
+          void OnDevToolsEvent(CefRefPtr<CefBrowser> browser,
+                               const CefString& method,
+                               const void* params,
+                               size_t params_size) override {}
+         private:
+          CefRefPtr<Callback> callback_;
+          bool resolved_ = false;
+          IMPLEMENT_REFCOUNTING(StorageClearObserver);
+        };
+        CefRefPtr<StorageClearObserver> observer =
+            new StorageClearObserver(callback);
+        ctx_browser->GetHost()->AddDevToolsMessageObserver(observer);
         ctx_browser->GetHost()->ExecuteDevToolsMethod(
             0, "Storage.clearDataForOrigin", params);
+      } else {
+        callback->Success("ok");
       }
-      callback->Success("ok");
       return true;
     } else if (msg.rfind("clear-permissions-for-site:", 0) == 0) {
-      if (handler->guest_session_active_) {
-        callback->Success("ok");
-        return true;
-      }
       const std::string origin = NormalizeOrigin(msg.substr(27));
       if (handler->store_) {
         handler->store_->ClearSitePermissions(origin);

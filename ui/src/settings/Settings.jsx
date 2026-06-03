@@ -760,7 +760,25 @@ const Settings = () => {
                       disabled={!Object.values(clearItems).some(Boolean)}
                       className="px-10 py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl text-base font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-500 cursor-pointer"
                     >
-                      Clear Data
+                      {(() => {
+                        if (!storageTotals) return 'Clear Data';
+                        let total = 0;
+                        if (clearItems.cookies) total += Number(storageTotals.cookies ?? 0);
+                        if (clearItems.cache) {
+                          total += Number(storageTotals.httpCache ?? 0);
+                          total += Number(storageTotals.cacheStorage ?? 0);
+                          total += Number(storageTotals.codeCache ?? 0);
+                        }
+                        if (clearItems.siteData) {
+                          total += Number(storageTotals.indexedDB ?? 0);
+                          total += Number(storageTotals.localStorage ?? 0);
+                          total += Number(storageTotals.sessionStorage ?? 0);
+                          total += Number(storageTotals.fileSystem ?? 0);
+                          total += Number(storageTotals.blobStorage ?? 0);
+                        }
+                        if (total === 0) return 'Clear Data';
+                        return `Clear Data \u00B7 ${humanizeSize(total)}`;
+                      })()}
                     </button>
                   </div>
                 </section>
