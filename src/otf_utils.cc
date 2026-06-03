@@ -86,15 +86,16 @@ std::string BrowserPageHtmlName(const std::string& page_name) {
 
 bool IsTrustedBrowserUiAuthority(const std::string& authority) {
   static const std::set<std::string> kTrustedAuthorities = {
-      "shell",           "appmenu",       "newtab",
-      "settings",        "findbar",       "downloads",
-      "downloadsbar",    "zoombar",       "history",
-      "bookmarks",       "bookmarkbar",   "security",
-      "insecure-blocked", "pdfviewer",     "certificate",
-      "imagepreview",    "docpreview",    "cleardata",
-      "sitedata",        "workspace",     "qr",
-      "linkpreview",     "console",       "blockedpopup",
-      "downloadrequest", "toast",         "snipperview",
+      "shell",            "appmenu",         "newtab",
+      "settings",         "findbar",         "downloads",
+      "downloadsbar",     "zoombar",         "history",
+      "bookmarks",        "bookmarkbar",     "security",
+      "insecure-blocked", "pdfviewer",       "certificate",
+      "imagepreview",     "image-preview",   "docpreview",
+      "doc-preview",      "cleardata",       "sitedata",
+      "workspace",        "qr",              "linkpreview",
+      "console",          "blockedpopup",    "downloadrequest",
+      "toast",            "snipperview",
   };
   return kTrustedAuthorities.count(authority) > 0;
 }
@@ -1300,6 +1301,18 @@ bool IsInternalBrowserUiUrl(const std::string& url) {
   std::string authority;
   if (ExtractBrowserAuthorityIfPageRoot(url, &authority)) {
     return IsTrustedBrowserUiAuthority(authority);
+  }
+  // Delegated routes such as browser://image-preview/download/... carry a
+  // path after the authority and won't match ExtractBrowserAuthorityIfPageRoot
+  // (which rejects URLs containing a '/' in the authority segment). Extract
+  // just the authority and verify it is trusted.
+  if (url.rfind("browser://", 0) == 0) {
+    std::string rest = url.substr(std::strlen("browser://"));
+    const size_t slash = rest.find('/');
+    if (slash != std::string::npos && slash > 0) {
+      authority = rest.substr(0, slash);
+      return IsTrustedBrowserUiAuthority(authority);
+    }
   }
   // Web origins (http/https) match separately via the dev-ui-url gate at the
   // call site — never here. file:// is also never trusted; production UI is
