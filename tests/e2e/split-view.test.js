@@ -140,8 +140,10 @@ function createPageServer(unique) {
       res.end();
       return;
     }
-    const slug = req.url.includes('right') ? 'right' :
-      req.url.includes('third') ? 'third' : 'left';
+    const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
+    const slug = pathname.includes('right') ? 'right' :
+      pathname.includes('third') ? 'third' :
+        pathname.includes('overflow') ? pathname.replace(/^\//, '') : 'left';
     const title = `Split ${slug} ${unique}`;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html>
@@ -155,6 +157,37 @@ function createPageServer(unique) {
         </body>
       </html>`);
   });
+}
+
+function tabStripVisibilityExpression(activeNeedle, splitNeedle) {
+  return `(() => {
+    const viewport = [...document.querySelectorAll('div')]
+      .find((el) => el.querySelector('a[title="New tab"]') && el.scrollWidth > el.clientWidth);
+    if (!viewport) return { ready: false, reason: 'no viewport' };
+    const viewportRect = viewport.getBoundingClientRect();
+    const isVisibleInViewport = (el) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 &&
+        rect.right > viewportRect.left + 4 &&
+        rect.left < viewportRect.right - 40;
+    };
+    const activeNeedle = ${JSON.stringify(activeNeedle)};
+    const splitNeedle = ${JSON.stringify(splitNeedle)};
+    const activeTab = [...document.querySelectorAll('a[href^="tab-context-menu:"]')]
+      .find((el) => (el.textContent || '').includes(activeNeedle));
+    const splitGroup = [...viewport.children]
+      .find((el) => (el.textContent || '').includes(splitNeedle));
+    return {
+      ready: true,
+      scrollLeft: viewport.scrollLeft,
+      maxScrollLeft: Math.max(0, viewport.scrollWidth - viewport.clientWidth),
+      activeVisible: isVisibleInViewport(activeTab),
+      splitVisible: isVisibleInViewport(splitGroup),
+      activeText: activeTab?.textContent || '',
+      splitText: splitGroup?.textContent || '',
+    };
+  })()`;
 }
 
 test('address-bar split creates a backend-owned split with an instructional placeholder',
@@ -314,6 +347,64 @@ test('split state survives ordinary tab switching and address state follows the 
       await waitForActiveAddress(browser.cdp, '/third', 20000);
       state = await getSplitState(browser.cdp);
       assert.equal(state.enabled, true, 'switching back to a normal tab must preserve split state in backend');
+    } finally {
+      await browser.close();
+      await server.close();
+    }
+  });
+
+test('tab strip keeps a later active tab in view instead of snapping back to the split group',
+  { timeout: timeoutMs + 50000 },
+  async () => {
+    const unique = Date.now();
+    const server = await createPageServer(unique);
+    const browser = await launchDevBrowser();
+    try {
+      const leftUrl = `${server.origin}/left?case=${unique}`;
+      const rightUrl = `${server.origin}/right?case=${unique}`;
+      const initial = await createSplitWithPlaceholder(browser, leftUrl);
+      const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
+      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await waitForSplitState(
+        browser.cdp,
+        (item) =>
+          item.enabled === true &&
+          item.leftTabId === initial.leftTabId &&
+          item.rightTabId === rightTabId,
+        20000,
+      );
+
+      const overflowCount = 14;
+      for (let i = 0; i < overflowCount; i += 1) {
+        await openUrlInNewTab(browser.cdp, `${server.origin}/overflow-${i}?case=${unique}`);
+      }
+      const activeNeedle = `Split overflow-${overflowCount - 1} ${unique}`;
+      await waitForActiveAddress(browser.cdp, `/overflow-${overflowCount - 1}`, 20000);
+
+      const visible = await waitFor(
+        browser.cdp,
+        tabStripVisibilityExpression(activeNeedle, `Split left ${unique}`),
+        (metrics) =>
+          metrics.ready === true &&
+          metrics.maxScrollLeft > 0 &&
+          metrics.activeVisible === true &&
+          metrics.splitVisible === false,
+        20000,
+      );
+      assert.ok(visible.scrollLeft > 0, `expected tab strip to remain scrolled right, got ${JSON.stringify(visible)}`);
+
+      await cefQuery(browser.cdp, `switch-tab:${rightTabId}`);
+      await waitForActiveAddress(browser.cdp, '/right', 20000);
+      const splitVisible = await waitFor(
+        browser.cdp,
+        tabStripVisibilityExpression(activeNeedle, `Split left ${unique}`),
+        (metrics) =>
+          metrics.ready === true &&
+          metrics.splitVisible === true &&
+          metrics.activeVisible === false,
+        20000,
+      );
+      assert.ok(splitVisible.splitText.includes(`Split left ${unique}`));
     } finally {
       await browser.close();
       await server.close();

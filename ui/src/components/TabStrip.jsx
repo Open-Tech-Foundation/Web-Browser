@@ -142,28 +142,30 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, onSplit, splitActive = false
   };
 
   useLayoutEffect(() => {
-    const activeTab = displayUnpinnedTabs.find((tab) => tab.active || tab.id === splitLeftId);
+    const activeTab = tabs.find((tab) => tab.active);
     if (!activeTab) {
       measureOverflow();
       return;
     }
 
-    const tabEl = tabRefs.current.get(activeTab.id);
-    if (tabEl) {
+    const activeRefId =
+      splitActive && activeTab.id === splitRightId ? splitLeftId : activeTab.id;
+    const tabEl = tabRefs.current.get(activeRefId);
+    const viewport = viewportRef.current;
+    if (tabEl && viewport?.contains(tabEl)) {
       tabEl.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
     }
     measureOverflow();
 
-    const viewport = viewportRef.current;
     if (viewport) {
       const lastTab = displayUnpinnedTabs[displayUnpinnedTabs.length - 1];
-      if (lastTab && activeTab.id === lastTab.id) {
+      if (lastTab && activeRefId === lastTab.id) {
         const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
         viewport.scrollLeft = maxScrollLeft;
         measureOverflow();
       }
     }
-  }, [tabs, displayUnpinnedTabs, splitLeftId]);
+  }, [tabs, displayUnpinnedTabs, splitActive, splitLeftId, splitRightId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
