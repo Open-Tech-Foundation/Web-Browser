@@ -82,11 +82,26 @@ const getTabIcon = (tab) => {
   );
 };
 
-const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
+const SplitBadge = () => (
+  <svg className="w-3 h-3 shrink-0 text-brand-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-label="Split tab">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M12 4v16" />
+  </svg>
+);
+
+const TabStrip = ({ tabs, onSwitch, onClose, onNew, onSplit, splitActive = false, splitView = {} }) => {
   if (tabs.length === 0) return null;
   const pinnedTabs = useMemo(() => tabs.filter((t) => t.pinned), [tabs]);
   const unpinnedTabs = useMemo(() => tabs.filter((t) => !t.pinned), [tabs]);
   const sortedTabs = useMemo(() => [...pinnedTabs, ...unpinnedTabs], [pinnedTabs, unpinnedTabs]);
+  const splitLeftId = Number(splitView.leftTabId ?? -1);
+  const splitRightId = Number(splitView.rightTabId ?? -1);
+  const splitLeftTab = tabs.find((tab) => tab.id === splitLeftId);
+  const splitRightTab = tabs.find((tab) => tab.id === splitRightId);
+  const displayUnpinnedTabs = useMemo(() => {
+    if (!splitActive || splitLeftId < 0 || splitRightId < 0) return unpinnedTabs;
+    return unpinnedTabs.filter((tab) => tab.id !== splitRightId);
+  }, [splitActive, splitLeftId, splitRightId, unpinnedTabs]);
 
   const viewportRef = useRef(null);
   const tabRefs = useRef(new Map());
@@ -127,7 +142,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
   };
 
   useLayoutEffect(() => {
-    const activeTab = unpinnedTabs.find((tab) => tab.active);
+    const activeTab = displayUnpinnedTabs.find((tab) => tab.active || tab.id === splitLeftId);
     if (!activeTab) {
       measureOverflow();
       return;
@@ -141,14 +156,14 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
 
     const viewport = viewportRef.current;
     if (viewport) {
-      const lastTab = unpinnedTabs[unpinnedTabs.length - 1];
+      const lastTab = displayUnpinnedTabs[displayUnpinnedTabs.length - 1];
       if (lastTab && activeTab.id === lastTab.id) {
         const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
         viewport.scrollLeft = maxScrollLeft;
         measureOverflow();
       }
     }
-  }, [tabs]);
+  }, [tabs, displayUnpinnedTabs, splitLeftId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -179,6 +194,64 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
     viewport.scrollBy({ left: e.deltaY, behavior: 'auto' });
   };
 
+  const renderSplitSegment = (tab, side) => {
+    if (!tab) return null;
+    const isActive = tab.active;
+    return (
+      <button
+        type="button"
+        title={getTabTooltip(tab)}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onSwitch(tab.id);
+        }}
+        className={`
+          flex min-w-0 flex-1 items-center gap-1.5 px-2 h-full transition-all
+          ${side === 'left' ? 'rounded-tl-lg' : 'rounded-tr-lg'}
+          ${isActive ? 'bg-bar-light text-slate-900 dark:bg-bar-dark dark:text-slate-100' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-white/5'}
+        `}
+      >
+        {side === 'left' && <SplitBadge />}
+        {getTabIcon(tab)}
+        <span className="truncate font-medium">{tab.title || tab.url || 'New Tab'}</span>
+      </button>
+    );
+  };
+
+  const renderSplitGroup = (index) => (
+    <div
+      key={`split-${splitLeftId}-${splitRightId}`}
+      ref={(el) => {
+        if (el) {
+          tabRefs.current.set(splitLeftId, el);
+        } else {
+          tabRefs.current.delete(splitLeftId);
+        }
+      }}
+      className="group relative flex h-[29px] min-w-[260px] max-w-[420px] shrink-0 overflow-hidden rounded-t-lg ring-1 ring-inset ring-brand-orange/40 bg-brand-orange/5 dark:bg-brand-orange/10"
+    >
+      <div className="absolute left-0 right-0 top-0 h-0.5 bg-brand-orange" />
+      {renderSplitSegment(splitLeftTab, 'left')}
+      <div className="my-1.5 w-px shrink-0 bg-brand-orange/40" />
+      {renderSplitSegment(splitRightTab, 'right')}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          window.cefQuery({ request: 'close-split' });
+        }}
+        title="Close split view"
+        className="mx-1 my-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-0 transition-all hover:bg-slate-300 group-hover:opacity-100 dark:hover:bg-white/20"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+      {index < sortedTabs.length - 1 && (
+        <div className="absolute right-[-1.5px] top-1.5 bottom-1.5 w-[1px] bg-slate-500/40 dark:bg-white/20 group-hover:opacity-0 transition-opacity" />
+      )}
+    </div>
+  );
+
   const renderTab = (tab, index) => (
     <a
       key={tab.id}
@@ -203,6 +276,12 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
         ${tab.private
           ? 'bg-violet-500/5 dark:bg-violet-500/10 ring-1 ring-inset ring-violet-500/40'
           : ''}
+        ${tab.splitPane
+          ? 'bg-brand-orange/5 dark:bg-brand-orange/10'
+          : ''}
+        ${tab.splitPane
+          ? 'ring-1 ring-inset ring-brand-orange/40'
+          : ''}
         ${tab.active
           ? 'bg-bar-light dark:bg-bar-dark text-slate-900 dark:text-slate-100 shadow-[0_-1px_3px_rgba(0,0,0,0.1)]'
           : 'text-slate-500 hover:bg-white/50 dark:hover:bg-white/5'}
@@ -224,6 +303,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
       ) : (
         <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-2">
           {tab.private && <PrivateBadge />}
+          {tab.splitPane && <SplitBadge />}
           {getTabIcon(tab)}
           {tab.muted && (
             <button
@@ -244,6 +324,15 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
           className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      )}
+      {!tab.pinned && splitActive && onSplit && !tab.splitPane && (
+        <button
+          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onSplit(tab.id); }}
+          title="Open in split view"
+          className={`ml-1 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v16"/><path d="M4 8h6"/><path d="M14 8h6"/></svg>
         </button>
       )}
 
@@ -287,7 +376,11 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew }) => {
 
       {/* Unpinned tabs: scrollable */}
       <div ref={viewportRef} onWheel={handleWheel} className="flex-1 min-w-0 overflow-x-auto no-scrollbar px-1 gap-1 flex items-end flex-nowrap">
-        {unpinnedTabs.map((tab, i) => renderTab(tab, pinnedTabs.length + i))}
+        {displayUnpinnedTabs.map((tab, i) => (
+          splitActive && tab.id === splitLeftId && splitLeftTab && splitRightTab
+            ? renderSplitGroup(pinnedTabs.length + i)
+            : renderTab(tab, pinnedTabs.length + i)
+        ))}
         <a
           href="tab-context-menu:newtab"
           onClick={(e) => {

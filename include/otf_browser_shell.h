@@ -30,6 +30,7 @@ constexpr int kConsoleBrowserViewId = 1012;
 constexpr int kToastNotificationBrowserViewId = 1013;
 constexpr int kDocPreviewBrowserViewId = 1014;
 constexpr int kSnipPreviewBrowserViewId = 1015;
+constexpr int kSplitMenuBrowserViewId = 1016;
 
 struct ConsoleEntry {
   int level;        // cef_log_severity_t value

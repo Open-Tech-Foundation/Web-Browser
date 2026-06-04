@@ -12,6 +12,7 @@
     "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-tests && ctest --output-on-failure",
     "test:js": "bun test ui/src/shared/search.test.js",
     "test:e2e": "bun scripts/run-e2e-suite.js",
+    "test:e2e:split-view": "scripts/run-e2e.sh tests/e2e/split-view.test.js",
     "test:e2e:file": "scripts/run-e2e.sh",
     "test": "bun run test:cpp && bun run test:js",
     "setup": "./setup_deps.sh",

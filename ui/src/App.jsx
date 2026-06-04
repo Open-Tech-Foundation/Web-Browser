@@ -45,6 +45,8 @@ const tabReducer = (state, action) => {
       };
     case 'SET_ACTIVE':
       return { ...state, activeTabId: action.payload };
+    case 'SET_SPLIT_VIEW':
+      return { ...state, splitView: action.payload };
     case 'ADD_TAB': {
       const { tab, parentTabId } = action.payload;
       if (parentTabId !== undefined && parentTabId !== -1) {
@@ -87,6 +89,12 @@ const App = () => {
     activeTabId: null,
     workspaces: [],
     activeWorkspaceId: null,
+    splitView: {
+      enabled: false,
+      leftTabId: -1,
+      rightTabId: -1,
+      activeTabId: -1,
+    },
   });
   const [searchEngine, setSearchEngine] = React.useState('');
   const [customEngines, setCustomEngines] = React.useState([]);
@@ -95,8 +103,6 @@ const App = () => {
   const [blockedPopupOrigin, setBlockedPopupOrigin] = React.useState('');
   const [guestSession, setGuestSession] = React.useState(false);
   const initialized = useRef(false);
-  const stateRef = useRef(state);
-  stateRef.current = state;
   const addressBarRef = useRef(null);
   const [appearanceMode, setAppearanceMode] = React.useState('auto');
 
@@ -168,12 +174,34 @@ const App = () => {
     });
   };
 
+  const refreshSplitState = () => {
+    if (!window.cefQuery) return;
+    window.cefQuery({
+      request: 'get-split-state',
+      onSuccess: (json) => {
+        try {
+          const split = JSON.parse(json);
+          dispatch({
+            type: 'SET_SPLIT_VIEW',
+            payload: {
+              enabled: Boolean(split?.enabled),
+              leftTabId: Number(split?.leftTabId ?? -1),
+              rightTabId: Number(split?.rightTabId ?? -1),
+              activeTabId: Number(split?.activeTabId ?? -1),
+            },
+          });
+        } catch (e) {}
+      },
+    });
+  };
+
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
 
     if (window.cefQuery) {
       refreshWorkspaces();
+      refreshSplitState();
       window.cefQuery({
         request: 'is-guest-session',
         onSuccess: (value) => setGuestSession(value === 'true'),
@@ -227,10 +255,21 @@ const App = () => {
             } else if (event.key === 'workspace-changed') {
               dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: event.id });
               refreshWorkspaceTabs();
+              refreshSplitState();
             } else if (event.key === 'guest-session-changed') {
               setGuestSession(Boolean(event.active));
               refreshWorkspaces();
               refreshWorkspaceTabs();
+            } else if (event.key === 'split-state-changed') {
+              dispatch({
+                type: 'SET_SPLIT_VIEW',
+                payload: {
+                  enabled: Boolean(event.state?.enabled),
+                  leftTabId: Number(event.state?.leftTabId ?? -1),
+                  rightTabId: Number(event.state?.rightTabId ?? -1),
+                  activeTabId: Number(event.state?.activeTabId ?? -1),
+                },
+              });
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
               addressBarRef.current?.blur();
@@ -353,6 +392,19 @@ const App = () => {
     });
   };
 
+  const handleSplitTab = (tabId) => {
+    if (tabId === null || tabId === undefined) return;
+    window.cefQuery({ request: `add-tab-to-split:${tabId}` });
+  };
+
+  const handleToggleSplit = () => {
+    if (state.splitView?.enabled) {
+      window.cefQuery({ request: 'show-popup:splitmenu' });
+      return;
+    }
+    window.cefQuery({ request: 'split-current' });
+  };
+
   const handleCloseTab = (id) => {
     window.cefQuery({ request: `close-tab:${id}` });
   };
@@ -417,6 +469,17 @@ const App = () => {
     });
   };
 
+  const splitState = state.splitView || {};
+  const splitTabIds = new Set(
+    [splitState.leftTabId, splitState.rightTabId].filter((id) => Number.isInteger(id) && id >= 0)
+  );
+  const tabsForStrip = state.tabs.map((tab) => ({
+    ...tab,
+    active: tab.id === state.activeTabId,
+    splitPane: splitTabIds.has(tab.id)
+      ? (tab.id === splitState.activeTabId ? 'active' : 'paired')
+      : null,
+  }));
   const currentActiveTab = state.tabs.find(t => t.id === state.activeTabId);
   const downloadButtonClass = downloadBadge > 0 ? 'animate-download-pulse text-brand-orange' : '';
 
@@ -450,10 +513,13 @@ const App = () => {
         )}
         <div className="flex-1 min-w-0">
           <TabStrip
-            tabs={state.tabs.map(t => ({ ...t, active: t.id === state.activeTabId }))}
+            tabs={tabsForStrip}
             onSwitch={handleSwitchTab}
             onClose={handleCloseTab}
             onNew={handleNewTab}
+            onSplit={handleSplitTab}
+            splitActive={Boolean(splitState.enabled)}
+            splitView={splitState}
           />
         </div>
       </div>
@@ -497,6 +563,12 @@ const App = () => {
             memoryBytes={currentActiveTab?.memoryBytes ?? -1}
           />
           <div className="flex items-center ml-2 gap-1">
+            <NavButton
+              onClick={handleToggleSplit}
+              title={splitState.enabled ? 'Split view options' : 'Split current tab'}
+              className={splitState.enabled ? 'text-brand-orange' : ''}
+              icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><path d="M8 8h2"/><path d="M14 8h2"/></svg>}
+            />
             <NavButton
               onClick={() => window.cefQuery({ request: 'toggle-zoombar' })}
               title="Zoom"

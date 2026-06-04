@@ -527,12 +527,55 @@ bool OtfStore::ClearHistory(int workspace_id) {
   return ok;
 }
 
+bool OtfStore::ClearHistorySince(int64_t since_epoch, int workspace_id) {
+  if (!db_) return false;
+  // Delete visits within the time range
+  std::string visit_sql = "DELETE FROM visits WHERE visited_at >= ?";
+  std::string hist_sql;
+  if (workspace_id > 0) {
+    visit_sql += " AND history_id IN (SELECT id FROM history WHERE workspace_id = "
+                 + std::to_string(workspace_id) + ")";
+    hist_sql = "DELETE FROM history WHERE last_visit_at >= ? AND workspace_id = "
+               + std::to_string(workspace_id)
+               + " AND id NOT IN (SELECT DISTINCT history_id FROM visits)";
+  } else {
+    hist_sql = "DELETE FROM history WHERE last_visit_at >= ?"
+               " AND id NOT IN (SELECT DISTINCT history_id FROM visits)";
+  }
+  sqlite3_stmt* vstmt = nullptr;
+  if (sqlite3_prepare_v2(db_, visit_sql.c_str(), -1, &vstmt, nullptr) != SQLITE_OK)
+    return false;
+  sqlite3_bind_int64(vstmt, 1, since_epoch);
+  sqlite3_step(vstmt);
+  sqlite3_finalize(vstmt);
+  sqlite3_stmt* hstmt = nullptr;
+  if (sqlite3_prepare_v2(db_, hist_sql.c_str(), -1, &hstmt, nullptr) != SQLITE_OK)
+    return false;
+  sqlite3_bind_int64(hstmt, 1, since_epoch);
+  sqlite3_step(hstmt);
+  sqlite3_finalize(hstmt);
+  return true;
+}
+
 bool OtfStore::ClearBookmarks() {
   return Exec("DELETE FROM bookmarks;");
 }
 
 bool OtfStore::ClearDownloads() {
   return Exec("DELETE FROM downloads;");
+}
+
+bool OtfStore::ClearDownloadsSince(int64_t since_epoch) {
+  if (!db_) return false;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "DELETE FROM downloads WHERE started_at >= ?;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_int64(stmt, 1, since_epoch);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
 }
 
 int OtfStore::CreateDownload(const std::string& url,
@@ -1136,6 +1179,45 @@ int OtfStore::GetActiveWorkspace() const {
   }
   sqlite3_finalize(stmt);
   return id;
+}
+
+bool OtfStore::SetWorkspaceStateValue(int workspace_id,
+                                     const std::string& key,
+                                     const std::string& value) {
+  if (!db_ || workspace_id <= 0 || key.empty()) return false;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(
+          db_,
+          "INSERT INTO workspace_state(key, value) VALUES(?, ?) "
+          "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+          -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  const std::string storage_key = "ws:" + std::to_string(workspace_id) + ":" + key;
+  sqlite3_bind_text(stmt, 1, storage_key.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+std::string OtfStore::GetWorkspaceStateValue(int workspace_id,
+                                             const std::string& key) const {
+  if (!db_ || workspace_id <= 0 || key.empty()) return "";
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, "SELECT value FROM workspace_state WHERE key = ?;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return "";
+  }
+  const std::string storage_key = "ws:" + std::to_string(workspace_id) + ":" + key;
+  sqlite3_bind_text(stmt, 1, storage_key.c_str(), -1, SQLITE_TRANSIENT);
+  std::string value;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char* v = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    if (v) value = v;
+  }
+  sqlite3_finalize(stmt);
+  return value;
 }
 
 bool OtfStore::ReplaceWorkspaceTabs(int workspace_id, const std::vector<WorkspaceTab>& tabs) {

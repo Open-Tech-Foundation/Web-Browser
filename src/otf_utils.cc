@@ -87,6 +87,7 @@ std::string BrowserPageHtmlName(const std::string& page_name) {
 bool IsTrustedBrowserUiAuthority(const std::string& authority) {
   static const std::set<std::string> kTrustedAuthorities = {
       "shell",            "appmenu",         "newtab",
+      "split-placeholder", "splitplaceholder", "splitmenu",
       "settings",         "findbar",         "downloads",
       "downloadsbar",     "zoombar",         "history",
       "bookmarks",        "bookmarkbar",     "security",
@@ -1269,6 +1270,7 @@ namespace {
 // sync with ui/vite.config.js rollupOptions.input.
 const char* const kInternalUiPages[] = {
     "/index.html",         "/appmenu.html",        "/newtab.html",
+    "/splitplaceholder.html", "/splitmenu.html",
     "/settings.html",      "/findbar.html",        "/downloads.html",
     "/downloadsbar.html",  "/zoombar.html",        "/history.html",
     "/bookmarks.html",     "/bookmarkbar.html",    "/security.html",

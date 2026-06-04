@@ -409,6 +409,7 @@ bool IsSafeUiRelativePath(const std::string& path) {
 bool IsKnownUiPageAuthority(const std::string& authority) {
   static const std::set<std::string> kKnownAuthorities = {
       "shell",           "appmenu",       "newtab",
+      "split-placeholder", "splitplaceholder", "splitmenu",
       "settings",        "findbar",       "downloads",
       "downloadsbar",    "zoombar",       "history",
       "bookmarks",       "bookmarkbar",   "security",
@@ -587,6 +588,8 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
         target = dev_ui_url + "/" + path;
       } else if (is_doc_preview_route) {
         target = dev_ui_url + "/docpreview.html";
+      } else if (authority == "split-placeholder" && path.empty()) {
+        target = dev_ui_url + "/splitplaceholder.html";
       } else if (path.empty()) {
         const std::string page = (authority == "shell") ? "index" : authority;
         target = dev_ui_url + "/" + page + ".html";
@@ -621,6 +624,8 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
       disk_path = ui_dir + "/" + path;
     } else if (is_doc_preview_route) {
       disk_path = ui_dir + "/docpreview.html";
+    } else if (authority == "split-placeholder" && path.empty()) {
+      disk_path = ui_dir + "/splitplaceholder.html";
     } else if (path.empty()) {
       if (!is_known_ui_page_authority) return MakeNotFound();
       const std::string page = (authority == "shell") ? "index" : authority;
@@ -876,6 +881,200 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
   return tab_id;
 }
 
+bool OtfApp::IsTabInSplitView(int tab_id) const {
+  return split_view_active_ &&
+         (tab_id == split_left_tab_id_ || tab_id == split_right_tab_id_);
+}
+
+void OtfApp::DetachContentView(CefRefPtr<CefBrowserView> view) {
+  if (!view) return;
+  CefRefPtr<CefView> parent = view->GetParentView();
+  if (!parent) return;
+  if (content_panel_ && parent.get() == content_panel_.get()) {
+    content_panel_->RemoveChildView(view);
+  } else if (split_left_panel_ && parent.get() == split_left_panel_.get()) {
+    split_left_panel_->RemoveChildView(view);
+  } else if (split_right_panel_ && parent.get() == split_right_panel_.get()) {
+    split_right_panel_->RemoveChildView(view);
+  }
+}
+
+void OtfApp::AttachContentViewToMain(CefRefPtr<CefBrowserView> view) {
+  if (!view || !content_panel_) return;
+  DetachContentView(view);
+  content_panel_->AddChildView(view);
+}
+
+void OtfApp::DestroySplitContainer() {
+  if (content_panel_ && split_panel_) {
+    content_panel_->RemoveChildView(split_panel_);
+  }
+  split_layout_ = nullptr;
+  split_left_panel_ = nullptr;
+  split_right_panel_ = nullptr;
+  split_panel_ = nullptr;
+}
+
+void OtfApp::ApplySplitViewState(int left_tab_id,
+                                 int right_tab_id,
+                                 int active_tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+  if (left_tab_id < 0 || right_tab_id < 0 || left_tab_id == right_tab_id) {
+    ClearSplitView();
+    return;
+  }
+
+  CefRefPtr<CefBrowserView> left_view = tab_manager_.GetView(left_tab_id);
+  CefRefPtr<CefBrowserView> right_view = tab_manager_.GetView(right_tab_id);
+  if (!left_view || !right_view || !content_panel_) {
+    ClearSplitView();
+    return;
+  }
+
+  if (split_panel_) {
+    CefRefPtr<CefBrowserView> old_left = tab_manager_.GetView(split_left_tab_id_);
+    CefRefPtr<CefBrowserView> old_right = tab_manager_.GetView(split_right_tab_id_);
+    if (old_left) {
+      AttachContentViewToMain(old_left);
+      old_left->SetVisible(false);
+    }
+    if (old_right && old_right != old_left) {
+      AttachContentViewToMain(old_right);
+      old_right->SetVisible(false);
+    }
+    DestroySplitContainer();
+  }
+
+  split_panel_ = CefPanel::CreatePanel(nullptr);
+  CefBoxLayoutSettings split_settings;
+  split_settings.horizontal = true;
+  split_settings.between_child_spacing = 1;
+  split_settings.cross_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH;
+  split_layout_ = split_panel_->SetToBoxLayout(split_settings);
+
+  split_left_panel_ = CefPanel::CreatePanel(nullptr);
+  split_left_panel_->SetToFillLayout();
+  split_right_panel_ = CefPanel::CreatePanel(nullptr);
+  split_right_panel_->SetToFillLayout();
+
+  split_panel_->AddChildView(split_left_panel_);
+  split_panel_->AddChildView(split_right_panel_);
+  if (split_layout_) {
+    split_layout_->SetFlexForView(split_left_panel_.get(), 1);
+    split_layout_->SetFlexForView(split_right_panel_.get(), 1);
+  }
+  content_panel_->AddChildView(split_panel_);
+
+  split_view_active_ = true;
+  split_left_tab_id_ = left_tab_id;
+  split_right_tab_id_ = right_tab_id;
+  current_tab_id_ =
+      (active_tab_id == right_tab_id) ? right_tab_id : left_tab_id;
+
+  for (int tab_id : tab_manager_.GetAllTabIds()) {
+    CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
+    if (!view) continue;
+    if (tab_id != left_tab_id && tab_id != right_tab_id) {
+      view->SetVisible(false);
+    }
+  }
+
+  DetachContentView(left_view);
+  DetachContentView(right_view);
+  split_left_panel_->AddChildView(left_view);
+  split_right_panel_->AddChildView(right_view);
+  left_view->SetVisible(true);
+  right_view->SetVisible(true);
+  split_panel_->SetVisible(true);
+
+  if (window_ && content_panel_) {
+    content_panel_->InvalidateLayout();
+    window_->Layout();
+  }
+
+  CefRefPtr<CefBrowserView> active_view = tab_manager_.GetView(current_tab_id_);
+  if (active_view) {
+    active_view->RequestFocus();
+  }
+  UpdateWindowTitle(current_tab_id_);
+}
+
+void OtfApp::OpenSplitView(int left_tab_id, int right_tab_id, int active_tab_id) {
+  ApplySplitViewState(left_tab_id, right_tab_id, active_tab_id);
+}
+
+bool OtfApp::ActivateSplitPane(int tab_id, bool notify_even_if_current) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!split_view_active_ || !IsTabInSplitView(tab_id)) {
+    return false;
+  }
+  if (current_tab_id_ == tab_id && !notify_even_if_current) {
+    return true;
+  }
+
+  current_tab_id_ = tab_id;
+  UpdateWindowTitle(tab_id);
+
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (handler) {
+    handler->SendEvent(JsonObjectBuilder()
+                           .AddString("key", "active-tab-changed")
+                           .AddInt("id", tab_id)
+                           .Build());
+    handler->NotifyBookmarkStateForTab(tab_id);
+    if (handler->console_subscription_) {
+      handler->console_subscription_->Success(
+          JsonObjectBuilder()
+              .AddString("key", "console-tab-changed")
+              .AddInt("tabId", tab_id)
+              .Build());
+    }
+  }
+  return true;
+}
+
+void OtfApp::ClearSplitView() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!split_view_active_) {
+    return;
+  }
+
+  split_view_active_ = false;
+  split_left_tab_id_ = -1;
+  split_right_tab_id_ = -1;
+
+  int focus_tab_id = current_tab_id_;
+  if (focus_tab_id < 0) {
+    const auto all_ids = tab_manager_.GetAllTabIds();
+    if (!all_ids.empty()) {
+      focus_tab_id = all_ids.front();
+      current_tab_id_ = focus_tab_id;
+    }
+  }
+
+  for (int tab_id : tab_manager_.GetAllTabIds()) {
+    CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
+    if (!view) continue;
+    if (view->GetParentView() != content_panel_) {
+      AttachContentViewToMain(view);
+    }
+    const bool should_show = (tab_id == focus_tab_id);
+    view->SetVisible(should_show);
+  }
+  DestroySplitContainer();
+
+  if (window_ && content_panel_) {
+    content_panel_->InvalidateLayout();
+    window_->Layout();
+  }
+
+  CefRefPtr<CefBrowserView> active_view = tab_manager_.GetView(current_tab_id_);
+  if (active_view) {
+    active_view->RequestFocus();
+  }
+  UpdateWindowTitle(current_tab_id_);
+}
+
 void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab) {
   CEF_REQUIRE_UI_THREAD();
   OtfHandler* handler = OtfHandler::GetInstance();
@@ -914,9 +1113,9 @@ void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab)
 
 void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
-  
+
   if (current_tab_id_ == tab_id) return;
-  
+
   // Clear any active find on the old tab so highlights don't linger
   if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
     CefRefPtr<CefBrowser> old_browser = tab_manager_.GetBrowser(current_tab_id_);
@@ -927,16 +1126,35 @@ void OtfApp::SwitchTab(int tab_id) {
   CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
 
   if (new_view && window_ && content_panel_) {
-    if (!new_view->GetParentView()) {
-      content_panel_->AddChildView(new_view);
+    if (split_view_active_ && IsTabInSplitView(tab_id)) {
+      CefRefPtr<CefBrowserView> left_view = tab_manager_.GetView(split_left_tab_id_);
+      CefRefPtr<CefBrowserView> right_view = tab_manager_.GetView(split_right_tab_id_);
+      if (old_view && !IsTabInSplitView(current_tab_id_)) {
+        old_view->SetVisible(false);
+      }
+      if (split_panel_) split_panel_->SetVisible(true);
+      if (left_view) left_view->SetVisible(true);
+      if (right_view) right_view->SetVisible(true);
+      current_tab_id_ = tab_id;
+    } else {
+      if (split_view_active_) {
+        if (split_panel_) split_panel_->SetVisible(false);
+        if (old_view && !IsTabInSplitView(current_tab_id_)) {
+          old_view->SetVisible(false);
+        }
+      } else if (old_view) {
+        old_view->SetVisible(false);
+      }
+      if (new_view->GetParentView() != content_panel_) {
+        AttachContentViewToMain(new_view);
+      }
+      new_view->SetVisible(true);
+      current_tab_id_ = tab_id;
     }
-    if (old_view) old_view->SetVisible(false);
-    new_view->SetVisible(true);
+
     new_view->RequestFocus();
     content_panel_->InvalidateLayout();
     window_->Layout();
-    current_tab_id_ = tab_id;
-
     UpdateWindowTitle(tab_id);
 
     OtfHandler* handler = OtfHandler::GetInstance();
@@ -1202,13 +1420,38 @@ int OtfApp::CloseTab(int tab_id) {
   const int ws_id = tab_manager_.GetWorkspaceId(tab_id);
   const std::vector<int> ws_tab_ids = tab_manager_.GetTabIdsForWorkspace(ws_id);
   int next_active_tab_id = -1;
+  const bool closing_split_tab =
+      split_view_active_ &&
+      (tab_id == split_left_tab_id_ || tab_id == split_right_tab_id_);
+  const int surviving_split_tab_id =
+      tab_id == split_left_tab_id_ ? split_right_tab_id_
+                                   : (tab_id == split_right_tab_id_
+                                          ? split_left_tab_id_
+                                          : -1);
   if (tab_id == current_tab_id_) {
-    next_active_tab_id = SelectNextActiveTabId(ws_tab_ids, tab_id);
+    next_active_tab_id = closing_split_tab && surviving_split_tab_id >= 0
+                             ? surviving_split_tab_id
+                             : SelectNextActiveTabId(ws_tab_ids, tab_id);
   }
 
   CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
-  if (view && content_panel_) {
-    content_panel_->RemoveChildView(view);
+  if (closing_split_tab) {
+    const int keep_tab_id =
+        tab_id == current_tab_id_ ? surviving_split_tab_id : current_tab_id_;
+    CefRefPtr<CefBrowserView> keep_view = tab_manager_.GetView(keep_tab_id);
+    if (view) {
+      DetachContentView(view);
+    }
+    if (keep_view && keep_view != view) {
+      AttachContentViewToMain(keep_view);
+      keep_view->SetVisible(true);
+    }
+    DestroySplitContainer();
+    split_view_active_ = false;
+    split_left_tab_id_ = -1;
+    split_right_tab_id_ = -1;
+  } else if (view && content_panel_) {
+    DetachContentView(view);
     content_panel_->Layout();
   }
   tab_manager_.RemoveTab(tab_id);
@@ -1738,7 +1981,10 @@ void OtfApp::OpenPendingStartupTabs() {
 
     // Guard is no longer needed — background tabs are now in the live list
     // so the next PersistWorkspaceTabs call will capture the correct state.
-    if (h) h->startup_session_guard_ = false;
+    if (h) {
+      h->startup_session_guard_ = false;
+      h->ApplySplitViewState(h->active_workspace_id_);
+    }
     return;
   }
   // "newtab" with no saved tabs: clear guard so normal persistence resumes.
@@ -2135,6 +2381,9 @@ void OtfApp::OnContextInitialized() {
   popups_["downloadrequest"] = std::make_unique<PopupOverlay>(
       "downloadrequest", kDownloadRequestBrowserViewId, /*width=*/400, /*height=*/240,
       /*top_margin=*/66, /*right_margin=*/18);
+  popups_["splitmenu"] = std::make_unique<PopupOverlay>(
+      "splitmenu", kSplitMenuBrowserViewId, /*width=*/220, /*height=*/190,
+      /*top_margin=*/66, /*right_margin=*/128);
 
   LOG(INFO) << "[otf] ctx 3: " << popups_.size() << " popups registered";
 

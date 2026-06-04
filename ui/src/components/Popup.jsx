@@ -6,7 +6,7 @@ import React, { useEffect } from 'react';
 //   • Close button → hide-popup:<name>
 //   • Standardized container + header so popups look consistent
 // Body content is whatever the caller passes as children.
-const Popup = ({ name, title, children, className = '' }) => {
+const Popup = ({ name, title, children, className = '', closeOnBlur = false }) => {
   // Esc closes. (Window blur as a hide trigger was tried but fires
   // during the focus handoff right after Show, which causes the popup
   // to close before it paints. Click-outside-to-hide is a separate
@@ -18,6 +18,18 @@ const Popup = ({ name, title, children, className = '' }) => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [name]);
+
+  useEffect(() => {
+    if (!closeOnBlur) return undefined;
+    const hide = () => window.cefQuery?.({ request: `hide-popup:${name}` });
+    const onBlur = () => {
+      window.setTimeout(() => {
+        if (!document.hasFocus()) hide();
+      }, 120);
+    };
+    window.addEventListener('blur', onBlur);
+    return () => window.removeEventListener('blur', onBlur);
+  }, [closeOnBlur, name]);
 
   const close = () => window.cefQuery?.({ request: `hide-popup:${name}` });
 

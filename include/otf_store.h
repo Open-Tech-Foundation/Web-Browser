@@ -89,6 +89,7 @@ class OtfStore {
   std::vector<std::string> GetDistinctOrigins(int workspace_id = 0) const;
   bool DeleteHistoryItem(int id);
   bool ClearHistory(int workspace_id = 0);
+  bool ClearHistorySince(int64_t since_epoch, int workspace_id = 0);
   bool ClearBookmarks();
 
   int CreateDownload(const std::string& url,
@@ -100,6 +101,7 @@ class OtfStore {
   bool UpdateDownload(const PersistedDownload& download);
   std::vector<PersistedDownload> GetDownloads(int limit = 200) const;
   bool ClearDownloads();
+  bool ClearDownloadsSince(int64_t since_epoch);
   bool DeleteFinishedDownloads();
 
   bool AddBookmark(const std::string& url, const std::string& title, const std::string& favicon_url = "");
@@ -120,6 +122,11 @@ class OtfStore {
   bool DeleteWorkspace(int id);
   bool SetActiveWorkspace(int id);
   int GetActiveWorkspace() const;
+  bool SetWorkspaceStateValue(int workspace_id,
+                              const std::string& key,
+                              const std::string& value);
+  std::string GetWorkspaceStateValue(int workspace_id,
+                                     const std::string& key) const;
 
   bool ReplaceWorkspaceTabs(int workspace_id, const std::vector<WorkspaceTab>& tabs);
   std::vector<WorkspaceTab> GetWorkspaceTabs(int workspace_id) const;

@@ -185,6 +185,7 @@ const int MENU_ID_TAB_PIN = 10011;
 const int MENU_ID_TAB_UNPIN = 10012;
 const int MENU_ID_PREVIEW_DOC = 10013;
 const int MENU_ID_PASTE_GO = 10014;
+const int MENU_ID_TAB_ADD_TO_SPLIT = 10015;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -275,13 +276,21 @@ bool IsNonTabBrowserViewId(int view_id) {
          view_id == kFindBarBrowserViewId ||
          view_id == kZoomBarBrowserViewId ||
          view_id == kDownloadsBrowserViewId ||
+         view_id == kAppMenuBrowserViewId ||
          view_id == kCertificateBrowserViewId ||
+         view_id == kBookmarkBrowserViewId ||
          view_id == kImagePreviewBrowserViewId ||
+         view_id == kDocPreviewBrowserViewId ||
+         view_id == kClearSiteDataBrowserViewId ||
+         view_id == kWorkspaceBrowserViewId ||
           view_id == kQrBrowserViewId ||
+          view_id == kBlockedPopupBrowserViewId ||
+          view_id == kDownloadRequestBrowserViewId ||
           view_id == kLinkPreviewBrowserViewId ||
            view_id == kToastNotificationBrowserViewId ||
            view_id == kConsoleBrowserViewId ||
-           view_id == kSnipPreviewBrowserViewId;
+           view_id == kSnipPreviewBrowserViewId ||
+           view_id == kSplitMenuBrowserViewId;
 }
 
 int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
@@ -585,6 +594,15 @@ bool IsDangerousSchemeUrl(const std::string& url) {
     if (url.rfind(s, 0) == 0) return true;
   }
   return false;
+}
+
+bool IsSplitPlaceholderTab(TabManager* tab_manager, int tab_id) {
+  if (!tab_manager || tab_id < 0) return false;
+  const std::string scheme_url = tab_manager->GetSchemeUrl(tab_id);
+  const std::string url = tab_manager->GetUrl(tab_id);
+  return scheme_url == "browser://split-placeholder" ||
+         url == "browser://split-placeholder" ||
+         url.find("/splitplaceholder.html") != std::string::npos;
 }
 
 bool IsLocalhostOrIpv4(const std::string& value) {
@@ -2833,6 +2851,11 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
+    if (msg == "get-split-state") {
+      callback->Success(handler->BuildSplitViewStateJson(handler->active_workspace_id_));
+      return true;
+    }
+
     if (msg == "get-workspaces") {
       if (!handler->store_) { callback->Success("[]"); return true; }
       if (handler->guest_session_active_) {
@@ -3063,6 +3086,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
 
+      handler->ApplySplitViewState(target);
       handler->PersistWorkspaceTabs(target);
       handler->SendEvent(JsonObjectBuilder()
                              .AddString("key", "workspace-changed")
@@ -3509,6 +3533,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     if (msg.rfind("clear-browsing-data:", 0) == 0) {
       const std::string payload = msg.substr(20);
       std::vector<std::string> categories;
+      std::string time_range = "all";
+      std::vector<std::string> filtered_origins;
       CefRefPtr<CefValue> parsed = CefParseJSON(payload, JSON_PARSER_ALLOW_TRAILING_COMMAS);
       if (parsed && parsed->GetType() == VTYPE_DICTIONARY) {
         CefRefPtr<CefDictionaryValue> d = parsed->GetDictionary();
@@ -3519,23 +3545,85 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
               categories.push_back(list->GetString(i).ToString());
           }
         }
+        if (d->HasKey("timeRange")) {
+          time_range = d->GetString("timeRange").ToString();
+        }
+        if (d->HasKey("origins")) {
+          CefRefPtr<CefListValue> olist = d->GetList("origins");
+          if (olist) {
+            for (size_t i = 0; i < olist->GetSize(); ++i)
+              filtered_origins.push_back(olist->GetString(i).ToString());
+          }
+        }
       }
       auto has = [&](const std::string& cat) {
         return std::find(categories.begin(), categories.end(), cat) != categories.end();
       };
 
+      // Compute cutoff timestamp (seconds since epoch) for time-filtered clears.
+      int64_t cutoff = 0;
+      if (time_range != "all") {
+        const int64_t now = std::time(nullptr);
+        if (time_range == "hour") cutoff = now - 3600;
+        else if (time_range == "day") cutoff = now - 86400;
+        else if (time_range == "week") cutoff = now - 604800;
+        else if (time_range == "month") cutoff = now - 2592000;
+      }
+
       if (has("cookies")) {
-        CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
-        if (mgr) mgr->DeleteCookies("", "", nullptr);
+        CefRefPtr<CefRequestContext> req_ctx = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+        CefRefPtr<CefCookieManager> mgr = req_ctx ? req_ctx->GetCookieManager(nullptr) : nullptr;
+        if (mgr) {
+          if (!filtered_origins.empty()) {
+            std::set<std::string> origin_set(filtered_origins.begin(), filtered_origins.end());
+            class OriginCookieDeleter : public CefCookieVisitor {
+             public:
+              OriginCookieDeleter(const std::set<std::string>& origins, CefRefPtr<CefCookieManager> mgr)
+                  : origins_(origins), mgr_(mgr) {}
+              bool Visit(const CefCookie& cookie, int count, int total, bool& delete_cookie) override {
+                std::string domain = CefString(&cookie.domain).ToString();
+                if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
+                std::string scheme = cookie.secure ? "https://" : "http://";
+                std::string origin = scheme + domain;
+                if (origins_.count(origin)) {
+                  delete_cookie = true;
+                } else {
+                  delete_cookie = false;
+                }
+                return true;
+              }
+             private:
+              const std::set<std::string>& origins_;
+              CefRefPtr<CefCookieManager> mgr_;
+              IMPLEMENT_REFCOUNTING(OriginCookieDeleter);
+            };
+            mgr->VisitAllCookies(new OriginCookieDeleter(origin_set, mgr));
+          } else {
+            mgr->DeleteCookies("", "", nullptr);
+          }
+        }
       }
       if (has("cache")) {
-        CefRefPtr<CefRequestContext> ctx = CefRequestContext::GetGlobalContext();
-        if (ctx) ctx->ClearHttpCache(nullptr);
+        CefRefPtr<CefRequestContext> req_ctx = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+        if (req_ctx) {
+          if (!filtered_origins.empty()) {
+            for (const auto& origin : filtered_origins) {
+              CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+              params->SetString("origin", origin);
+              params->SetString("storageTypes", "cache_storage");
+              browser->GetHost()->ExecuteDevToolsMethod(0, "Storage.clearDataForOrigin", params);
+            }
+          } else {
+            req_ctx->ClearHttpCache(nullptr);
+          }
+        }
       }
       if (has("history") && handler->store_) {
-        handler->store_->ClearHistory();
-        // Suppress history re-recording for open tabs so the current page
-        // isn't immediately re-added after clearing.
+        if (cutoff > 0) {
+          handler->store_->ClearHistorySince(cutoff);
+        } else {
+          handler->store_->ClearHistory();
+        }
         if (handler->tab_manager_) {
           for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
             const std::string url = handler->tab_manager_->GetUrl(tab_id);
@@ -3549,60 +3637,73 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                                .Build());
       }
       if (has("downloads") && handler->store_) {
-        handler->store_->ClearDownloads();
-        // Cancel in-flight downloads and clear runtime state so the
-        // downloads page doesn't show stale entries.
-        for (const auto& entry : handler->download_callbacks_) {
-          if (entry.second) entry.second->Cancel();
+        if (cutoff > 0) {
+          handler->store_->ClearDownloadsSince(cutoff);
+        } else {
+          handler->store_->ClearDownloads();
+          for (const auto& entry : handler->download_callbacks_) {
+            if (entry.second) entry.second->Cancel();
+          }
+          handler->downloads_.clear();
+          handler->download_callbacks_.clear();
+          handler->runtime_download_ids_.clear();
         }
-        handler->downloads_.clear();
-        handler->download_callbacks_.clear();
-        handler->runtime_download_ids_.clear();
         handler->NotifyDownloadsChanged();
         handler->NotifyDownloadBadge();
       }
       if (has("siteData")) {
-        CefRefPtr<CefRequestContext> ctx = CefRequestContext::GetGlobalContext();
-        if (ctx) {
-          ctx->ClearHttpAuthCredentials(nullptr);
-          ctx->ClearCertificateExceptions(nullptr);
+        CefRefPtr<CefRequestContext> req_ctx_ssl = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+        if (req_ctx_ssl) {
+          req_ctx_ssl->ClearHttpAuthCredentials(nullptr);
+          req_ctx_ssl->ClearCertificateExceptions(nullptr);
         }
         if (handler->store_) {
           handler->store_->ClearAllSitePermissions();
         }
-        // Clear actual site storage (IndexedDB, LocalStorage, etc.) by
-        // enumerating origins from cookies and firing per-origin CDP clears.
-        CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
+        CefRefPtr<CefRequestContext> req_ctx = browser ? browser->GetHost()->GetRequestContext() : nullptr;
+        CefRefPtr<CefCookieManager> mgr = req_ctx ? req_ctx->GetCookieManager(nullptr) : nullptr;
         if (mgr && browser) {
-          class StorageClearVisitor : public CefCookieVisitor {
-           public:
-            StorageClearVisitor(CefRefPtr<CefBrowser> b)
-                : browser_(b) {}
-            bool Visit(const CefCookie& cookie, int count, int total,
-                       bool& delete_cookie) override {
-              delete_cookie = false;
-              std::string domain = CefString(&cookie.domain).ToString();
-              if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
-              if (domain.empty()) return true;
-              std::string origin =
-                  cookie.secure ? "https://" + domain : "http://" + domain;
-              if (origins_.insert(origin).second) {
-                CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
-                params->SetString("origin", origin);
-                params->SetString("storageTypes",
-                    "appcache,file_systems,indexeddb,local_storage,"
-                    "shader_cache,websql,service_workers,cache_storage");
-                browser_->GetHost()->ExecuteDevToolsMethod(
-                    0, "Storage.clearDataForOrigin", params);
-              }
-              return true;
+          if (!filtered_origins.empty()) {
+            for (const auto& origin : filtered_origins) {
+              CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+              params->SetString("origin", origin);
+              params->SetString("storageTypes",
+                  "appcache,file_systems,indexeddb,local_storage,"
+                  "shader_cache,websql,service_workers,cache_storage");
+              browser->GetHost()->ExecuteDevToolsMethod(
+                  0, "Storage.clearDataForOrigin", params);
             }
-           private:
-            CefRefPtr<CefBrowser> browser_;
-            std::set<std::string> origins_;
-            IMPLEMENT_REFCOUNTING(StorageClearVisitor);
-          };
-          mgr->VisitAllCookies(new StorageClearVisitor(browser));
+          } else {
+            class StorageClearVisitor : public CefCookieVisitor {
+             public:
+              StorageClearVisitor(CefRefPtr<CefBrowser> b)
+                  : browser_(b) {}
+              bool Visit(const CefCookie& cookie, int count, int total,
+                         bool& delete_cookie) override {
+                delete_cookie = false;
+                std::string domain = CefString(&cookie.domain).ToString();
+                if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
+                if (domain.empty()) return true;
+                std::string origin =
+                    cookie.secure ? "https://" + domain : "http://" + domain;
+                if (origins_.insert(origin).second) {
+                  CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+                  params->SetString("origin", origin);
+                  params->SetString("storageTypes",
+                      "appcache,file_systems,indexeddb,local_storage,"
+                      "shader_cache,websql,service_workers,cache_storage");
+                  browser_->GetHost()->ExecuteDevToolsMethod(
+                      0, "Storage.clearDataForOrigin", params);
+                }
+                return true;
+              }
+             private:
+              CefRefPtr<CefBrowser> browser_;
+              std::set<std::string> origins_;
+              IMPLEMENT_REFCOUNTING(StorageClearVisitor);
+            };
+            mgr->VisitAllCookies(new StorageClearVisitor(browser));
+          }
         }
       }
 
@@ -3927,6 +4028,134 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       app->SwitchTab(id);
       // Private tabs are never persisted to the workspace session.
       callback->Success(std::to_string(id));
+    } else if (msg == "split-current") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app || !handler->tab_manager_) {
+        callback->Failure(1, "App not ready");
+        return true;
+      }
+      int active_tab_id = app->GetCurrentTabId();
+      if (active_tab_id < 0) {
+        callback->Failure(1, "No active tab");
+        return true;
+      }
+      auto existing_state = handler->GetSplitViewState(handler->active_workspace_id_);
+      if (existing_state.enabled) {
+        handler->ApplySplitViewState(handler->active_workspace_id_);
+        callback->Success("");
+        return true;
+      }
+      const int secondary_tab_id = app->CreateTab("browser://split-placeholder", active_tab_id);
+      handler->NotifyNewTab(secondary_tab_id, active_tab_id);
+      handler->tab_manager_->SetTitle(secondary_tab_id, "Add a tab to split view");
+      handler->tab_manager_->SetSchemeUrl(secondary_tab_id, "browser://split-placeholder");
+      app->OpenSplitView(active_tab_id, secondary_tab_id, active_tab_id);
+      handler->SetSplitViewTabs(handler->active_workspace_id_, active_tab_id,
+                                secondary_tab_id, active_tab_id);
+      handler->PersistWorkspaceForTab(active_tab_id);
+      handler->NotifySplitStateChanged(handler->active_workspace_id_);
+      callback->Success("");
+    } else if (msg.rfind("add-tab-to-split:", 0) == 0 ||
+               msg.rfind("split-with-current:", 0) == 0) {
+      const size_t prefix_len = msg.rfind("add-tab-to-split:", 0) == 0 ? 17 : 19;
+      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(prefix_len));
+      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
+      const int target_tab_id = *tab_id_opt;
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app || !handler->tab_manager_) {
+        callback->Failure(1, "App not ready");
+        return true;
+      }
+      auto state = handler->GetSplitViewState(handler->active_workspace_id_);
+      if (!state.enabled) {
+        callback->Failure(1, "Split view inactive");
+        return true;
+      }
+      const auto ids =
+          handler->tab_manager_->GetTabIdsForWorkspace(handler->active_workspace_id_);
+      if (std::find(ids.begin(), ids.end(), target_tab_id) == ids.end()) {
+        callback->Failure(1, "Tab is not in the active workspace");
+        return true;
+      }
+      if (target_tab_id == state.left_tab_id || target_tab_id == state.right_tab_id) {
+        app->SwitchTab(target_tab_id);
+        handler->SyncSplitStateFromApp();
+        callback->Success("");
+        return true;
+      }
+      const bool replace_right = state.active_tab_id != state.right_tab_id;
+      const int replaced_tab_id = replace_right ? state.right_tab_id : state.left_tab_id;
+      const int next_left = replace_right ? state.left_tab_id : target_tab_id;
+      const int next_right = replace_right ? target_tab_id : state.right_tab_id;
+      app->OpenSplitView(next_left, next_right, target_tab_id);
+      handler->SetSplitViewTabs(handler->active_workspace_id_, next_left,
+                                next_right, target_tab_id);
+      app->ActivateSplitPane(target_tab_id, true);
+      if (IsSplitPlaceholderTab(handler->tab_manager_, replaced_tab_id)) {
+        handler->CloseTabAndNotify(replaced_tab_id);
+      }
+      handler->PersistWorkspaceForTab(target_tab_id);
+      handler->NotifySplitStateChanged(handler->active_workspace_id_);
+      callback->Success("");
+    } else if (msg == "close-split") {
+      OtfApp* app = OtfApp::GetInstance();
+      const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
+      int placeholder_tab_id = -1;
+      if (handler->tab_manager_ && state.enabled) {
+        if (IsSplitPlaceholderTab(handler->tab_manager_, state.left_tab_id)) {
+          placeholder_tab_id = state.left_tab_id;
+        } else if (IsSplitPlaceholderTab(handler->tab_manager_, state.right_tab_id)) {
+          placeholder_tab_id = state.right_tab_id;
+        }
+      }
+      if (app) {
+        app->ClearSplitView();
+      }
+      handler->ClearSplitViewState(handler->active_workspace_id_);
+      handler->NotifySplitStateChanged(handler->active_workspace_id_);
+      if (placeholder_tab_id >= 0) {
+        handler->CloseTabAndNotify(placeholder_tab_id);
+      }
+      callback->Success("");
+    } else if (msg == "swap-split") {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app) { callback->Failure(1, "App not ready"); return true; }
+      const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
+      if (!state.enabled) {
+        callback->Failure(1, "Split view inactive");
+        return true;
+      }
+      const int active_tab_id = app->GetCurrentTabId() == state.left_tab_id
+                                    ? state.right_tab_id
+                                    : state.left_tab_id;
+      app->OpenSplitView(state.right_tab_id, state.left_tab_id, active_tab_id);
+      handler->SetSplitViewTabs(handler->active_workspace_id_, state.right_tab_id,
+                                state.left_tab_id, active_tab_id);
+      handler->NotifySplitStateChanged(handler->active_workspace_id_);
+      callback->Success("");
+    } else if (msg.rfind("close-split-pane:", 0) == 0) {
+      const std::string pane = msg.substr(17);
+      const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
+      if (!state.enabled) {
+        callback->Failure(1, "Split view inactive");
+        return true;
+      }
+      int tab_id = -1;
+      if (pane == "left") {
+        tab_id = state.left_tab_id;
+      } else if (pane == "right") {
+        tab_id = state.right_tab_id;
+      } else {
+        callback->Failure(1, "Invalid split pane");
+        return true;
+      }
+      if (handler->tab_manager_ && handler->tab_manager_->IsPinned(tab_id)) {
+        callback->Failure(1, "Pinned tabs cannot be closed");
+        return true;
+      }
+      callback->Success("");
+      handler->CloseTabAndNotify(tab_id);
+      return true;
     } else if (msg.find("close-tab:") == 0) {
       const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
@@ -3952,6 +4181,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const int tab_id = *tab_id_opt;
       OtfApp* app = OtfApp::GetInstance();
       if (app) app->SwitchTab(tab_id);
+      if (handler->IsSplitTab(tab_id)) {
+        handler->SyncSplitStateFromApp();
+      }
       // Persist so was_active is up to date on next restore.
       handler->PersistWorkspaceForTab(tab_id);
       callback->Success("");
@@ -5143,6 +5375,36 @@ bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
          !IsDevUiUrl(tab.url);
 }
 
+std::string BuildSplitViewStateJson(const OtfHandler::SplitViewState& state) {
+  JsonObjectBuilder builder;
+  builder
+      .AddBool("enabled", state.enabled)
+      .AddInt("leftTabId", state.left_tab_id)
+      .AddInt("rightTabId", state.right_tab_id)
+      .AddInt("activeTabId", state.active_tab_id);
+  if (!state.left_url.empty()) builder.AddString("leftUrl", state.left_url);
+  if (!state.right_url.empty()) builder.AddString("rightUrl", state.right_url);
+  if (!state.active_url.empty()) builder.AddString("activeUrl", state.active_url);
+  return builder.Build();
+}
+
+bool ParseSplitViewStateJson(const std::string& json,
+                             OtfHandler::SplitViewState* state) {
+  if (!state || json.empty()) return false;
+  CefRefPtr<CefValue> value = CefParseJSON(json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!value || value->GetType() != VTYPE_DICTIONARY) return false;
+  CefRefPtr<CefDictionaryValue> dict = value->GetDictionary();
+  if (!dict) return false;
+  state->enabled = dict->HasKey("enabled") && dict->GetBool("enabled");
+  state->left_tab_id = dict->HasKey("leftTabId") ? dict->GetInt("leftTabId") : -1;
+  state->right_tab_id = dict->HasKey("rightTabId") ? dict->GetInt("rightTabId") : -1;
+  state->active_tab_id = dict->HasKey("activeTabId") ? dict->GetInt("activeTabId") : -1;
+  state->left_url = dict->HasKey("leftUrl") ? dict->GetString("leftUrl").ToString() : "";
+  state->right_url = dict->HasKey("rightUrl") ? dict->GetString("rightUrl").ToString() : "";
+  state->active_url = dict->HasKey("activeUrl") ? dict->GetString("activeUrl").ToString() : "";
+  return true;
+}
+
 }  // namespace
 
 OtfHandler::OtfHandler(bool use_alloy_style)
@@ -5210,6 +5472,117 @@ CefRefPtr<CefRequestContext> OtfHandler::GetActiveWorkspaceRequestContext() {
   return GetWorkspaceRequestContext(active_workspace_id_);
 }
 
+OtfHandler::SplitViewState OtfHandler::GetSplitViewState(int workspace_id) const {
+  auto it = workspace_split_states_.find(workspace_id);
+  if (it != workspace_split_states_.end()) {
+    return it->second;
+  }
+  SplitViewState state;
+  if (store_ && workspace_id > 0) {
+    const std::string json = store_->GetWorkspaceStateValue(workspace_id, "split");
+    if (!json.empty()) {
+      ParseSplitViewStateJson(json, &state);
+    }
+  }
+  return state;
+}
+
+std::string OtfHandler::BuildSplitViewStateJson(int workspace_id) const {
+  return ::otf::BuildSplitViewStateJson(GetSplitViewState(workspace_id));
+}
+
+bool OtfHandler::SetSplitViewTabs(int workspace_id,
+                                  int left_tab_id,
+                                  int right_tab_id,
+                                  int active_tab_id) {
+  if (workspace_id <= 0 || left_tab_id < 0 || right_tab_id < 0 ||
+      left_tab_id == right_tab_id) {
+    return ClearSplitViewState(workspace_id);
+  }
+
+  SplitViewState state;
+  state.enabled = true;
+  state.left_tab_id = left_tab_id;
+  state.right_tab_id = right_tab_id;
+  state.active_tab_id =
+      (active_tab_id == right_tab_id) ? right_tab_id : left_tab_id;
+  if (tab_manager_) {
+    state.left_url = IsSplitPlaceholderTab(tab_manager_, left_tab_id)
+                         ? ""
+                         : tab_manager_->GetUrl(left_tab_id);
+    state.right_url = IsSplitPlaceholderTab(tab_manager_, right_tab_id)
+                          ? ""
+                          : tab_manager_->GetUrl(right_tab_id);
+    state.active_url = state.active_tab_id == right_tab_id
+                           ? state.right_url
+                           : state.left_url;
+  }
+  workspace_split_states_[workspace_id] = state;
+  PersistWorkspaceSplitState(workspace_id);
+  return true;
+}
+
+bool OtfHandler::ClearSplitViewState(int workspace_id) {
+  if (workspace_id <= 0) return false;
+  SplitViewState state;
+  workspace_split_states_[workspace_id] = state;
+  PersistWorkspaceSplitState(workspace_id);
+  return true;
+}
+
+bool OtfHandler::ApplySplitViewState(int workspace_id) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !tab_manager_) return false;
+  SplitViewState state = GetSplitViewState(workspace_id);
+  if (!state.enabled) {
+    app->ClearSplitView();
+    return false;
+  }
+  const auto ids = tab_manager_->GetTabIdsForWorkspace(workspace_id);
+  auto is_alive = [&ids](int tab_id) {
+    return std::find(ids.begin(), ids.end(), tab_id) != ids.end();
+  };
+  auto is_matching_tab = [this, &is_alive](int tab_id, const std::string& url) {
+    if (!is_alive(tab_id)) return false;
+    return url.empty() || tab_manager_->GetUrl(tab_id) == url;
+  };
+  auto find_by_url = [this, &ids](const std::string& url) {
+    if (url.empty()) return -1;
+    for (int id : ids) {
+      if (tab_manager_->GetUrl(id) == url) return id;
+    }
+    return -1;
+  };
+
+  if (!is_matching_tab(state.left_tab_id, state.left_url)) {
+    state.left_tab_id = find_by_url(state.left_url);
+  }
+  if (!is_matching_tab(state.right_tab_id, state.right_url)) {
+    state.right_tab_id = find_by_url(state.right_url);
+  }
+  if (!is_matching_tab(state.active_tab_id, state.active_url)) {
+    if (!state.active_url.empty() && state.active_url == state.right_url) {
+      state.active_tab_id = state.right_tab_id;
+    } else {
+      state.active_tab_id = state.left_tab_id;
+    }
+  }
+
+  const bool left_alive = is_alive(state.left_tab_id);
+  const bool right_alive = is_alive(state.right_tab_id);
+  if (!left_alive || !right_alive) {
+    ClearSplitViewState(workspace_id);
+    app->ClearSplitView();
+    NotifySplitStateChanged(workspace_id);
+    return false;
+  }
+  workspace_split_states_[workspace_id] = state;
+  PersistWorkspaceSplitState(workspace_id);
+  app->OpenSplitView(state.left_tab_id, state.right_tab_id, state.active_tab_id);
+  NotifySplitStateChanged(workspace_id);
+  return true;
+}
+
 void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
   if (!store_ || !tab_manager_ || workspace_id <= 0) return;
 
@@ -5267,6 +5640,62 @@ void OtfHandler::PersistWorkspaceForTab(int tab_id) {
   if (!tab_manager_) return;
   const int ws = tab_manager_->GetWorkspaceId(tab_id);
   if (ws > 0) PersistWorkspaceTabs(ws);
+}
+
+void OtfHandler::PersistWorkspaceSplitState(int workspace_id) {
+  if (!store_ || workspace_id <= 0) return;
+  const SplitViewState state = GetSplitViewState(workspace_id);
+  if (!state.enabled) {
+    store_->SetWorkspaceStateValue(workspace_id, "split", "");
+    return;
+  }
+  if (!tab_manager_ ||
+      IsSplitPlaceholderTab(tab_manager_, state.left_tab_id) ||
+      IsSplitPlaceholderTab(tab_manager_, state.right_tab_id) ||
+      !otf::IsPersistableWebUrl(state.left_url) ||
+      !otf::IsPersistableWebUrl(state.right_url)) {
+    store_->SetWorkspaceStateValue(workspace_id, "split", "");
+    return;
+  }
+  store_->SetWorkspaceStateValue(workspace_id, "split",
+                                 ::otf::BuildSplitViewStateJson(state));
+}
+
+void OtfHandler::NotifySplitStateChanged(int workspace_id) {
+  if (workspace_id <= 0) return;
+  SendEvent(JsonObjectBuilder()
+                .AddString("key", "split-state-changed")
+                .AddInt("workspaceId", workspace_id)
+                .AddRaw("state", BuildSplitViewStateJson(workspace_id))
+                .Build());
+}
+
+void OtfHandler::SyncSplitStateFromApp() {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) return;
+  if (!app->HasSplitView()) {
+    if (active_workspace_id_ > 0) {
+      ClearSplitViewState(active_workspace_id_);
+      NotifySplitStateChanged(active_workspace_id_);
+    }
+    return;
+  }
+  SetSplitViewTabs(active_workspace_id_, app->GetSplitLeftTabId(),
+                   app->GetSplitRightTabId(), app->GetCurrentTabId());
+  NotifySplitStateChanged(active_workspace_id_);
+}
+
+bool OtfHandler::IsSplitTab(int tab_id) const {
+  if (!tab_manager_ || tab_id < 0) return false;
+  const int workspace_id = tab_manager_->GetWorkspaceId(tab_id);
+  if (workspace_id <= 0) return false;
+  const SplitViewState state = GetSplitViewState(workspace_id);
+  return tab_id == state.left_tab_id || tab_id == state.right_tab_id;
+}
+
+bool OtfHandler::IsSplitActive() const {
+  if (!tab_manager_) return false;
+  return GetSplitViewState(active_workspace_id_).enabled;
 }
 
 CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspace_id) {
@@ -5342,6 +5771,7 @@ void OtfHandler::StartGuestSession() {
   if (pre_guest_tab_id_ >= 0) {
     workspace_last_active_tab_[pre_guest_workspace_id_] = pre_guest_tab_id_;
   }
+  app->ClearSplitView();
 
   guest_session_active_ = true;
   const int tab_id = app->CreateTab("browser://newtab");
@@ -6659,6 +7089,10 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
         model->AddItem(MENU_ID_TAB_PIN, "Pin Tab");
       }
       model->AddSeparator();
+      if (IsSplitActive() && tab_id_opt && !IsSplitTab(*tab_id_opt)) {
+        model->AddItem(MENU_ID_TAB_ADD_TO_SPLIT, "Add to Split View");
+        model->AddSeparator();
+      }
       model->AddItem(MENU_ID_TAB_CLOSE, "Close Tab");
       model->AddItem(MENU_ID_TAB_CLOSE_OTHERS, "Close Other Tabs");
       return;
@@ -6779,7 +7213,8 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
 
   if (command_id == MENU_ID_TAB_CLOSE || command_id == MENU_ID_TAB_CLOSE_OTHERS ||
       command_id == MENU_ID_TAB_MUTE || command_id == MENU_ID_TAB_UNMUTE ||
-      command_id == MENU_ID_TAB_PIN || command_id == MENU_ID_TAB_UNPIN) {
+      command_id == MENU_ID_TAB_PIN || command_id == MENU_ID_TAB_UNPIN ||
+      command_id == MENU_ID_TAB_ADD_TO_SPLIT) {
     std::string link_url = params->GetLinkUrl().ToString();
     if (link_url.rfind("tab-context-menu:", 0) == 0) {
       std::string tab_id_str = link_url.substr(17);
@@ -6821,6 +7256,23 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
           tab_manager_->SetPinned(tab_id, false);
           SendEvent(BuildTabPropertyEvent(tab_id, "pinned", false));
           PersistWorkspaceForTab(tab_id);
+        } else if (command_id == MENU_ID_TAB_ADD_TO_SPLIT) {
+          OtfApp* app = OtfApp::GetInstance();
+          auto state = GetSplitViewState(active_workspace_id_);
+          if (app && state.enabled && !IsSplitTab(tab_id)) {
+            const bool replace_right = state.active_tab_id != state.right_tab_id;
+            const int replaced_tab_id = replace_right ? state.right_tab_id : state.left_tab_id;
+            const int next_left = replace_right ? state.left_tab_id : tab_id;
+            const int next_right = replace_right ? tab_id : state.right_tab_id;
+            app->OpenSplitView(next_left, next_right, tab_id);
+            SetSplitViewTabs(active_workspace_id_, next_left, next_right, tab_id);
+            app->ActivateSplitPane(tab_id, true);
+            if (IsSplitPlaceholderTab(tab_manager_, replaced_tab_id)) {
+              CloseTabAndNotify(replaced_tab_id);
+            }
+            PersistWorkspaceForTab(tab_id);
+            NotifySplitStateChanged(active_workspace_id_);
+          }
         }
         return true;
       }
@@ -7685,6 +8137,22 @@ void OtfHandler::OnFindResult(CefRefPtr<CefBrowser> browser,
   }
 }
 
+void OtfHandler::OnGotFocus(CefRefPtr<CefBrowser> browser) {
+  CEF_REQUIRE_UI_THREAD();
+  if (!browser || !tab_manager_) return;
+  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (!view || IsNonTabBrowserViewId(view->GetID())) return;
+  const int tab_id = view->GetID();
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !app->HasSplitView() || !app->IsTabInSplitView(tab_id)) return;
+  if (app->GetCurrentTabId() == tab_id) return;
+  if (app->ActivateSplitPane(tab_id)) {
+    SetSplitViewTabs(active_workspace_id_, app->GetSplitLeftTabId(),
+                     app->GetSplitRightTabId(), tab_id);
+    NotifySplitStateChanged(active_workspace_id_);
+  }
+}
+
 bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
                                      ErrorCode cert_error,
                                      const CefString& request_url,
@@ -8020,6 +8488,7 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
     }
   }
   app->CloseTab(tab_id);
+  SyncSplitStateFromApp();
   SendEvent(JsonObjectBuilder()
                 .AddString("key", "tab-closed")
                 .AddInt("id", tab_id)

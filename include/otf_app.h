@@ -106,6 +106,14 @@ class OtfApp : public CefApp,
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
+  bool HasSplitView() const { return split_view_active_; }
+  int GetSplitLeftTabId() const { return split_left_tab_id_; }
+  int GetSplitRightTabId() const { return split_right_tab_id_; }
+  void OpenSplitView(int left_tab_id, int right_tab_id, int active_tab_id);
+  void ClearSplitView();
+  void ApplySplitViewState(int left_tab_id, int right_tab_id, int active_tab_id);
+  bool ActivateSplitPane(int tab_id, bool notify_even_if_current = false);
+  bool IsTabInSplitView(int tab_id) const;
   void UpdateWindowTitle(int tab_id);
   void CreateFindBarOverlay();
   void CreateZoomBarOverlay();
@@ -170,6 +178,10 @@ class OtfApp : public CefApp,
 
   CefRefPtr<CefWindow> window_;
   CefRefPtr<CefPanel> content_panel_;
+  CefRefPtr<CefPanel> split_panel_;
+  CefRefPtr<CefPanel> split_left_panel_;
+  CefRefPtr<CefPanel> split_right_panel_;
+  CefRefPtr<CefBoxLayout> split_layout_;
   CefRefPtr<CefBrowserView> ui_view_;
   CefRefPtr<CefOverlayController> findbar_overlay_;
   CefRefPtr<CefOverlayController> zoombar_overlay_;
@@ -194,11 +206,17 @@ class OtfApp : public CefApp,
 
  private:
   void ApplyFullscreenState();
+  void DetachContentView(CefRefPtr<CefBrowserView> view);
+  void AttachContentViewToMain(CefRefPtr<CefBrowserView> view);
+  void DestroySplitContainer();
   bool fullscreen_ = false;
   bool content_fullscreen_ = false;
 
   TabManager tab_manager_;
   int current_tab_id_ = -1;
+  bool split_view_active_ = false;
+  int split_left_tab_id_ = -1;
+  int split_right_tab_id_ = -1;
   std::string startup_behavior_ = "newtab";
   std::vector<std::string> startup_urls_;
   bool startup_tabs_opened_ = false;

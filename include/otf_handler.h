@@ -27,8 +27,19 @@ class OtfHandler : public CefClient,
                    public CefContextMenuHandler,
                    public CefRequestHandler,
                    public CefKeyboardHandler,
-                   public CefFindHandler {
+                   public CefFindHandler,
+                   public CefFocusHandler {
  public:
+  struct SplitViewState {
+    bool enabled = false;
+    int left_tab_id = -1;
+    int right_tab_id = -1;
+    int active_tab_id = -1;
+    std::string left_url;
+    std::string right_url;
+    std::string active_url;
+  };
+
   struct ImagePreviewRenderCache {
     std::string file_path;
     std::string display_url;
@@ -86,6 +97,9 @@ class OtfHandler : public CefClient,
     return this;
   }
   CefRefPtr<CefFindHandler> GetFindHandler() override {
+    return this;
+  }
+  CefRefPtr<CefFocusHandler> GetFocusHandler() override {
     return this;
   }
   bool OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
@@ -214,6 +228,9 @@ class OtfHandler : public CefClient,
                     int activeMatchOrdinal,
                     bool finalUpdate) override;
 
+  // CefFocusHandler methods:
+  void OnGotFocus(CefRefPtr<CefBrowser> browser) override;
+
   void CloseAllBrowsers(bool force_close);
   bool IsClosing() const { return is_closing_; }
 
@@ -227,6 +244,14 @@ class OtfHandler : public CefClient,
   void StopMemoryLogging();
   void LogTabMemoryUsage();
   bool IsMemoryLoggingRunning() const { return memory_log_running_; }
+  SplitViewState GetSplitViewState(int workspace_id) const;
+  std::string BuildSplitViewStateJson(int workspace_id) const;
+  bool ApplySplitViewState(int workspace_id);
+  bool SetSplitViewTabs(int workspace_id,
+                        int left_tab_id,
+                        int right_tab_id,
+                        int active_tab_id);
+  bool ClearSplitViewState(int workspace_id);
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
@@ -418,6 +443,7 @@ class OtfHandler : public CefClient,
   // workspace with live in-memory tabs restores the correct tab, not
   // just the first one that was created.
   std::map<int, int> workspace_last_active_tab_;
+  std::map<int, SplitViewState> workspace_split_states_;
   // Set to true when startup_behavior is "newtab" so that the auto-opened
   // startup newtab tab cannot overwrite the saved workspace session in the DB.
   // Clears itself in PersistWorkspaceTabs once any live tab has a real URL.
@@ -455,6 +481,11 @@ class OtfHandler : public CefClient,
   void PersistWorkspaceTabs(int workspace_id);
   void PersistWorkspaceForTab(int tab_id);
   void ApplyAlwaysOnPrivacyPreferences(CefRefPtr<CefRequestContext> ctx);
+  void PersistWorkspaceSplitState(int workspace_id);
+  void NotifySplitStateChanged(int workspace_id);
+  void SyncSplitStateFromApp();
+  bool IsSplitTab(int tab_id) const;
+  bool IsSplitActive() const;
 
   void MarkTabJsDisabled(int tab_id) { js_disabled_tabs_.insert(tab_id); }
   void UnmarkTabJsDisabled(int tab_id) { js_disabled_tabs_.erase(tab_id); }
