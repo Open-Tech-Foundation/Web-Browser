@@ -97,7 +97,7 @@ async function createSplitWithPlaceholder(browser, leftUrl) {
   assert.equal(
     await browser.cdp.evaluate(`document.querySelectorAll('button[title="Open in split view"]').length`),
     0,
-    'tab-level add-to-split button must be hidden before a split container exists',
+    'tab-level add-to-split button must not be rendered',
   );
 
   await clickSelector(browser.cdp, 'button[title="Split current tab"]');
@@ -105,6 +105,11 @@ async function createSplitWithPlaceholder(browser, leftUrl) {
     browser.cdp,
     (item) => item.enabled === true && item.leftTabId === leftTabId && item.rightTabId >= 0,
     20000,
+  );
+  assert.equal(
+    await browser.cdp.evaluate(`document.querySelectorAll('button[title="Open in split view"]').length`),
+    0,
+    'tab-level add-to-split button must remain hidden when split view exists',
   );
 
   const tabs = await getTabs(browser.cdp);
@@ -220,9 +225,9 @@ test('address-bar split creates a backend-owned split with an instructional plac
       );
       try {
         await waitFor(
-        placeholderTarget,
-        `document.body?.innerText || ''`,
-          (text) => /add a tab to split view/i.test(text) && /pick an existing tab|context menu/i.test(text),
+          placeholderTarget,
+          `document.body?.innerText || ''`,
+          (text) => /choose a tab for this pane/i.test(text) && /no other tabs available|select an existing workspace tab/i.test(text),
           15000,
         );
       } finally {
@@ -234,7 +239,7 @@ test('address-bar split creates a backend-owned split with an instructional plac
     }
   });
 
-test('adding a tab to split destroys the placeholder and makes the added pane active',
+test('placeholder tab list adds an existing workspace tab and destroys the placeholder',
   { timeout: timeoutMs + 30000 },
   async () => {
     const unique = Date.now();
@@ -246,14 +251,34 @@ test('adding a tab to split destroys the placeholder and makes the added pane ac
       const initial = await createSplitWithPlaceholder(browser, leftUrl);
 
       const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
-      await waitFor(
+      assert.equal(
+        await browser.cdp.evaluate(`document.querySelectorAll('button[title="Open in split view"]').length`),
+        0,
+        'tab-level add-to-split button must not appear after opening another tab',
+      );
+      await cefQuery(browser.cdp, `switch-tab:${initial.rightTabId}`);
+      await waitForSplitState(
         browser.cdp,
-        `document.querySelectorAll('button[title="Open in split view"]').length`,
-        (count) => count >= 1,
-        15000,
+        (item) => item.enabled === true && item.activeTabId === initial.rightTabId,
+        20000,
       );
 
-      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      const placeholderTarget = await browser.connectToTarget((target) =>
+        /splitplaceholder\.html/i.test(target.url || '') ||
+        /browser:\/\/split-placeholder/i.test(target.url || ''),
+        15000,
+      );
+      try {
+        await waitFor(
+          placeholderTarget,
+          `document.body?.innerText || ''`,
+          (text) => text.includes(`Split right ${unique}`),
+          15000,
+        );
+        await clickByText(placeholderTarget, 'button', `Split right ${unique}`);
+      } finally {
+        placeholderTarget.close();
+      }
       const state = await waitForSplitState(
         browser.cdp,
         (item) =>

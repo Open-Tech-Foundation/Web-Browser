@@ -89,7 +89,7 @@ const SplitBadge = () => (
   </svg>
 );
 
-const TabStrip = ({ tabs, onSwitch, onClose, onNew, onSplit, splitActive = false, splitView = {} }) => {
+const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitView = {} }) => {
   if (tabs.length === 0) return null;
   const pinnedTabs = useMemo(() => tabs.filter((t) => t.pinned), [tabs]);
   const unpinnedTabs = useMemo(() => tabs.filter((t) => !t.pinned), [tabs]);
@@ -244,7 +244,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, onSplit, splitActive = false
           window.cefQuery({ request: 'close-split' });
         }}
         title="Close split view"
-        className="mx-1 my-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full opacity-0 transition-all hover:bg-slate-300 group-hover:opacity-100 dark:hover:bg-white/20"
+        className="mx-1 my-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/70 text-slate-600 opacity-100 shadow-sm ring-1 ring-inset ring-brand-orange/30 transition-all hover:bg-slate-300 hover:text-slate-900 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/20 dark:hover:text-white"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
@@ -328,16 +328,6 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, onSplit, splitActive = false
           <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       )}
-      {!tab.pinned && splitActive && onSplit && !tab.splitPane && (
-        <button
-          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onSplit(tab.id); }}
-          title="Open in split view"
-          className={`ml-1 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v16"/><path d="M4 8h6"/><path d="M14 8h6"/></svg>
-        </button>
-      )}
-
       {/* Tab Separator */}
       {!tab.pinned && index < sortedTabs.length - 1 && !tab.active && !sortedTabs[index + 1].active && (
         <div className="absolute right-[-1.5px] top-1.5 bottom-1.5 w-[1px] bg-slate-500/40 dark:bg-white/20 group-hover:opacity-0 transition-opacity" />

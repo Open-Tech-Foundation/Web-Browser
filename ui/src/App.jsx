@@ -392,11 +392,6 @@ const App = () => {
     });
   };
 
-  const handleSplitTab = (tabId) => {
-    if (tabId === null || tabId === undefined) return;
-    window.cefQuery({ request: `add-tab-to-split:${tabId}` });
-  };
-
   const handleToggleSplit = () => {
     if (state.splitView?.enabled) {
       window.cefQuery({ request: 'show-popup:splitmenu' });
@@ -517,7 +512,6 @@ const App = () => {
             onSwitch={handleSwitchTab}
             onClose={handleCloseTab}
             onNew={handleNewTab}
-            onSplit={handleSplitTab}
             splitActive={Boolean(splitState.enabled)}
             splitView={splitState}
           />
@@ -566,8 +560,13 @@ const App = () => {
             <NavButton
               onClick={handleToggleSplit}
               title={splitState.enabled ? 'Split view options' : 'Split current tab'}
-              className={splitState.enabled ? 'text-brand-orange' : ''}
-              icon={<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><path d="M8 8h2"/><path d="M14 8h2"/></svg>}
+              className={splitState.enabled ? 'relative bg-brand-orange/14 text-brand-orange ring-1 ring-brand-orange/40 shadow-[0_0_0_3px_rgba(249,115,22,0.10)] hover:bg-brand-orange/20 dark:bg-brand-orange/18 dark:text-orange-300' : ''}
+              icon={
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/><path d="M8 8h2"/><path d="M14 8h2"/></svg>
+                  {splitState.enabled && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-brand-orange shadow-[0_0_0_2px_rgba(255,255,255,0.85)] dark:shadow-[0_0_0_2px_rgba(15,23,42,0.9)]" />}
+                </>
+              }
             />
             <NavButton
               onClick={() => window.cefQuery({ request: 'toggle-zoombar' })}

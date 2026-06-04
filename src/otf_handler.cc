@@ -4083,7 +4083,14 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Success("");
         return true;
       }
-      const bool replace_right = state.active_tab_id != state.right_tab_id;
+      const bool left_is_placeholder =
+          IsSplitPlaceholderTab(handler->tab_manager_, state.left_tab_id);
+      const bool right_is_placeholder =
+          IsSplitPlaceholderTab(handler->tab_manager_, state.right_tab_id);
+      const bool replace_right =
+          right_is_placeholder ? true :
+          left_is_placeholder ? false :
+          state.active_tab_id != state.right_tab_id;
       const int replaced_tab_id = replace_right ? state.right_tab_id : state.left_tab_id;
       const int next_left = replace_right ? state.left_tab_id : target_tab_id;
       const int next_right = replace_right ? target_tab_id : state.right_tab_id;
@@ -7260,7 +7267,14 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
           OtfApp* app = OtfApp::GetInstance();
           auto state = GetSplitViewState(active_workspace_id_);
           if (app && state.enabled && !IsSplitTab(tab_id)) {
-            const bool replace_right = state.active_tab_id != state.right_tab_id;
+            const bool left_is_placeholder =
+                IsSplitPlaceholderTab(tab_manager_, state.left_tab_id);
+            const bool right_is_placeholder =
+                IsSplitPlaceholderTab(tab_manager_, state.right_tab_id);
+            const bool replace_right =
+                right_is_placeholder ? true :
+                left_is_placeholder ? false :
+                state.active_tab_id != state.right_tab_id;
             const int replaced_tab_id = replace_right ? state.right_tab_id : state.left_tab_id;
             const int next_left = replace_right ? state.left_tab_id : tab_id;
             const int next_right = replace_right ? tab_id : state.right_tab_id;
