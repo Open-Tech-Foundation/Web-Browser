@@ -835,10 +835,7 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bo
     tab_manager_.SetPinned(tab_id, true);
   }
 
-  if (content_panel_) {
-    content_panel_->AddChildView(content_view);
-    content_view->SetVisible(false);
-  }
+  ParkContentView(content_view);
 
   return tab_id;
 }
@@ -886,16 +883,41 @@ bool OtfApp::IsTabInSplitView(int tab_id) const {
          (tab_id == split_left_tab_id_ || tab_id == split_right_tab_id_);
 }
 
+void OtfApp::EnsureTabParkingPanel() {
+  if (!content_panel_) return;
+  if (!parked_tab_panel_) {
+    parked_tab_panel_ = CefPanel::CreatePanel(nullptr);
+    parked_tab_panel_->SetToFillLayout();
+    parked_tab_panel_->SetVisible(false);
+  }
+  if (parked_tab_panel_->GetParentView().get() != content_panel_.get()) {
+    content_panel_->AddChildView(parked_tab_panel_);
+  }
+}
+
 void OtfApp::DetachContentView(CefRefPtr<CefBrowserView> view) {
   if (!view) return;
   CefRefPtr<CefView> parent = view->GetParentView();
   if (!parent) return;
   if (content_panel_ && parent.get() == content_panel_.get()) {
     content_panel_->RemoveChildView(view);
+  } else if (parked_tab_panel_ && parent.get() == parked_tab_panel_.get()) {
+    parked_tab_panel_->RemoveChildView(view);
   } else if (split_left_panel_ && parent.get() == split_left_panel_.get()) {
     split_left_panel_->RemoveChildView(view);
   } else if (split_right_panel_ && parent.get() == split_right_panel_.get()) {
     split_right_panel_->RemoveChildView(view);
+  }
+}
+
+void OtfApp::ParkContentView(CefRefPtr<CefBrowserView> view) {
+  if (!view || !content_panel_) return;
+  EnsureTabParkingPanel();
+  if (!parked_tab_panel_) return;
+  view->SetVisible(false);
+  if (view->GetParentView().get() != parked_tab_panel_.get()) {
+    DetachContentView(view);
+    parked_tab_panel_->AddChildView(view);
   }
 }
 
@@ -905,7 +927,44 @@ void OtfApp::AttachContentViewToMain(CefRefPtr<CefBrowserView> view) {
   content_panel_->AddChildView(view);
 }
 
+void OtfApp::EnsureSplitContainer() {
+  if (!content_panel_) return;
+  if (!split_panel_) {
+    split_panel_ = CefPanel::CreatePanel(nullptr);
+    CefBoxLayoutSettings split_settings;
+    split_settings.horizontal = true;
+    split_settings.between_child_spacing = 1;
+    split_settings.cross_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH;
+    split_layout_ = split_panel_->SetToBoxLayout(split_settings);
+
+    split_left_panel_ = CefPanel::CreatePanel(nullptr);
+    split_left_panel_->SetToFillLayout();
+    split_right_panel_ = CefPanel::CreatePanel(nullptr);
+    split_right_panel_->SetToFillLayout();
+
+    split_panel_->AddChildView(split_left_panel_);
+    split_panel_->AddChildView(split_right_panel_);
+    if (split_layout_) {
+      split_layout_->SetFlexForView(split_left_panel_.get(), 1);
+      split_layout_->SetFlexForView(split_right_panel_.get(), 1);
+    }
+  }
+  if (split_panel_->GetParentView().get() != content_panel_.get()) {
+    content_panel_->AddChildView(split_panel_);
+  }
+}
+
 void OtfApp::DestroySplitContainer() {
+  CefRefPtr<CefBrowserView> left_view = tab_manager_.GetView(split_left_tab_id_);
+  CefRefPtr<CefBrowserView> right_view = tab_manager_.GetView(split_right_tab_id_);
+  if (left_view && split_left_panel_ &&
+      left_view->GetParentView().get() == split_left_panel_.get()) {
+    ParkContentView(left_view);
+  }
+  if (right_view && split_right_panel_ &&
+      right_view->GetParentView().get() == split_right_panel_.get()) {
+    ParkContentView(right_view);
+  }
   if (content_panel_ && split_panel_) {
     content_panel_->RemoveChildView(split_panel_);
   }
@@ -913,6 +972,55 @@ void OtfApp::DestroySplitContainer() {
   split_left_panel_ = nullptr;
   split_right_panel_ = nullptr;
   split_panel_ = nullptr;
+}
+
+void OtfApp::RenderContentLayout() {
+  CEF_REQUIRE_UI_THREAD();
+  if (!content_panel_) return;
+  EnsureTabParkingPanel();
+
+  CefRefPtr<CefBrowserView> left_view = tab_manager_.GetView(split_left_tab_id_);
+  CefRefPtr<CefBrowserView> right_view = tab_manager_.GetView(split_right_tab_id_);
+  const bool can_show_split =
+      split_view_active_ && content_mode_ == ContentDisplayMode::kSplitView &&
+      split_left_tab_id_ >= 0 && split_right_tab_id_ >= 0 &&
+      split_left_tab_id_ != split_right_tab_id_ && left_view && right_view;
+
+  for (int tab_id : tab_manager_.GetAllTabIds()) {
+    CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
+    if (!view) continue;
+    ParkContentView(view);
+  }
+
+  if (!can_show_split) {
+    content_mode_ = ContentDisplayMode::kSingleTab;
+    DestroySplitContainer();
+    CefRefPtr<CefBrowserView> active_view = tab_manager_.GetView(current_tab_id_);
+    if (active_view) {
+      AttachContentViewToMain(active_view);
+      active_view->SetVisible(true);
+    }
+  } else {
+    EnsureSplitContainer();
+    if (split_left_panel_ && left_view) {
+      split_left_panel_->AddChildView(left_view);
+      left_view->SetVisible(true);
+    }
+    if (split_right_panel_ && right_view) {
+      split_right_panel_->AddChildView(right_view);
+      right_view->SetVisible(true);
+    }
+    if (split_panel_) {
+      split_panel_->SetVisible(true);
+    }
+  }
+
+  content_panel_->InvalidateLayout();
+  if (window_) {
+    window_->Layout();
+  } else {
+    content_panel_->Layout();
+  }
 }
 
 void OtfApp::ApplySplitViewState(int left_tab_id,
@@ -931,66 +1039,13 @@ void OtfApp::ApplySplitViewState(int left_tab_id,
     return;
   }
 
-  if (split_panel_) {
-    CefRefPtr<CefBrowserView> old_left = tab_manager_.GetView(split_left_tab_id_);
-    CefRefPtr<CefBrowserView> old_right = tab_manager_.GetView(split_right_tab_id_);
-    if (old_left) {
-      AttachContentViewToMain(old_left);
-      old_left->SetVisible(false);
-    }
-    if (old_right && old_right != old_left) {
-      AttachContentViewToMain(old_right);
-      old_right->SetVisible(false);
-    }
-    DestroySplitContainer();
-  }
-
-  split_panel_ = CefPanel::CreatePanel(nullptr);
-  CefBoxLayoutSettings split_settings;
-  split_settings.horizontal = true;
-  split_settings.between_child_spacing = 1;
-  split_settings.cross_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH;
-  split_layout_ = split_panel_->SetToBoxLayout(split_settings);
-
-  split_left_panel_ = CefPanel::CreatePanel(nullptr);
-  split_left_panel_->SetToFillLayout();
-  split_right_panel_ = CefPanel::CreatePanel(nullptr);
-  split_right_panel_->SetToFillLayout();
-
-  split_panel_->AddChildView(split_left_panel_);
-  split_panel_->AddChildView(split_right_panel_);
-  if (split_layout_) {
-    split_layout_->SetFlexForView(split_left_panel_.get(), 1);
-    split_layout_->SetFlexForView(split_right_panel_.get(), 1);
-  }
-  content_panel_->AddChildView(split_panel_);
-
   split_view_active_ = true;
   split_left_tab_id_ = left_tab_id;
   split_right_tab_id_ = right_tab_id;
   current_tab_id_ =
       (active_tab_id == right_tab_id) ? right_tab_id : left_tab_id;
-
-  for (int tab_id : tab_manager_.GetAllTabIds()) {
-    CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
-    if (!view) continue;
-    if (tab_id != left_tab_id && tab_id != right_tab_id) {
-      view->SetVisible(false);
-    }
-  }
-
-  DetachContentView(left_view);
-  DetachContentView(right_view);
-  split_left_panel_->AddChildView(left_view);
-  split_right_panel_->AddChildView(right_view);
-  left_view->SetVisible(true);
-  right_view->SetVisible(true);
-  split_panel_->SetVisible(true);
-
-  if (window_ && content_panel_) {
-    content_panel_->InvalidateLayout();
-    window_->Layout();
-  }
+  content_mode_ = ContentDisplayMode::kSplitView;
+  RenderContentLayout();
 
   CefRefPtr<CefBrowserView> active_view = tab_manager_.GetView(current_tab_id_);
   if (active_view) {
@@ -1042,6 +1097,7 @@ void OtfApp::ClearSplitView() {
   split_view_active_ = false;
   split_left_tab_id_ = -1;
   split_right_tab_id_ = -1;
+  content_mode_ = ContentDisplayMode::kSingleTab;
 
   int focus_tab_id = current_tab_id_;
   if (focus_tab_id < 0) {
@@ -1052,21 +1108,7 @@ void OtfApp::ClearSplitView() {
     }
   }
 
-  for (int tab_id : tab_manager_.GetAllTabIds()) {
-    CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
-    if (!view) continue;
-    if (view->GetParentView() != content_panel_) {
-      AttachContentViewToMain(view);
-    }
-    const bool should_show = (tab_id == focus_tab_id);
-    view->SetVisible(should_show);
-  }
-  DestroySplitContainer();
-
-  if (window_ && content_panel_) {
-    content_panel_->InvalidateLayout();
-    window_->Layout();
-  }
+  RenderContentLayout();
 
   CefRefPtr<CefBrowserView> active_view = tab_manager_.GetView(current_tab_id_);
   if (active_view) {
@@ -1114,7 +1156,17 @@ void OtfApp::RestoreImagePreviewStateForTab(int tab_id, const WorkspaceTab& tab)
 void OtfApp::SwitchTab(int tab_id) {
   CEF_REQUIRE_UI_THREAD();
 
-  if (current_tab_id_ == tab_id) return;
+  if (current_tab_id_ == tab_id) {
+    const ContentDisplayMode desired_mode =
+        split_view_active_ && IsTabInSplitView(tab_id)
+            ? ContentDisplayMode::kSplitView
+            : ContentDisplayMode::kSingleTab;
+    if (content_mode_ != desired_mode) {
+      content_mode_ = desired_mode;
+      RenderContentLayout();
+    }
+    return;
+  }
 
   // Clear any active find on the old tab so highlights don't linger
   if (findbar_overlay_ && findbar_overlay_->IsVisible()) {
@@ -1122,39 +1174,16 @@ void OtfApp::SwitchTab(int tab_id) {
     if (old_browser) old_browser->GetHost()->StopFinding(true);
   }
 
-  CefRefPtr<CefBrowserView> old_view = tab_manager_.GetView(current_tab_id_);
   CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
 
   if (new_view && window_ && content_panel_) {
-    if (split_view_active_ && IsTabInSplitView(tab_id)) {
-      CefRefPtr<CefBrowserView> left_view = tab_manager_.GetView(split_left_tab_id_);
-      CefRefPtr<CefBrowserView> right_view = tab_manager_.GetView(split_right_tab_id_);
-      if (old_view && !IsTabInSplitView(current_tab_id_)) {
-        old_view->SetVisible(false);
-      }
-      if (split_panel_) split_panel_->SetVisible(true);
-      if (left_view) left_view->SetVisible(true);
-      if (right_view) right_view->SetVisible(true);
-      current_tab_id_ = tab_id;
-    } else {
-      if (split_view_active_) {
-        if (split_panel_) split_panel_->SetVisible(false);
-        if (old_view && !IsTabInSplitView(current_tab_id_)) {
-          old_view->SetVisible(false);
-        }
-      } else if (old_view) {
-        old_view->SetVisible(false);
-      }
-      if (new_view->GetParentView() != content_panel_) {
-        AttachContentViewToMain(new_view);
-      }
-      new_view->SetVisible(true);
-      current_tab_id_ = tab_id;
-    }
+    content_mode_ = split_view_active_ && IsTabInSplitView(tab_id)
+                        ? ContentDisplayMode::kSplitView
+                        : ContentDisplayMode::kSingleTab;
+    current_tab_id_ = tab_id;
+    RenderContentLayout();
 
     new_view->RequestFocus();
-    content_panel_->InvalidateLayout();
-    window_->Layout();
     UpdateWindowTitle(tab_id);
 
     OtfHandler* handler = OtfHandler::GetInstance();
@@ -1428,31 +1457,23 @@ int OtfApp::CloseTab(int tab_id) {
                                    : (tab_id == split_right_tab_id_
                                           ? split_left_tab_id_
                                           : -1);
-  if (tab_id == current_tab_id_) {
+  const bool closing_current_tab = tab_id == current_tab_id_;
+  if (closing_current_tab) {
     next_active_tab_id = closing_split_tab && surviving_split_tab_id >= 0
                              ? surviving_split_tab_id
                              : SelectNextActiveTabId(ws_tab_ids, tab_id);
   }
 
   CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
+  if (view) {
+    view->SetVisible(false);
+    DetachContentView(view);
+  }
   if (closing_split_tab) {
-    const int keep_tab_id =
-        tab_id == current_tab_id_ ? surviving_split_tab_id : current_tab_id_;
-    CefRefPtr<CefBrowserView> keep_view = tab_manager_.GetView(keep_tab_id);
-    if (view) {
-      DetachContentView(view);
-    }
-    if (keep_view && keep_view != view) {
-      AttachContentViewToMain(keep_view);
-      keep_view->SetVisible(true);
-    }
-    DestroySplitContainer();
     split_view_active_ = false;
     split_left_tab_id_ = -1;
     split_right_tab_id_ = -1;
-  } else if (view && content_panel_) {
-    DetachContentView(view);
-    content_panel_->Layout();
+    content_mode_ = ContentDisplayMode::kSingleTab;
   }
   tab_manager_.RemoveTab(tab_id);
   if (handler) {
@@ -1478,6 +1499,8 @@ int OtfApp::CloseTab(int tab_id) {
 
   if (next_active_tab_id >= 0) {
     SwitchTab(next_active_tab_id);
+  } else if (closing_split_tab || closing_current_tab) {
+    RenderContentLayout();
   }
 
   // Close the window if no tabs are left

@@ -4098,12 +4098,18 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       handler->SetSplitViewTabs(handler->active_workspace_id_, next_left,
                                 next_right, target_tab_id);
       app->ActivateSplitPane(target_tab_id, true);
-      if (IsSplitPlaceholderTab(handler->tab_manager_, replaced_tab_id)) {
-        handler->CloseTabAndNotify(replaced_tab_id);
-      }
+      const bool should_close_placeholder =
+          IsSplitPlaceholderTab(handler->tab_manager_, replaced_tab_id);
       handler->PersistWorkspaceForTab(target_tab_id);
       handler->NotifySplitStateChanged(handler->active_workspace_id_);
       callback->Success("");
+      if (should_close_placeholder) {
+        CefPostDelayedTask(TID_UI, base::BindOnce([](int tab_id) {
+          if (auto* handler = OtfHandler::GetInstance()) {
+            handler->CloseTabAndNotify(tab_id);
+          }
+        }, replaced_tab_id), 100);
+      }
     } else if (msg == "close-split") {
       OtfApp* app = OtfApp::GetInstance();
       const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
@@ -8472,6 +8478,7 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
     return;
   }
   if (tab_manager_ && tab_manager_->IsPinned(tab_id)) return;
+  const bool closed_split_tab = IsSplitTab(tab_id);
   if (tab_manager_) {
     std::string url = tab_manager_->GetUrl(tab_id);
     const bool is_image_preview =
@@ -8502,7 +8509,11 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
     }
   }
   app->CloseTab(tab_id);
-  SyncSplitStateFromApp();
+  if (closed_split_tab) {
+    SyncSplitStateFromApp();
+  } else if (app->HasSplitView() && IsSplitTab(app->GetCurrentTabId())) {
+    SyncSplitStateFromApp();
+  }
   SendEvent(JsonObjectBuilder()
                 .AddString("key", "tab-closed")
                 .AddInt("id", tab_id)

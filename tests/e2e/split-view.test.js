@@ -79,6 +79,21 @@ async function waitForActiveAddress(cdp, needle, deadlineMs = 15000) {
   );
 }
 
+async function waitForActiveTab(cdp, tabId, deadlineMs = 15000) {
+  return await waitFor(
+    cdp,
+    `new Promise((resolve) => {
+      window.cefQuery({
+        request: 'get-active-tab',
+        onSuccess: (value) => resolve(Number(value)),
+        onFailure: () => resolve(-1),
+      });
+    })`,
+    (value) => value === tabId,
+    deadlineMs,
+  );
+}
+
 async function openUrlInNewTab(cdp, url) {
   const id = Number(await cefQuery(cdp, `new-tab:${url}`));
   assert.ok(Number.isInteger(id) && id >= 0, `new-tab returned invalid id: ${id}`);
@@ -115,7 +130,7 @@ async function createSplitWithPlaceholder(browser, leftUrl) {
   const tabs = await getTabs(browser.cdp);
   const placeholder = tabs.find((tab) => tab.id === state.rightTabId);
   assert.ok(placeholder, 'placeholder tab must exist in backend tabs while the right pane is empty');
-  assert.match(`${placeholder.title || ''} ${placeholder.url || ''}`, /split-placeholder|add a tab to split view/i);
+  assert.match(`${placeholder.title || ''} ${placeholder.url || ''}`, /split-?placeholder|split placeholder|add a tab to split view/i);
   assert.equal(state.activeTabId, leftTabId);
   return state;
 }
@@ -131,6 +146,7 @@ function readPersistedSplitState(profileRoot) {
   );
   const db = new Database(dbPath, { readonly: true });
   try {
+    db.exec('PRAGMA busy_timeout = 5000');
     const row = db.query(`SELECT value FROM workspace_state WHERE key = 'ws:1:split'`).get();
     return row?.value || '';
   } finally {
@@ -148,7 +164,8 @@ function createPageServer(unique) {
     const pathname = new URL(req.url, 'http://127.0.0.1').pathname;
     const slug = pathname.includes('right') ? 'right' :
       pathname.includes('third') ? 'third' :
-        pathname.includes('overflow') ? pathname.replace(/^\//, '') : 'left';
+        pathname.includes('overflow') ? pathname.replace(/^\//, '') :
+          pathname.includes('normal') ? pathname.replace(/^\//, '') : 'left';
     const title = `Split ${slug} ${unique}`;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html>
@@ -308,6 +325,7 @@ test('placeholder tab list adds an existing workspace tab and destroys the place
         (items) =>
           items.some((tab) => tab.id === initial.leftTabId) &&
           items.some((tab) => tab.id === rightTabId) &&
+          !items.some((tab) => tab.id === initial.rightTabId) &&
           !items.some((tab) => /add a tab to split view/i.test(tab.title || '')),
         20000,
       );
@@ -372,6 +390,87 @@ test('split state survives ordinary tab switching and address state follows the 
       await waitForActiveAddress(browser.cdp, '/third', 20000);
       state = await getSplitState(browser.cdp);
       assert.equal(state.enabled, true, 'switching back to a normal tab must preserve split state in backend');
+    } finally {
+      await browser.close();
+      await server.close();
+    }
+  });
+
+test('closing a normal tab while split view is hidden does not corrupt the persisted split panes',
+  { timeout: timeoutMs + 40000 },
+  async () => {
+    const unique = Date.now();
+    const server = await createPageServer(unique);
+    const browser = await launchDevBrowser();
+    try {
+      const leftUrl = `${server.origin}/left?case=${unique}`;
+      const rightUrl = `${server.origin}/right?case=${unique}`;
+      const normalOneUrl = `${server.origin}/normal-one?case=${unique}`;
+      const normalTwoUrl = `${server.origin}/normal-two?case=${unique}`;
+
+      const initial = await createSplitWithPlaceholder(browser, leftUrl);
+      const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
+      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await waitForSplitState(
+        browser.cdp,
+        (item) =>
+          item.enabled === true &&
+          item.leftTabId === initial.leftTabId &&
+          item.rightTabId === rightTabId &&
+          item.activeTabId === rightTabId,
+        20000,
+      );
+
+      const normalOneId = await openUrlInNewTab(browser.cdp, normalOneUrl);
+      await waitForActiveAddress(browser.cdp, '/normal-one', 20000);
+      const normalTwoId = await openUrlInNewTab(browser.cdp, normalTwoUrl);
+      await waitForActiveAddress(browser.cdp, '/normal-two', 20000);
+
+      await cefQuery(browser.cdp, `close-tab:${normalTwoId}`);
+      await waitForTabs(
+        browser.cdp,
+        (tabs) =>
+          !tabs.some((tab) => tab.id === normalTwoId) &&
+          tabs.some((tab) => tab.id === normalOneId),
+        20000,
+      );
+      await waitForActiveTab(browser.cdp, normalOneId, 20000);
+      await waitForActiveAddress(browser.cdp, '/normal-one', 20000);
+
+      let state = await getSplitState(browser.cdp);
+      assert.equal(state.enabled, true, 'closing a hidden normal tab must not clear split state');
+      assert.equal(state.leftTabId, initial.leftTabId);
+      assert.equal(state.rightTabId, rightTabId);
+      assert.notEqual(state.leftTabId, normalTwoId);
+      assert.notEqual(state.rightTabId, normalTwoId);
+
+      await cefQuery(browser.cdp, `switch-tab:${initial.leftTabId}`);
+      await waitForActiveAddress(browser.cdp, '/left', 20000);
+      state = await waitForSplitState(
+        browser.cdp,
+        (item) =>
+          item.enabled === true &&
+          item.leftTabId === initial.leftTabId &&
+          item.rightTabId === rightTabId &&
+          item.activeTabId === initial.leftTabId,
+        20000,
+      );
+      assert.equal(state.leftTabId, initial.leftTabId);
+      assert.equal(state.rightTabId, rightTabId);
+
+      await cefQuery(browser.cdp, `switch-tab:${rightTabId}`);
+      await waitForActiveAddress(browser.cdp, '/right', 20000);
+      state = await waitForSplitState(
+        browser.cdp,
+        (item) =>
+          item.enabled === true &&
+          item.leftTabId === initial.leftTabId &&
+          item.rightTabId === rightTabId &&
+          item.activeTabId === rightTabId,
+        20000,
+      );
+      assert.equal(state.leftTabId, initial.leftTabId);
+      assert.equal(state.rightTabId, rightTabId);
     } finally {
       await browser.close();
       await server.close();

@@ -182,6 +182,7 @@ class OtfApp : public CefApp,
   CefRefPtr<CefPanel> split_left_panel_;
   CefRefPtr<CefPanel> split_right_panel_;
   CefRefPtr<CefBoxLayout> split_layout_;
+  CefRefPtr<CefPanel> parked_tab_panel_;
   CefRefPtr<CefBrowserView> ui_view_;
   CefRefPtr<CefOverlayController> findbar_overlay_;
   CefRefPtr<CefOverlayController> zoombar_overlay_;
@@ -206,9 +207,17 @@ class OtfApp : public CefApp,
 
  private:
   void ApplyFullscreenState();
+  void EnsureTabParkingPanel();
   void DetachContentView(CefRefPtr<CefBrowserView> view);
+  void ParkContentView(CefRefPtr<CefBrowserView> view);
   void AttachContentViewToMain(CefRefPtr<CefBrowserView> view);
+  void EnsureSplitContainer();
   void DestroySplitContainer();
+  void RenderContentLayout();
+  enum class ContentDisplayMode {
+    kSingleTab,
+    kSplitView,
+  };
   bool fullscreen_ = false;
   bool content_fullscreen_ = false;
 
@@ -217,6 +226,7 @@ class OtfApp : public CefApp,
   bool split_view_active_ = false;
   int split_left_tab_id_ = -1;
   int split_right_tab_id_ = -1;
+  ContentDisplayMode content_mode_ = ContentDisplayMode::kSingleTab;
   std::string startup_behavior_ = "newtab";
   std::vector<std::string> startup_urls_;
   bool startup_tabs_opened_ = false;
