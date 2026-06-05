@@ -98,10 +98,14 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
   const splitRightId = Number(splitView.rightTabId ?? -1);
   const splitLeftTab = tabs.find((tab) => tab.id === splitLeftId);
   const splitRightTab = tabs.find((tab) => tab.id === splitRightId);
+  const activeTabId = tabs.find((tab) => tab.active)?.id ?? -1;
+  const activeRefId =
+    splitActive && activeTabId === splitRightId ? splitLeftId : activeTabId;
   const displayUnpinnedTabs = useMemo(() => {
     if (!splitActive || splitLeftId < 0 || splitRightId < 0) return unpinnedTabs;
     return unpinnedTabs.filter((tab) => tab.id !== splitRightId);
   }, [splitActive, splitLeftId, splitRightId, unpinnedTabs]);
+  const lastDisplayTabId = displayUnpinnedTabs[displayUnpinnedTabs.length - 1]?.id ?? -1;
 
   const viewportRef = useRef(null);
   const tabRefs = useRef(new Map());
@@ -142,14 +146,11 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
   };
 
   useLayoutEffect(() => {
-    const activeTab = tabs.find((tab) => tab.active);
-    if (!activeTab) {
+    if (activeRefId < 0) {
       measureOverflow();
       return;
     }
 
-    const activeRefId =
-      splitActive && activeTab.id === splitRightId ? splitLeftId : activeTab.id;
     const tabEl = tabRefs.current.get(activeRefId);
     const viewport = viewportRef.current;
     if (tabEl && viewport?.contains(tabEl)) {
@@ -158,14 +159,13 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
     measureOverflow();
 
     if (viewport) {
-      const lastTab = displayUnpinnedTabs[displayUnpinnedTabs.length - 1];
-      if (lastTab && activeRefId === lastTab.id) {
+      if (lastDisplayTabId >= 0 && activeRefId === lastDisplayTabId) {
         const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
         viewport.scrollLeft = maxScrollLeft;
         measureOverflow();
       }
     }
-  }, [tabs, displayUnpinnedTabs, splitActive, splitLeftId, splitRightId]);
+  }, [activeRefId, lastDisplayTabId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
