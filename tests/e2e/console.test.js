@@ -97,6 +97,71 @@ test('console panel captures page console.log output',
     }
   });
 
+test('clear chip button clears console log entries',
+  { timeout: timeoutMs + 20000 },
+  async () => {
+    const logMessage = 'otf-e2e-console-clear-' + Date.now();
+    const server = await startStaticServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html><html><body>
+        <script>console.log(${JSON.stringify(logMessage)});</script>
+      </body></html>`);
+    });
+
+    const browser = await launchDevBrowser();
+    let shellCdp = null;
+    let consoleCdp = null;
+    try {
+      shellCdp = await connectShell(browser);
+      await waitFor(shellCdp, `!!document.getElementById('root')`, Boolean);
+
+      // Open console and navigate to the log-emitting page
+      await openConsole(shellCdp);
+      consoleCdp = await connectConsole(browser);
+      await waitFor(consoleCdp, `!!document.getElementById('root')?.firstElementChild`, Boolean, 12000);
+
+      await navigateFromAddressBar(shellCdp, server.origin);
+      await sleep(2000);
+
+      // Verify the log entry appears
+      const found = await waitFor(
+        consoleCdp,
+        `document.body.innerText`,
+        (text) => text.includes(logMessage),
+        15000,
+      );
+      assert.ok(found, `console panel should display: ${logMessage}`);
+
+      // Click the clear chip button
+      const cleared = await consoleCdp.evaluate(`
+        (() => {
+          const btn = [...document.querySelectorAll('button')]
+            .find((b) => (b.textContent || '').trim() === 'clear');
+          if (!btn) return false;
+          btn.click();
+          return true;
+        })()
+      `);
+      assert.equal(cleared, true, 'should find and click the clear chip button');
+
+      // Wait for entries to disappear
+      await sleep(500);
+
+      const empty = await waitFor(
+        consoleCdp,
+        `document.body.innerText`,
+        (text) => !text.includes(logMessage),
+        5000,
+      );
+      assert.ok(!empty.includes(logMessage), 'log entry should be removed after clear');
+    } finally {
+      if (consoleCdp) consoleCdp.close();
+      if (shellCdp) shellCdp.close();
+      await browser.close();
+      await server.close();
+    }
+  });
+
 test('console is tab-specific: hidden on new tabs by default',
   { timeout: timeoutMs + 20000 },
   async () => {

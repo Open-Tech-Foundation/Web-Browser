@@ -722,6 +722,24 @@ export default function ConsolePanel() {
         <span style={{ fontFamily: 'system-ui', fontSize: '10px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.07em', flexShrink: 0 }}>
           CONSOLE
         </span>
+        {/* Clear chip */}
+        <button
+          onClick={handleClear}
+          title="Clear console"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '3px',
+            padding: '1px 8px', borderRadius: '10px',
+            border: '1px solid rgba(239,68,68,0.35)',
+            background: 'rgba(239,68,68,0.12)', cursor: 'pointer',
+            fontSize: '9px', fontFamily: 'system-ui', fontWeight: 700,
+            color: '#f87171', letterSpacing: '0.03em',
+            flexShrink: 0, lineHeight: '16px',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.25)'; e.currentTarget.style.color = '#fca5a5'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; e.currentTarget.style.color = '#f87171'; }}
+        >
+          clear
+        </button>
         <div style={{ flex: 1 }} />
         {filterButtons.map(({ key, label, count }) => (
           <button
@@ -761,25 +779,6 @@ export default function ConsolePanel() {
           </button>
         ))}
         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.1)', margin: '0 2px', flexShrink: 0 }} />
-        {/* Clear */}
-        <button
-          onClick={handleClear}
-          title="Clear console"
-          style={{
-            width: '22px', height: '22px', border: 'none', borderRadius: '4px',
-            background: 'transparent', cursor: 'pointer', color: '#64748b',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#e2e8f0'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#64748b'; }}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="m19 6-.867 12.142A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.858L5 6"/>
-            <path d="M10 11v6"/><path d="M14 11v6"/>
-          </svg>
-        </button>
         {/* Close */}
         <button
           onClick={handleClose}
