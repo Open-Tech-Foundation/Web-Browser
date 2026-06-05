@@ -46,8 +46,9 @@ const SplitIcon = () => (
 );
 
 const TabIcon = ({ tab }) => {
-  if (tab?.favicon) {
-    return <img src={tab.favicon} alt="" className="h-4 w-4 rounded-sm object-contain" />;
+  const [imgErrored, setImgErrored] = useState(false);
+  if (tab?.favicon && !imgErrored) {
+    return <img src={tab.favicon} alt="" className="h-4 w-4 rounded-sm object-contain" onError={() => setImgErrored(true)} />;
   }
   return (
     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400 dark:bg-white/5 dark:text-slate-500">

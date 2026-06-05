@@ -12,6 +12,18 @@ const PrivateBadge = () => (
   </svg>
 );
 
+const FaviconImage = ({ src, className, fallbackClassName }) => {
+  const [errored, setErrored] = useState(false);
+  if (errored) {
+    return (
+      <svg className={fallbackClassName} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+      </svg>
+    );
+  }
+  return <img src={src} className={className} alt="" onError={() => setErrored(true)} />;
+};
+
 const getDomain = (url) => {
   if (!url) return '';
   try {
@@ -72,7 +84,7 @@ const getTabIcon = (tab) => {
   }
 
   if (tab.favicon) {
-    return <img src={tab.favicon} className="w-3.5 h-3.5 mr-2 shrink-0 object-contain" alt="" />;
+    return <FaviconImage src={tab.favicon} className="w-3.5 h-3.5 mr-2 shrink-0 object-contain" fallbackClassName="w-3.5 h-3.5 mr-2 shrink-0 text-slate-400" />;
   }
 
   return (
@@ -295,7 +307,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
       {tab.pinned ? (
         <div className="flex items-center justify-center w-full">
           {tab.favicon ? (
-            <img src={tab.favicon} className="w-3.5 h-3.5 object-contain" alt="" />
+            <FaviconImage src={tab.favicon} className="w-3.5 h-3.5 object-contain" fallbackClassName="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
           ) : (
             <svg className="w-3.5 h-3.5 shrink-0 text-slate-500 dark:text-slate-400" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
