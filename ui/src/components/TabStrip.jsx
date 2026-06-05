@@ -335,9 +335,9 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
         <button
           onClick={(e) => { e.stopPropagation(); e.preventDefault(); onClose(tab.id); }}
           title="Close tab"
-          className={`ml-2 w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          className={`ml-2 w-[18px] h-[18px] flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all ${tab.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       )}
       {/* Tab Separator */}
