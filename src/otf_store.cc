@@ -495,6 +495,30 @@ std::vector<std::string> OtfStore::GetDistinctOrigins(int workspace_id) const {
   return out;
 }
 
+std::vector<std::string> OtfStore::GetDistinctOriginsSince(int64_t since_epoch, int workspace_id) const {
+  std::vector<std::string> out;
+  if (!db_) return out;
+  std::string sql = "SELECT DISTINCT url FROM history WHERE last_visit_at >= ?";
+  if (workspace_id > 0) sql += " AND workspace_id = " + std::to_string(workspace_id);
+  sql += ";";
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
+    return out;
+  sqlite3_bind_int64(stmt, 1, since_epoch);
+  std::set<std::string> seen;
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char* url = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    if (!url) continue;
+    const std::string url_str(url);
+    if (otf::IsInternalUiUrl(url_str) || !otf::IsPersistableWebUrl(url_str)) continue;
+    const std::string origin = otf::ExtractOrigin(url_str);
+    if (!origin.empty()) seen.insert(origin);
+  }
+  sqlite3_finalize(stmt);
+  out.assign(seen.begin(), seen.end());
+  return out;
+}
+
 bool OtfStore::DeleteHistoryItem(int id) {
   if (!db_) {
     return false;

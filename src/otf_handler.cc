@@ -3534,7 +3534,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       const std::string payload = msg.substr(20);
       std::vector<std::string> categories;
       std::string time_range = "all";
-      std::vector<std::string> filtered_origins;
       CefRefPtr<CefValue> parsed = CefParseJSON(payload, JSON_PARSER_ALLOW_TRAILING_COMMAS);
       if (parsed && parsed->GetType() == VTYPE_DICTIONARY) {
         CefRefPtr<CefDictionaryValue> d = parsed->GetDictionary();
@@ -3547,13 +3546,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
         if (d->HasKey("timeRange")) {
           time_range = d->GetString("timeRange").ToString();
-        }
-        if (d->HasKey("origins")) {
-          CefRefPtr<CefListValue> olist = d->GetList("origins");
-          if (olist) {
-            for (size_t i = 0; i < olist->GetSize(); ++i)
-              filtered_origins.push_back(olist->GetString(i).ToString());
-          }
         }
       }
       auto has = [&](const std::string& cat) {
@@ -3568,6 +3560,13 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         else if (time_range == "day") cutoff = now - 86400;
         else if (time_range == "week") cutoff = now - 604800;
         else if (time_range == "month") cutoff = now - 2592000;
+      }
+
+      // Resolve origins from history for time-filtered clears.
+      std::vector<std::string> filtered_origins;
+      if (cutoff > 0 && handler->store_) {
+        filtered_origins = handler->store_->GetDistinctOriginsSince(
+            cutoff, handler->active_workspace_id_);
       }
 
       if (has("cookies")) {
@@ -3620,9 +3619,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       if (has("history") && handler->store_) {
         if (cutoff > 0) {
-          handler->store_->ClearHistorySince(cutoff);
+          handler->store_->ClearHistorySince(cutoff, handler->active_workspace_id_);
         } else {
-          handler->store_->ClearHistory();
+          handler->store_->ClearHistory(handler->active_workspace_id_);
         }
         if (handler->tab_manager_) {
           for (int tab_id : handler->tab_manager_->GetAllTabIds()) {

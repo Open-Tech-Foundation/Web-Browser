@@ -87,6 +87,7 @@ class OtfStore {
   std::vector<HistoryEntry> GetHistory(int limit = 200,
                                        int workspace_id = 1) const;
   std::vector<std::string> GetDistinctOrigins(int workspace_id = 0) const;
+  std::vector<std::string> GetDistinctOriginsSince(int64_t since_epoch, int workspace_id = 0) const;
   bool DeleteHistoryItem(int id);
   bool ClearHistory(int workspace_id = 0);
   bool ClearHistorySince(int64_t since_epoch, int workspace_id = 0);

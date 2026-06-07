@@ -143,10 +143,26 @@ const Settings = () => {
     cache: true,
     siteData: true,
   });
+  const [clearTimeRange, setClearTimeRange] = useState('all');
   const toggleClearItem = (key) => setClearItems((p) => ({ ...p, [key]: !p[key] }));
 
   const [appearanceMode, setAppearanceMode] = useState('auto');
   const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '', cef: '' });
+
+  const clearDataSize = React.useMemo(() => {
+    let total = 0;
+    if (clearItems.cookies || clearItems.cache || clearItems.siteData) {
+      for (const site of siteUsage) {
+        if (clearItems.cookies) total += Number(site.cookies ?? 0);
+        if (clearItems.cache) total += Number(site.cacheStorage ?? 0);
+        if (clearItems.siteData) {
+          total += Number(site.indexedDB ?? 0);
+          total += Number(site.localStorage ?? 0);
+        }
+      }
+    }
+    return total;
+  }, [siteUsage, clearItems]);
 
   // Reset Section State
   const [resetItems, setResetItems] = useState({
@@ -747,6 +763,30 @@ const Settings = () => {
 
                 <section>
                   <h2 className="text-sm font-bold text-orange-500 mb-6 uppercase tracking-[0.2em]">Clear Browsing Data</h2>
+                  <div className="flex items-center justify-center gap-2 mb-8">
+                    <span className="text-xs text-muted font-medium">Time range</span>
+                    <div className="flex bg-main/5 border border-main rounded-lg overflow-hidden">
+                      {[
+                        { key: 'hour', label: '1 hour' },
+                        { key: 'day', label: '24 hours' },
+                        { key: 'week', label: '7 days' },
+                        { key: 'month', label: '30 days' },
+                        { key: 'all', label: 'All time' },
+                      ].map(({ key, label }) => (
+                        <button
+                          key={key}
+                          onClick={() => setClearTimeRange(key)}
+                          className={`px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                            clearTimeRange === key
+                              ? 'bg-orange-500 text-white'
+                              : 'text-muted hover:text-main hover:bg-main/5'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <Checkbox label="Browsing history" checked={clearItems.history} onChange={() => toggleClearItem('history')} />
                     <Checkbox label="Download history" checked={clearItems.downloads} onChange={() => toggleClearItem('downloads')} />
@@ -754,31 +794,13 @@ const Settings = () => {
                     <Checkbox label="Cached images and files" checked={clearItems.cache} onChange={() => toggleClearItem('cache')} />
                     <Checkbox label="Site storage (IndexedDB, Local Storage, etc.)" checked={clearItems.siteData} onChange={() => toggleClearItem('siteData')} />
                   </div>
-                  <div className="pt-6 border-t border-main mt-6">
+                  <div className="flex justify-end mt-6">
                     <button
                       onClick={() => { setClearStatus(''); setShowClearConfirm(true); }}
                       disabled={!Object.values(clearItems).some(Boolean)}
-                      className="px-10 py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl text-base font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-500 cursor-pointer"
+                      className="px-4 py-2 text-sm font-semibold rounded-lg border border-red-500/50 text-red-500 hover:bg-red-500/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
-                      {(() => {
-                        if (!storageTotals) return 'Clear Data';
-                        let total = 0;
-                        if (clearItems.cookies) total += Number(storageTotals.cookies ?? 0);
-                        if (clearItems.cache) {
-                          total += Number(storageTotals.httpCache ?? 0);
-                          total += Number(storageTotals.cacheStorage ?? 0);
-                          total += Number(storageTotals.codeCache ?? 0);
-                        }
-                        if (clearItems.siteData) {
-                          total += Number(storageTotals.indexedDB ?? 0);
-                          total += Number(storageTotals.localStorage ?? 0);
-                          total += Number(storageTotals.sessionStorage ?? 0);
-                          total += Number(storageTotals.fileSystem ?? 0);
-                          total += Number(storageTotals.blobStorage ?? 0);
-                        }
-                        if (total === 0) return 'Clear Data';
-                        return `Clear Data \u00B7 ${humanizeSize(total)}`;
-                      })()}
+                      {clearDataSize > 0 ? `Clear Data \u00B7 ${humanizeSize(clearDataSize)}` : 'Clear Data'}
                     </button>
                   </div>
                 </section>
@@ -820,7 +842,7 @@ const Settings = () => {
                     <p className="text-sm text-muted">No site storage data found.</p>
                   ) : (
                     <>
-                      <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center justify-center gap-2 mb-4">
                         <span className="text-xs text-muted font-medium">Sort by size</span>
                         <button
                           onClick={() => setSortAsc(!sortAsc)}
@@ -1420,7 +1442,7 @@ const Settings = () => {
                           .filter(([, v]) => v)
                           .map(([k]) => k);
                         window.cefQuery({
-                          request: `clear-browsing-data:${JSON.stringify({ categories })}`,
+                          request: `clear-browsing-data:${JSON.stringify({ categories, timeRange: clearTimeRange })}`,
                           onSuccess: () => {
                             setClearStatus('Browsing data cleared.');
                             setClearBusy(false);
