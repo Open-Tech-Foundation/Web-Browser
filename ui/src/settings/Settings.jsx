@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as Icons from './Icons';
 import { resolveUrl, looksLikeDirectUrl } from '../shared/search';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const humanizeSize = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
@@ -1436,24 +1437,24 @@ const Settings = () => {
                   </div>
                   <div className="flex flex-col gap-3">
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         setClearBusy(true);
                         const categories = Object.entries(clearItems)
                           .filter(([, v]) => v)
                           .map(([k]) => k);
-                        window.cefQuery({
-                          request: `clear-browsing-data:${JSON.stringify({ categories, timeRange: clearTimeRange })}`,
-                          onSuccess: () => {
-                            setClearStatus('Browsing data cleared.');
-                            setClearBusy(false);
-                            setSiteUsage([]);
-                            setStorageTotals(null);
-                          },
-                          onFailure: (code, msg) => {
-                            setClearStatus(`Failed: ${msg || code}`);
-                            setClearBusy(false);
-                          }
-                        });
+                        try {
+                          await nativeRequest({
+                            method: 'browsingData.clear',
+                            params: { categories, timeRange: clearTimeRange },
+                          });
+                          setClearStatus('Browsing data cleared.');
+                          setSiteUsage([]);
+                          setStorageTotals(null);
+                        } catch (err) {
+                          setClearStatus(`Failed: ${err.message}`);
+                        } finally {
+                          setClearBusy(false);
+                        }
                       }}
                       disabled={clearBusy}
                       className="w-full py-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-all shadow-lg shadow-red-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"

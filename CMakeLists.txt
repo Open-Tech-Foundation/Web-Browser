@@ -70,6 +70,7 @@ add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
 set(OTF_BROWSER_SRCS
     src/main.cc
     src/otf_app.cc
+    src/otf_clear_data_rpc.cc
     src/otf_devtools_bridge.cc
     src/otf_handler.cc
     src/otf_native_rpc.cc
@@ -83,6 +84,7 @@ set(OTF_BROWSER_SRCS
 # Application header files
 set(OTF_BROWSER_HEADERS
     include/otf_app.h
+    include/otf_clear_data_rpc.h
     include/otf_devtools_bridge.h
     include/otf_handler.h
     include/otf_native_rpc.h
