@@ -305,6 +305,22 @@ int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
   return -1;
 }
 
+int ResolvePreviewTabId(CefRefPtr<CefBrowser> browser,
+                        TabManager* tab_manager,
+                        int explicit_tab_id) {
+  if (explicit_tab_id >= 0) {
+    return explicit_tab_id;
+  }
+  int tab_id = ResolveRealTabIdForBrowser(browser, tab_manager);
+  if (tab_id == -1) {
+    OtfApp* app = OtfApp::GetInstance();
+    if (app) {
+      tab_id = app->GetCurrentTabId();
+    }
+  }
+  return tab_id;
+}
+
 class DeferredImagePreviewPushTask : public CefTask {
  public:
   explicit DeferredImagePreviewPushTask(int tab_id)
@@ -322,8 +338,23 @@ class DeferredImagePreviewPushTask : public CefTask {
       return;
     }
 
-    if (handler->image_preview_subscription_) {
+    auto tab_sub = handler->tab_image_preview_subscriptions_.find(tab_id_);
+    if (tab_sub != handler->tab_image_preview_subscriptions_.end() &&
+        tab_sub->second) {
+      tab_sub->second->Success(event);
+    } else if (handler->image_preview_subscription_) {
       handler->image_preview_subscription_->Success(event);
+    }
+
+    CefRefPtr<CefBrowser> tab_browser =
+        handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id_) : nullptr;
+    CefRefPtr<CefFrame> tab_frame =
+        tab_browser ? tab_browser->GetMainFrame() : nullptr;
+    if (tab_frame) {
+      std::string js =
+          "if(window.__otfApplyImagePreview)window.__otfApplyImagePreview(" +
+          event + ");";
+      tab_frame->ExecuteJavaScript(js, tab_frame->GetURL(), 0);
     }
 
     if (app->image_preview_overlay_) {
@@ -798,6 +829,35 @@ std::string GuessImageMimeType(const std::string& url) {
   if (ends_with(".avif")) return "image/avif";
   if (ends_with(".tif") || ends_with(".tiff")) return "image/tiff";
   return "application/octet-stream";
+}
+
+std::string BuildImageContentToken(int tab_id,
+                                   const std::string& kind,
+                                   int page,
+                                   const std::string& name_hint) {
+  std::string name = SanitizeFilename(name_hint.empty() ? "preview" : name_hint);
+  if (name.empty()) {
+    name = "preview";
+  }
+  return std::to_string(tab_id) + "/" + kind + "/" + std::to_string(page) +
+         "/" + name;
+}
+
+std::vector<uint8_t> DecodeDataUrlBytes(const std::string& data_url) {
+  const size_t comma = data_url.find(',');
+  if (comma == std::string::npos) {
+    return {};
+  }
+  CefRefPtr<CefBinaryValue> decoded =
+      CefBase64Decode(data_url.substr(comma + 1));
+  if (!decoded) {
+    return {};
+  }
+  std::vector<uint8_t> bytes(decoded->GetSize());
+  if (!bytes.empty()) {
+    decoded->GetData(bytes.data(), bytes.size(), 0);
+  }
+  return bytes;
 }
 
 std::string MimeTypeToPreviewFormat(const std::string& mime_type) {
@@ -1855,11 +1915,13 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
                       int page,
                       int tab_id,
                       uint64_t decode_nonce,
+                      bool thumbnail_request,
                       CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback)
       : source_url_(source_url),
         page_(page),
         tab_id_(tab_id),
         decode_nonce_(decode_nonce),
+        thumbnail_request_(thumbnail_request),
         is_tiff_(otf::IsTiffUrl(source_url)),
         callback_(callback) {}
 
@@ -1903,19 +1965,34 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
         callback_->Failure(0, "Failed to download or decode TIFF image");
         return;
       }
+      std::string display_url;
       if (h && tab_id_ != -1) {
-        h->SetImagePreviewPageForTab(tab_id_, page_);
-        h->SetImagePreviewPageCountForTab(tab_id_, page_count);
+        const std::string token = BuildImageContentToken(
+            tab_id_, "remote-tiff", page_, source_url_ + ".png");
+        std::vector<uint8_t> png_bytes = DecodeDataUrlBytes(png_base64);
+        if (png_bytes.empty()) {
+          callback_->Failure(0, "Failed to prepare decoded TIFF image");
+          return;
+        }
+        otf::RegisterImageContentBytes(token, std::move(png_bytes), "image/png");
+        display_url = "browser://image-preview/content/" + token;
+        if (!thumbnail_request_) {
+          h->SetImagePreviewPageForTab(tab_id_, page_);
+          h->SetImagePreviewPageCountForTab(tab_id_, page_count);
+        }
         h->SetImagePreviewFileSizeForTab(tab_id_, static_cast<int64_t>(raw_bytes_.size()));
         h->SetImagePreviewFormatForTab(tab_id_, "TIFF");
-        h->tab_image_preview_download_cache_[tab_id_] = OtfHandler::ImagePreviewDownloadCache{
-            source_url_, mime_type, raw_bytes_, png_base64,
-            static_cast<int64_t>(raw_bytes_.size()), page_, page_count, true};
-        h->tab_image_preview_render_cache_[tab_id_] =
-            OtfHandler::ImagePreviewRenderCache{source_url_, png_base64, page_, page_count};
+        if (!thumbnail_request_) {
+          h->tab_image_preview_download_cache_[tab_id_] =
+              OtfHandler::ImagePreviewDownloadCache{
+                  source_url_, mime_type, raw_bytes_, display_url,
+                  static_cast<int64_t>(raw_bytes_.size()), page_, page_count, true};
+          h->tab_image_preview_render_cache_[tab_id_] =
+              OtfHandler::ImagePreviewRenderCache{source_url_, display_url, page_, page_count};
+        }
       }
       callback_->Success(JsonObjectBuilder()
-                             .AddString("displayUrl", png_base64)
+                             .AddString("displayUrl", display_url)
                              .AddInt("pageCount", page_count)
                              .AddInt("currentPage", page_)
                              .AddInt("fileSizeBytes",
@@ -1927,18 +2004,23 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
       return;
     }
 
-    const std::string data_url = GetDataURI(raw_bytes_, mime_type);
+    std::string display_url;
     if (h && tab_id_ != -1) {
+      const std::string token =
+          BuildImageContentToken(tab_id_, "remote", 0, source_url_);
+      std::vector<uint8_t> image_bytes(raw_bytes_.begin(), raw_bytes_.end());
+      otf::RegisterImageContentBytes(token, std::move(image_bytes), mime_type);
+      display_url = "browser://image-preview/content/" + token;
       h->SetImagePreviewFileSizeForTab(tab_id_, static_cast<int64_t>(raw_bytes_.size()));
       h->SetImagePreviewFormatForTab(tab_id_, preview_format);
       h->tab_image_preview_download_cache_[tab_id_] = OtfHandler::ImagePreviewDownloadCache{
-          source_url_, mime_type, raw_bytes_, data_url,
+          source_url_, mime_type, raw_bytes_, display_url,
           static_cast<int64_t>(raw_bytes_.size()), 0, 1, false};
       h->tab_image_preview_render_cache_[tab_id_] =
-          OtfHandler::ImagePreviewRenderCache{source_url_, data_url, 0, 1};
+          OtfHandler::ImagePreviewRenderCache{source_url_, display_url, 0, 1};
     }
     callback_->Success(JsonObjectBuilder()
-                           .AddString("displayUrl", data_url)
+                           .AddString("displayUrl", display_url)
                            .AddInt("pageCount", 1)
                            .AddInt("currentPage", 0)
                            .AddInt("fileSizeBytes",
@@ -2027,6 +2109,7 @@ class OtfTiffDecodeClient : public CefURLRequestClient {
   int page_;
   int tab_id_;
   uint64_t decode_nonce_;
+  bool thumbnail_request_;
   bool is_tiff_;
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback_;
   std::string raw_bytes_;
@@ -2049,6 +2132,7 @@ static void ApplyJsPermission(CefBrowserSettings& settings,
     settings.javascript = STATE_DISABLED;
   }
 }
+
 
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
@@ -2226,24 +2310,40 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("image-preview-meta:", 0) == 0) {
       const std::string prefix = "image-preview-meta:";
+      int explicit_tab_id = -1;
       int width = 0;
       int height = 0;
       const size_t second_colon = msg.find(':', prefix.size());
       if (second_colon != std::string::npos) {
-        const auto width_opt = ParseIntStrict(
-            std::string_view(msg).substr(prefix.size(), second_colon - prefix.size()));
-        const auto height_opt = ParseIntStrict(
-            std::string_view(msg).substr(second_colon + 1));
-        if (width_opt && height_opt && *width_opt >= 0 && *height_opt >= 0) {
-          width = *width_opt;
-          height = *height_opt;
+        const size_t third_colon = msg.find(':', second_colon + 1);
+        if (third_colon != std::string::npos) {
+          const auto tab_opt = ParseIntStrict(
+              std::string_view(msg).substr(prefix.size(), second_colon - prefix.size()));
+          const auto width_opt = ParseIntStrict(
+              std::string_view(msg).substr(second_colon + 1,
+                                           third_colon - second_colon - 1));
+          const auto height_opt =
+              ParseIntStrict(std::string_view(msg).substr(third_colon + 1));
+          if (tab_opt && *tab_opt >= 0) {
+            explicit_tab_id = *tab_opt;
+          }
+          if (width_opt && height_opt && *width_opt >= 0 && *height_opt >= 0) {
+            width = *width_opt;
+            height = *height_opt;
+          }
+        } else {
+          const auto width_opt = ParseIntStrict(
+              std::string_view(msg).substr(prefix.size(), second_colon - prefix.size()));
+          const auto height_opt = ParseIntStrict(
+              std::string_view(msg).substr(second_colon + 1));
+          if (width_opt && height_opt && *width_opt >= 0 && *height_opt >= 0) {
+            width = *width_opt;
+            height = *height_opt;
+          }
         }
       }
-      OtfApp* app = OtfApp::GetInstance();
-      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
-      if (tab_id == -1 && app) {
-        tab_id = app->GetCurrentTabId();
-      }
+      int tab_id = ResolvePreviewTabId(
+          browser, handler ? handler->tab_manager_ : nullptr, explicit_tab_id);
       if (handler && handler->tab_manager_ && tab_id != -1) {
         handler->tab_manager_->SetImagePreviewDimensions(tab_id, width, height);
         std::string event = handler->BuildImagePreviewLoadEvent(tab_id, false);
@@ -2256,13 +2356,21 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("image-preview-info-visible:", 0) == 0) {
       const std::string prefix = "image-preview-info-visible:";
-      const auto visible_opt = ParseIntStrict(std::string_view(msg).substr(prefix.size()));
-      const bool visible = visible_opt ? (*visible_opt != 0) : true;
-      OtfApp* app = OtfApp::GetInstance();
-      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
-      if (tab_id == -1 && app) {
-        tab_id = app->GetCurrentTabId();
+      int explicit_tab_id = -1;
+      std::string_view visible_payload = std::string_view(msg).substr(prefix.size());
+      const size_t colon = msg.find(':', prefix.size());
+      if (colon != std::string::npos) {
+        const auto tab_opt = ParseIntStrict(
+            std::string_view(msg).substr(prefix.size(), colon - prefix.size()));
+        if (tab_opt && *tab_opt >= 0) {
+          explicit_tab_id = *tab_opt;
+          visible_payload = std::string_view(msg).substr(colon + 1);
+        }
       }
+      const auto visible_opt = ParseIntStrict(visible_payload);
+      const bool visible = visible_opt ? (*visible_opt != 0) : true;
+      int tab_id = ResolvePreviewTabId(
+          browser, handler ? handler->tab_manager_ : nullptr, explicit_tab_id);
       if (handler && handler->tab_manager_ && tab_id != -1) {
         handler->tab_manager_->SetImagePreviewInfoVisible(tab_id, visible);
         std::string event = handler->BuildImagePreviewLoadEvent(tab_id, false);
@@ -2273,16 +2381,22 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "image-preview-refresh") {
+    if (msg == "image-preview-refresh" ||
+        msg.rfind("image-preview-refresh:", 0) == 0) {
       // One-shot fetch of the current preview state. Used by the renderer
       // when document.visibilityState flips back to "visible" so the JSX
       // can recover even if CEF cancelled the persistent subscription
       // (or the renderer was reloaded) while the tab was hidden.
-      OtfApp* app = OtfApp::GetInstance();
-      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
-      if (tab_id == -1 && app) {
-        tab_id = app->GetCurrentTabId();
+      int explicit_tab_id = -1;
+      if (msg.rfind("image-preview-refresh:", 0) == 0) {
+        const auto tab_opt = ParseIntStrict(
+            std::string_view(msg).substr(std::strlen("image-preview-refresh:")));
+        if (tab_opt && *tab_opt >= 0) {
+          explicit_tab_id = *tab_opt;
+        }
       }
+      int tab_id = ResolvePreviewTabId(
+          browser, handler ? handler->tab_manager_ : nullptr, explicit_tab_id);
       std::string event = (handler && tab_id != -1)
                               ? handler->BuildImagePreviewLoadEvent(tab_id, false)
                               : std::string();
@@ -2554,11 +2668,21 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("download-image:", 0) == 0) {
       std::string download_url = msg.substr(15);
+      int explicit_tab_id = -1;
+      const size_t tab_colon = msg.find(':', 15);
+      if (tab_colon != std::string::npos) {
+        const auto tab_opt =
+            ParseIntStrict(std::string_view(msg).substr(15, tab_colon - 15));
+        if (tab_opt && *tab_opt >= 0) {
+          explicit_tab_id = *tab_opt;
+          download_url = msg.substr(tab_colon + 1);
+        }
+      }
       int tab_id = -1;
       std::string local_path;
       if (download_url.rfind("browser://image-preview/", 0) == 0 || download_url.empty()) {
         if (handler && handler->tab_manager_) {
-          tab_id = handler->tab_manager_->GetId(browser);
+          tab_id = ResolvePreviewTabId(browser, handler->tab_manager_, explicit_tab_id);
           std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
           if (!mapped_url.empty()) {
             download_url = mapped_url;
@@ -2615,9 +2739,19 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
 
     if (msg.rfind("get-image-size:", 0) == 0) {
       std::string img_url = msg.substr(15);
+      int explicit_tab_id = -1;
+      const size_t tab_colon = msg.find(':', 15);
+      if (tab_colon != std::string::npos) {
+        const auto tab_opt =
+            ParseIntStrict(std::string_view(msg).substr(15, tab_colon - 15));
+        if (tab_opt && *tab_opt >= 0) {
+          explicit_tab_id = *tab_opt;
+          img_url = msg.substr(tab_colon + 1);
+        }
+      }
       if (img_url.rfind("browser://image-preview/", 0) == 0 || img_url.empty()) {
         if (handler && handler->tab_manager_) {
-          int tab_id = handler->tab_manager_->GetId(browser);
+          int tab_id = ResolvePreviewTabId(browser, handler->tab_manager_, explicit_tab_id);
           std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
           if (!mapped_url.empty()) {
             img_url = mapped_url;
@@ -2656,10 +2790,15 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg.rfind("preview-image:", 0) == 0 || msg.rfind("decode-tiff:", 0) == 0) {
+    if (msg.rfind("preview-image:", 0) == 0 ||
+        msg.rfind("preview-image-thumb:", 0) == 0 ||
+        msg.rfind("decode-tiff:", 0) == 0) {
       const bool legacy_decode_request = msg.rfind("decode-tiff:", 0) == 0;
-      const size_t prefix_len = legacy_decode_request ? std::strlen("decode-tiff:")
-                                                      : std::strlen("preview-image:");
+      const bool thumbnail_request = msg.rfind("preview-image-thumb:", 0) == 0;
+      const size_t prefix_len =
+          legacy_decode_request ? std::strlen("decode-tiff:")
+          : thumbnail_request ? std::strlen("preview-image-thumb:")
+                              : std::strlen("preview-image:");
       uint64_t decode_nonce = 0;
       int page_index = 0;
       int explicit_tab_id = -1;
@@ -2762,17 +2901,32 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           std::string error_reason;
           if (DecodeLocalTiffPreview(local_path, page_index, &png_base64,
                                      &page_count, &error_reason)) {
-            handler->SetImagePreviewPageForTab(preview_tab_id, page_index);
-            handler->SetImagePreviewPageCountForTab(preview_tab_id, page_count);
+            if (!thumbnail_request) {
+              handler->SetImagePreviewPageForTab(preview_tab_id, page_index);
+              handler->SetImagePreviewPageCountForTab(preview_tab_id, page_count);
+            }
             const int64_t file_size = GetFileSizeBytes(local_path, &error_reason);
             if (file_size >= 0) {
               handler->SetImagePreviewFileSizeForTab(preview_tab_id, file_size);
               handler->SetImagePreviewFormatForTab(preview_tab_id, "TIFF");
             }
-            handler->tab_image_preview_render_cache_[preview_tab_id] =
-                OtfHandler::ImagePreviewRenderCache{local_path, png_base64, page_index, page_count};
+            const std::string token = BuildImageContentToken(
+                preview_tab_id, "local-tiff", page_index, source_url + ".png");
+            std::vector<uint8_t> png_bytes = DecodeDataUrlBytes(png_base64);
+            if (png_bytes.empty()) {
+              callback->Failure(0, "Failed to prepare decoded TIFF image");
+              return true;
+            }
+            otf::RegisterImageContentBytes(token, std::move(png_bytes), "image/png");
+            const std::string display_url =
+                "browser://image-preview/content/" + token;
+            if (!thumbnail_request) {
+              handler->tab_image_preview_render_cache_[preview_tab_id] =
+                  OtfHandler::ImagePreviewRenderCache{
+                      local_path, display_url, page_index, page_count};
+            }
             callback->Success(JsonObjectBuilder()
-                                  .AddString("displayUrl", png_base64)
+                                  .AddString("displayUrl", display_url)
                                   .AddInt("pageCount", page_count)
                                   .AddInt("currentPage", page_index)
                                   .AddInt("fileSizeBytes", file_size >= 0
@@ -2805,7 +2959,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           decode_request->SetMethod("GET");
           decode_request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_NO_RETRY_ON_5XX);
           CefRefPtr<OtfTiffDecodeClient> client =
-              new OtfTiffDecodeClient(source_url, page_index, preview_tab_id, decode_nonce, callback);
+              new OtfTiffDecodeClient(source_url, page_index, preview_tab_id,
+                                      decode_nonce, thumbnail_request, callback);
           CefURLRequest::Create(decode_request, client, request_context);
           return true;
         }
@@ -4937,6 +5092,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             }
             handler->NotifyNewTab(new_id, -1);
             app->SwitchTab(new_id);
+            CefPostTask(TID_UI, new DeferredImagePreviewPushTask(new_id));
+            CefPostDelayedTask(TID_UI, new DeferredImagePreviewPushTask(new_id), 100);
+            CefPostDelayedTask(TID_UI, new DeferredImagePreviewPushTask(new_id), 300);
           }
         } else if (otf::IsSupportedDocumentUrl(path)) {
           OtfApp* app = OtfApp::GetInstance();
@@ -8196,6 +8354,7 @@ bool OtfHandler::OnCertificateError(CefRefPtr<CefBrowser> browser,
 }
 
 void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
+  otf::UnregisterImageContentForTab(tab_id);
   tab_image_preview_urls_[tab_id] = url;
   tab_image_preview_local_files_.erase(tab_id);
   tab_image_preview_file_sizes_.erase(tab_id);
@@ -8211,6 +8370,9 @@ void OtfHandler::SetImagePreviewUrlForTab(int tab_id, const std::string& url) {
   // image was loaded, page index from the previous TIFF is meaningless.
   tab_image_preview_pages_[tab_id] = 0;
   tab_image_preview_page_counts_[tab_id] = 1;
+  if (!url.empty()) {
+    CefPostTask(TID_UI, new DeferredImagePreviewPushTask(tab_id));
+  }
 }
 
 void OtfHandler::ClearInlineImagePreviewForTab(int tab_id) {
@@ -8230,6 +8392,7 @@ void OtfHandler::SetImagePreviewLocalFileForTab(
     int tab_id,
     const std::string& public_url,
     const std::string& file_path) {
+  otf::UnregisterImageContentForTab(tab_id);
   tab_image_preview_urls_[tab_id] = public_url;
   tab_image_preview_local_files_[tab_id] = file_path;
   tab_image_preview_file_sizes_.erase(tab_id);
@@ -8243,6 +8406,9 @@ void OtfHandler::SetImagePreviewLocalFileForTab(
   }
   tab_image_preview_pages_[tab_id] = 0;
   tab_image_preview_page_counts_[tab_id] = 1;
+  if (!public_url.empty() && !file_path.empty()) {
+    CefPostTask(TID_UI, new DeferredImagePreviewPushTask(tab_id));
+  }
 }
 
 void OtfHandler::SetImagePreviewFileSizeForTab(int tab_id, int64_t file_size_bytes) {
@@ -8506,6 +8672,19 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
         recently_closed_tabs_.pop_back();
       }
     }
+    if (is_image_preview) {
+      tab_image_preview_subscriptions_.erase(tab_id);
+      tab_image_preview_urls_.erase(tab_id);
+      tab_image_preview_local_files_.erase(tab_id);
+      tab_image_preview_file_sizes_.erase(tab_id);
+      tab_image_preview_formats_.erase(tab_id);
+      tab_image_preview_render_cache_.erase(tab_id);
+      tab_image_preview_download_cache_.erase(tab_id);
+      tab_image_preview_pages_.erase(tab_id);
+      tab_image_preview_page_counts_.erase(tab_id);
+      tab_image_preview_decode_nonces_.erase(tab_id);
+      otf::UnregisterImageContentForTab(tab_id);
+    }
   }
   app->CloseTab(tab_id);
   if (closed_split_tab) {
@@ -8629,10 +8808,18 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
         std::string error_reason;
         if (DecodeLocalTiffPreview(local_path, page, &png_base64,
                                    &decoded_page_count, &error_reason)) {
-          payload.display_url = png_base64;
+          const std::string token = BuildImageContentToken(
+              tab_id, "local-tiff", page, url + ".png");
+          std::vector<uint8_t> png_bytes = DecodeDataUrlBytes(png_base64);
+          if (!png_bytes.empty()) {
+            otf::RegisterImageContentBytes(token, std::move(png_bytes), "image/png");
+            payload.display_url = "browser://image-preview/content/" + token;
+          } else {
+            payload.display_url.clear();
+          }
           payload.page_count = decoded_page_count;
           tab_image_preview_render_cache_[tab_id] =
-              ImagePreviewRenderCache{local_path, png_base64, page, decoded_page_count};
+              ImagePreviewRenderCache{local_path, payload.display_url, page, decoded_page_count};
           SetImagePreviewPageForTab(tab_id, page);
           SetImagePreviewPageCountForTab(tab_id, decoded_page_count);
         } else {
@@ -8653,8 +8840,7 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
               .Build();
         }
       } else if (otf::IsSupportedImageUrl(local_path)) {
-        auto file_bytes = otf::ReadFileBinary(local_path);
-        if (!file_bytes) {
+        if (!std::filesystem::exists(local_path)) {
           return JsonObjectBuilder()
               .AddString("key", "load-image")
               .AddString("url", url)
@@ -8669,17 +8855,22 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
               .AddString("error", "Failed to open downloaded image")
               .Build();
         }
-        std::string raw_bytes(file_bytes->begin(), file_bytes->end());
         std::string mime_type = GuessImageMimeType(local_path);
-        const std::string data_url = GetDataURI(raw_bytes, mime_type);
-        payload.display_url = data_url;
+        const std::string token =
+            BuildImageContentToken(tab_id, "local", 0, local_path);
+        otf::RegisterImageContent(token, local_path, mime_type);
+        payload.display_url = "browser://image-preview/content/" + token;
         payload.page_count = 1;
         tab_image_preview_render_cache_[tab_id] =
-            ImagePreviewRenderCache{local_path, data_url, 0, 1};
+            ImagePreviewRenderCache{local_path, payload.display_url, 0, 1};
         SetImagePreviewPageForTab(tab_id, 0);
         SetImagePreviewPageCountForTab(tab_id, 1);
         SetImagePreviewFormatForTab(tab_id, GuessPreviewFormat(local_path));
-        SetImagePreviewFileSizeForTab(tab_id, static_cast<int64_t>(raw_bytes.size()));
+        std::string size_error;
+        const int64_t file_size = GetFileSizeBytes(local_path, &size_error);
+        if (file_size >= 0) {
+          SetImagePreviewFileSizeForTab(tab_id, file_size);
+        }
       } else {
         payload.display_url.clear();
         payload.page_count = 1;
@@ -8713,13 +8904,21 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
           if (otf::DecodeTiffBufferToPngBase64(cache.raw_bytes.data(),
                                                cache.raw_bytes.size(), page,
                                                png_base64, decoded_page_count)) {
-            cache.display_url = png_base64;
+            const std::string token = BuildImageContentToken(
+                tab_id, "remote-tiff", page, url + ".png");
+            std::vector<uint8_t> png_bytes = DecodeDataUrlBytes(png_base64);
+            if (!png_bytes.empty()) {
+              otf::RegisterImageContentBytes(token, std::move(png_bytes), "image/png");
+              cache.display_url = "browser://image-preview/content/" + token;
+            } else {
+              cache.display_url.clear();
+            }
             cache.page = page;
             cache.page_count = decoded_page_count;
-            payload.display_url = png_base64;
+            payload.display_url = cache.display_url;
             payload.page_count = decoded_page_count;
             tab_image_preview_render_cache_[tab_id] =
-                ImagePreviewRenderCache{url, png_base64, page, decoded_page_count};
+                ImagePreviewRenderCache{url, cache.display_url, page, decoded_page_count};
             SetImagePreviewPageForTab(tab_id, page);
             SetImagePreviewPageCountForTab(tab_id, decoded_page_count);
           } else {
@@ -8760,7 +8959,8 @@ std::string OtfHandler::BuildImagePreviewLoadEvent(int tab_id, bool bump_decode_
     file_size_bytes = GetFileSizeBytes(local_path, &size_error);
     if (file_size_bytes >= 0) {
       SetImagePreviewFileSizeForTab(tab_id, file_size_bytes);
-      SetImagePreviewFormatForTab(tab_id, "TIFF");
+      SetImagePreviewFormatForTab(
+          tab_id, otf::IsTiffUrl(local_path) ? "TIFF" : GuessPreviewFormat(local_path));
     }
   }
   if (file_size_bytes < 0) {

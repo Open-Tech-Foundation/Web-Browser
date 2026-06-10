@@ -35,6 +35,11 @@ const ImagePreview = () => {
   const scaleRef = useRef(1);
   const posRef = useRef({ x: 0, y: 0 });
 
+  const withPreviewTabId = (command, value = '') => {
+    const tabId = previewTabIdRef.current;
+    return tabId >= 0 ? `${command}:${tabId}:${value}` : `${command}:${value}`;
+  };
+
   const applyLoadedImageMeta = (ev) => {
     if (!ev || ev.key !== 'load-image') return;
     if (typeof ev.naturalWidth === 'number' && ev.naturalWidth >= 0) {
@@ -177,8 +182,9 @@ const ImagePreview = () => {
     const refresh = () => {
       if (hasSnapshotRef.current) return;
       if (!window.cefQuery) return;
+      const tabId = previewTabIdRef.current;
       window.cefQuery({
-        request: 'image-preview-refresh',
+        request: tabId >= 0 ? `image-preview-refresh:${tabId}` : 'image-preview-refresh',
         onSuccess: (json) => {
           try {
             const ev = JSON.parse(json);
@@ -301,7 +307,7 @@ const ImagePreview = () => {
 
     if (window.cefQuery) {
       window.cefQuery({
-        request: `get-image-size:${url}`,
+        request: withPreviewTabId('get-image-size', url),
         onSuccess: (sizeStr) => {
           if (hasBackendInfoRef.current) {
             return;
@@ -411,7 +417,7 @@ const ImagePreview = () => {
       const nonce = Date.now() + p;
       nonces.push(nonce);
       window.cefQuery({
-        request: `preview-image:${nonce}:${p}${tabIdPrefix}:${url}`,
+        request: `preview-image-thumb:${nonce}:${p}${tabIdPrefix}:${url}`,
         onSuccess: (json) => {
           if (cancelled) return;
           try {
@@ -540,7 +546,9 @@ const ImagePreview = () => {
     const width = e.target.naturalWidth || 0;
     const height = e.target.naturalHeight || 0;
     window.cefQuery({
-      request: `image-preview-meta:${width}:${height}`,
+      request: previewTabIdRef.current >= 0
+        ? `image-preview-meta:${previewTabIdRef.current}:${width}:${height}`
+        : `image-preview-meta:${width}:${height}`,
       onSuccess: (json) => {
         try {
           const ev = JSON.parse(json);
@@ -572,7 +580,9 @@ const ImagePreview = () => {
   const setInfoVisible = (visible) => {
     if (!window.cefQuery) return;
     window.cefQuery({
-      request: `image-preview-info-visible:${visible ? 1 : 0}`,
+      request: previewTabIdRef.current >= 0
+        ? `image-preview-info-visible:${previewTabIdRef.current}:${visible ? 1 : 0}`
+        : `image-preview-info-visible:${visible ? 1 : 0}`,
       onSuccess: (json) => {
         try {
           const ev = JSON.parse(json);
@@ -586,7 +596,7 @@ const ImagePreview = () => {
 
   const handleSave = () => {
     if (window.cefQuery) {
-      window.cefQuery({ request: 'download-image:' + url });
+      window.cefQuery({ request: withPreviewTabId('download-image', url) });
       showToast("Starting image download...");
     }
   };

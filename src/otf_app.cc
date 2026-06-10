@@ -508,6 +508,33 @@ std::map<std::string, DocContentEntry>& GetDocContentMap() {
   return instance;
 }
 
+struct ImageContentEntry {
+  int tab_id = -1;
+  std::string path;
+  std::vector<uint8_t> bytes;
+  std::string mime;
+};
+std::map<std::string, ImageContentEntry>& GetImageContentMap() {
+  static std::map<std::string, ImageContentEntry> instance;
+  return instance;
+}
+
+int ParseLeadingTabId(const std::string& token) {
+  const size_t slash = token.find('/');
+  if (slash == std::string::npos || slash == 0) {
+    return -1;
+  }
+  int tab_id = 0;
+  for (size_t i = 0; i < slash; ++i) {
+    const char c = token[i];
+    if (c < '0' || c > '9') {
+      return -1;
+    }
+    tab_id = tab_id * 10 + (c - '0');
+  }
+  return tab_id;
+}
+
 class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
  public:
   CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser> browser,
@@ -547,6 +574,8 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
             ? cmd->GetSwitchValue("dev-ui-url").ToString()
             : std::string();
     const bool is_image_preview_route = authority == "image-preview";
+    const bool is_image_preview_content =
+        is_image_preview_route && path.rfind("content/", 0) == 0;
     const bool is_image_preview_asset =
         is_image_preview_route && path.rfind("assets/", 0) == 0;
     const bool is_doc_preview_route = authority == "doc-preview";
@@ -567,6 +596,29 @@ class BrowserSchemeHandlerFactory : public CefSchemeHandlerFactory {
         }
         // Served straight from memory — no disk round-trip. Copy so the map
         // keeps its bytes for repeat/range requests from the PDF viewer.
+        return MakeBytesResponse(
+            it->second.mime.empty() ? "application/octet-stream"
+                                    : it->second.mime,
+            it->second.bytes);
+      }
+      return MakeNotFound();
+    }
+
+    if (is_image_preview_content) {
+      const std::string token = path.substr(8); // skip "content/"
+      auto& content_map = GetImageContentMap();
+      auto it = content_map.find(token);
+      if (it != content_map.end()) {
+        if (!it->second.path.empty()) {
+          auto bytes = otf::ReadFileBinary(it->second.path);
+          if (!bytes) {
+            return MakeNotFound();
+          }
+          return MakeBytesResponse(
+              it->second.mime.empty() ? "application/octet-stream"
+                                      : it->second.mime,
+              std::move(*bytes));
+        }
         return MakeBytesResponse(
             it->second.mime.empty() ? "application/octet-stream"
                                     : it->second.mime,
@@ -687,6 +739,32 @@ void UnregisterDocContent(const std::string& token) {
   GetDocContentMap().erase(token);
 }
 
+void RegisterImageContent(const std::string& token,
+                          const std::string& file_path,
+                          const std::string& mime) {
+  const int tab_id = ParseLeadingTabId(token);
+  GetImageContentMap()[token] = ImageContentEntry{tab_id, file_path, {}, mime};
+}
+
+void RegisterImageContentBytes(const std::string& token,
+                               std::vector<uint8_t> bytes,
+                               const std::string& mime) {
+  const int tab_id = ParseLeadingTabId(token);
+  GetImageContentMap()[token] =
+      ImageContentEntry{tab_id, {}, std::move(bytes), mime};
+}
+
+void UnregisterImageContentForTab(int tab_id) {
+  auto& content_map = GetImageContentMap();
+  for (auto it = content_map.begin(); it != content_map.end();) {
+    if (it->second.tab_id == tab_id) {
+      it = content_map.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 OtfApp::OtfApp() {
   DCHECK(!g_app_instance);
   g_app_instance = this;
@@ -710,6 +788,10 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
   // chrome-sandbox SUID bit.
   // Remote-debugging switches are blocked (fatal) because they open a network
   // attack surface that cannot be safely stripped after CEF processes them.
+  const char* dev_mode = std::getenv("OTF_DEV_MODE");
+  const bool e2e_allow_remote_debugging =
+      dev_mode && dev_mode[0] != '\0' && dev_mode[0] != '0' &&
+      command_line->HasSwitch("e2e-allow-remote-debugging");
   static const std::set<std::string> kBlockedSwitches = {
     "remote-debugging-port", "remote-debugging-pipe", "remote-allow-origins",
   };
@@ -717,7 +799,10 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
     CefCommandLine::SwitchMap all_sw;
     command_line->GetSwitches(all_sw);
     for (const auto& kv : all_sw) {
-      if (kBlockedSwitches.count(kv.first.ToString())) {
+      const std::string switch_name = kv.first.ToString();
+      if (kBlockedSwitches.count(switch_name) &&
+          !(e2e_allow_remote_debugging &&
+            switch_name == "remote-debugging-port")) {
         LOG(FATAL) << "Blocked security-sensitive switch: --" << kv.first.ToString();
         return;
       }
@@ -729,6 +814,8 @@ void OtfApp::OnBeforeCommandLineProcessing(const CefString& process_type,
 #if defined(__linux__)
     "no-sandbox",
 #endif
+    "e2e-allow-remote-debugging",
+    "remote-debugging-port",
   };
 
   CefCommandLine::SwitchMap all_switches;

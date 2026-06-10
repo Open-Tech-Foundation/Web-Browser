@@ -117,6 +117,8 @@ async function waitForPageTarget() {
       item.type === 'page' &&
       item.webSocketDebuggerUrl &&
       (/OTF Browser Shell/i.test(item.title || '') ||
+       item.url === 'browser://shell/' ||
+       item.url === 'browser://shell' ||
        item.url === devUrl ||
        item.url === `${devUrl}/`)
     );
@@ -455,6 +457,7 @@ export async function launchDevBrowser(options = {}) {
   let vite = null;
   let browser = null;
   let cdp = null;
+  const productionUi = options.productionUi || process.env.OTF_E2E_PRODUCTION_UI === '1';
   const ownsProfileRoot = !options.profileRoot;
   const profileRoot = options.profileRoot ||
     await mkdtemp(path.join(os.tmpdir(), 'otf-browser-test-profile-'));
@@ -471,7 +474,7 @@ export async function launchDevBrowser(options = {}) {
       );
     }
 
-    if (process.env.OTF_E2E_SKIP_VITE !== '1') {
+    if (!productionUi && process.env.OTF_E2E_SKIP_VITE !== '1') {
       try {
         await waitForHttp(devUrl, 1000);
       } catch {
@@ -487,15 +490,23 @@ export async function launchDevBrowser(options = {}) {
         ]);
       }
     }
-    await waitForHttp(devUrl, timeoutMs);
+    if (!productionUi) {
+      await waitForHttp(devUrl, timeoutMs);
+    }
 
-    browser = spawnProcess(browserBin, [
+    const browserArgs = [
       '--no-sandbox',
-      `--dev-ui-url=${devUrl}`,
       '--ozone-platform=x11',
       `--user-data-dir=${userDataDir}`,
       `--remote-debugging-port=${cdpPort}`,
-    ], {
+    ];
+    if (!productionUi) {
+      browserArgs.splice(1, 0, `--dev-ui-url=${devUrl}`);
+    } else {
+      browserArgs.push('--e2e-allow-remote-debugging');
+    }
+
+    browser = spawnProcess(browserBin, browserArgs, {
       env: {
         HOME: tempHome,
         OTF_DEV_MODE: '1',

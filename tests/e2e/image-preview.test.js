@@ -218,6 +218,39 @@ serialTest('image preview opens PNG from downloads',
     }
   });
 
+serialTest('image preview opens PNG from downloads with packaged browser scheme',
+  { timeout: timeoutMs + 30000 },
+  async () => {
+    const fixture = BASE_IMAGE_FIXTURES.find((f) => f.name === 'image-preview-png.png');
+    const server = await startStaticServer(imageFixtureServer([fixture]));
+    const browser = await launchDevBrowser({
+      productionUi: true,
+      settings: { downloadsEnabled: true },
+    });
+    let pageCdp = null;
+    let downloadsCdp = null;
+    let previewCdp = null;
+    try {
+      pageCdp = await openFixturePage(browser, server);
+      await clickFixtureDownload(pageCdp, fixture);
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((t) =>
+        (t.title || '') === 'Downloads' || /downloads\.html/i.test(t.url || ''),
+      );
+      await waitFor(downloadsCdp, 'document.body?.innerText || ""', (t) => t.includes(fixture.name), 30000);
+      await openDownloadedPreview(downloadsCdp);
+      previewCdp = await connectRenderedPreview(browser, fixture.format);
+      const previewUrl = await previewCdp.evaluate('location.href');
+      assert.equal(previewUrl.startsWith('browser://image-preview/'), true);
+    } finally {
+      if (previewCdp) previewCdp.close();
+      if (downloadsCdp) downloadsCdp.close();
+      if (pageCdp) pageCdp.close();
+      await browser.close();
+      await server.close();
+    }
+  });
+
 serialTest('image preview opens JPG from downloads',
   { timeout: timeoutMs + 30000 },
   async () => {
@@ -525,9 +558,9 @@ serialTest('image preview opens multi-page TIFF and navigates pages',
         20000,
       );
       await waitFor(previewCdp, 'document.body?.innerText || ""', (t) => t.includes('Pages: 2') && t.includes('Current Page: 1'), 15000);
-      await previewCdp.evaluate(`document.querySelector('button[title="Next Page"]')?.click()`);
+      await previewCdp.evaluate(`document.querySelector('button[title^="Next Page"]')?.click()`);
       await waitFor(previewCdp, 'document.body?.innerText || ""', (t) => t.includes('Current Page: 2'), 15000);
-      await previewCdp.evaluate(`document.querySelector('button[title="Previous Page"]')?.click()`);
+      await previewCdp.evaluate(`document.querySelector('button[title^="Previous Page"]')?.click()`);
       await waitFor(previewCdp, 'document.body?.innerText || ""', (t) => t.includes('Current Page: 1'), 15000);
     } finally {
       if (previewCdp) previewCdp.close();

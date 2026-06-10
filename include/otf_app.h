@@ -273,6 +273,14 @@ bool GetDocContentBytes(const std::string& token,
                         std::string* out_mime);
 void UnregisterDocContent(const std::string& token);
 
+void RegisterImageContent(const std::string& token,
+                          const std::string& file_path,
+                          const std::string& mime);
+void RegisterImageContentBytes(const std::string& token,
+                               std::vector<uint8_t> bytes,
+                               const std::string& mime);
+void UnregisterImageContentForTab(int tab_id);
+
 } // namespace otf
 
 #endif // OTF_BROWSER_APP_H_
