@@ -67,6 +67,14 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
   const visibleIsBookmarked = Boolean(isBookmarked);
   const displayUrl = isFocused ? url : getDisplayUrl(url);
   const currentOrigin = (() => { try { return new URL(url || '', window.location.origin).origin; } catch (_) { return ''; } })();
+  const isSiteDataUrl = (() => {
+    try {
+      const parsed = new URL(url || '', window.location.origin);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch (_) {
+      return false;
+    }
+  })();
   const hasBlockedPopup = Boolean(blockedPopupOrigin) && blockedPopupOrigin === currentOrigin;
 
   return (
@@ -159,7 +167,7 @@ const AddressBar = forwardRef(({ url: initialUrl, tabId, onNavigate, isBookmarke
           </svg>
         </button>
       )}
-      {url && !url.startsWith('browser://') && (
+      {isSiteDataUrl && (
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={onShowClearSiteData}

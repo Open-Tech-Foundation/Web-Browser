@@ -34,6 +34,9 @@ test('user can clear cookies and storage for a site from the clear site data pop
             <main>
               <h1>${uniqueTitle}</h1>
             </main>
+            <script>
+              localStorage.setItem('otf-clear-site-data-e2e', 'stored');
+            </script>
           </body>
         </html>`);
     });
@@ -44,6 +47,7 @@ test('user can clear cookies and storage for a site from the clear site data pop
     let siteDataCdp = null;
     try {
       const pageUrl = `${staticServer.origin}/clear-site-data-e2e`;
+      const pageHost = new URL(staticServer.origin).host;
       await navigateFromAddressBar(browser.cdp, pageUrl);
       pageCdp = await browser.connectToTarget((target) =>
         (target.url || '').startsWith(staticServer.origin) ||
@@ -53,7 +57,9 @@ test('user can clear cookies and storage for a site from the clear site data pop
       await waitFor(
         browser.cdp,
         `document.querySelector('input[placeholder="Search or enter address..."]')?.value || ''`,
-        (value) => value.includes(pageUrl) || value.includes(staticServer.origin),
+        (value) => value.includes(pageUrl) ||
+          value.includes(staticServer.origin) ||
+          value.includes(pageHost),
         15000,
       );
 

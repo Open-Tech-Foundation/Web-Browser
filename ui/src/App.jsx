@@ -457,7 +457,11 @@ const App = () => {
   const handleShowClearSiteData = () => {
     const raw = currentActiveTab?.url || '';
     let origin = '';
-    try { origin = new URL(raw).origin; } catch (_) {}
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+      origin = parsed.origin;
+    } catch (_) {}
     if (!origin) return;
     window.cefQuery({
       request: `show-clear-site-data:${origin}`,

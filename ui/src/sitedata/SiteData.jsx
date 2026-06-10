@@ -1,17 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { formatBytes } from '../shared/format';
-
-const callQuery = (request) => new Promise((resolve) => {
-  if (!window.cefQuery) {
-    resolve({ ok: false, error: 'cefQuery unavailable' });
-    return;
-  }
-  window.cefQuery({
-    request,
-    onSuccess: (response) => resolve({ ok: true, response }),
-    onFailure: (code, msg) => resolve({ ok: false, error: msg || `code ${code}` }),
-  });
-});
+import { createNativeRequestScope, nativeRequest } from '../shared/nativeRequest';
 
 const PERMISSION_LABELS = {
   popup: 'Pop-ups',
@@ -34,10 +23,14 @@ const SiteData = () => {
   const [permissions, setPermissions] = useState({});
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('cookies');
   const [settingBusy, setSettingBusy] = useState({});
   const [jsJustChanged, setJsJustChanged] = useState(false);
   const [crossOrigins, setCrossOrigins] = useState([]);
+  const [revealCookieValues, setRevealCookieValues] = useState(false);
+  const requestScope = useRef(createNativeRequestScope());
   const [selection, setSelection] = useState({
     cookies: true,
     storage: true,
@@ -49,43 +42,48 @@ const SiteData = () => {
     setOrigin(params.get('origin') || '');
   }, []);
 
-  const refresh = async () => {
-    if (!origin) return;
-    const [cookiesRes, storageRes, permsRes, crossRes] = await Promise.all([
-      callQuery(`get-cookies-for-site:${origin}`),
-      callQuery(`get-storage-for-site:${origin}`),
-      callQuery(`get-permissions-for-site:${origin}`),
-      callQuery(`get-cross-origin-resources:${origin}`),
+  const refresh = async (targetOrigin = origin) => {
+    if (!targetOrigin) return;
+    const token = requestScope.current.next();
+    setLoading(true);
+    setLoadError('');
+    const results = await Promise.allSettled([
+      nativeRequest(`get-cookies-for-site:${targetOrigin}`, { parseJson: true }),
+      nativeRequest(`get-storage-for-site:${targetOrigin}`, { parseJson: true }),
+      nativeRequest(`get-permissions-for-site:${targetOrigin}`, { parseJson: true }),
+      nativeRequest(`get-cross-origin-resources:${targetOrigin}`, { parseJson: true }),
     ]);
-    if (cookiesRes.ok) {
-      try { setCookies(JSON.parse(cookiesRes.response)); } catch (_) {}
+    if (!requestScope.current.isCurrent(token)) return;
+    setLoading(false);
+
+    const failures = results.filter((item) => item.status === 'rejected');
+    if (failures.length > 0) {
+      setLoadError(failures.map((item) => item.reason.message).join('; '));
     }
-    if (storageRes.ok) {
-      try { setStorage(JSON.parse(storageRes.response)); }
-      catch (_) { setStorage(null); }
-    } else {
-      setStorage(null);
-    }
-    if (permsRes.ok) {
-      try { setPermissions(JSON.parse(permsRes.response)); } catch (_) {}
-    }
-    if (crossRes.ok) {
-      try { setCrossOrigins(JSON.parse(crossRes.response)); } catch (_) {}
-    }
+
+    if (results[0].status === 'fulfilled') setCookies(Array.isArray(results[0].value) ? results[0].value : []);
+    if (results[1].status === 'fulfilled') setStorage(results[1].value || null);
+    if (results[2].status === 'fulfilled') setPermissions(results[2].value || {});
+    if (results[3].status === 'fulfilled') setCrossOrigins(Array.isArray(results[3].value) ? results[3].value : []);
   };
 
   const setPermission = async (perm, setting) => {
     setSettingBusy((s) => ({ ...s, [perm]: true }));
-    const res = await callQuery(`set-permission-for-site:${origin}:${perm}:${setting}`);
-    setSettingBusy((s) => ({ ...s, [perm]: false }));
-    if (res.ok) {
+    setStatus('');
+    try {
+      await nativeRequest(`set-permission-for-site:${origin}:${perm}:${setting}`);
       setPermissions((p) => ({ ...p, [perm]: setting }));
       if (perm === 'javascript') setJsJustChanged(true);
+    } catch (err) {
+      setStatus(`Failed: ${err.message}`);
+    } finally {
+      setSettingBusy((s) => ({ ...s, [perm]: false }));
     }
   };
 
   useEffect(() => {
     if (origin) refresh();
+    return () => requestScope.current.cancel();
   }, [origin]);
 
   const toggle = (key) => setSelection((s) => ({ ...s, [key]: !s[key] }));
@@ -96,14 +94,14 @@ const SiteData = () => {
     if (kinds.length === 0) return;
     setBusy(true);
     setStatus('');
-    const results = await Promise.all(
-      kinds.map((k) => callQuery(`clear-${k}-for-site:${origin}`))
+    const results = await Promise.allSettled(
+      kinds.map((k) => nativeRequest(`clear-${k}-for-site:${origin}`))
     );
     setBusy(false);
-    const failures = results.filter((r) => !r.ok);
+    const failures = results.filter((r) => r.status === 'rejected');
     setStatus(failures.length === 0
       ? `Cleared ${kinds.join(', ')}`
-      : `Failed: ${failures.map((r) => r.error).join('; ')}`);
+      : `Failed: ${failures.map((r) => r.reason.message).join('; ')}`);
     refresh();
   };
 
@@ -215,7 +213,7 @@ const SiteData = () => {
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={selection.storage} onChange={() => toggle('storage')} disabled={busy} />
-              <span>Storage &amp; cache</span>
+              <span>Storage</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={selection.permissions} onChange={() => toggle('permissions')} disabled={busy} />
@@ -231,6 +229,12 @@ const SiteData = () => {
           </div>
           {status && (
             <div className="text-xs text-slate-600 dark:text-slate-300 mt-3">{status}</div>
+          )}
+          {loadError && (
+            <div className="text-xs text-red-600 dark:text-red-300 mt-2">{loadError}</div>
+          )}
+          {loading && !loadError && (
+            <div className="text-xs text-slate-400 mt-2">Loading current site data...</div>
           )}
         </section>
 
@@ -268,11 +272,24 @@ const SiteData = () => {
           </section>
         )}
 
-        {activeTab === 'cookies' && (
-          <section className="mb-8">
-            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">Cookies</h2>
-            {cookies.length === 0 ? (
-              <div className="text-sm text-slate-400">No cookies set for this origin.</div>
+	        {activeTab === 'cookies' && (
+	          <section className="mb-8">
+	            <div className="flex items-center justify-between gap-3 mb-3">
+	              <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Cookies</h2>
+	              {cookies.length > 0 && (
+	                <button
+	                  type="button"
+	                  onClick={() => setRevealCookieValues((value) => !value)}
+	                  className="px-2 py-1 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
+	                >
+	                  {revealCookieValues ? 'Hide values' : 'Reveal values'}
+	                </button>
+	              )}
+	            </div>
+	            {loading ? (
+	              <div className="text-sm text-slate-400">Loading cookies...</div>
+	            ) : cookies.length === 0 ? (
+	              <div className="text-sm text-slate-400">No cookies set for this origin.</div>
             ) : (
               <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
                 <table className="w-full text-xs">
@@ -289,7 +306,9 @@ const SiteData = () => {
                     {cookies.map((c, i) => (
                       <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                         <td className="px-3 py-2 font-mono break-all max-w-[160px]">{c.name}</td>
-                        <td className="px-3 py-2 font-mono break-all max-w-[200px] text-slate-600 dark:text-slate-400">{c.value}</td>
+	                        <td className="px-3 py-2 font-mono break-all max-w-[200px] text-slate-600 dark:text-slate-400">
+	                          {revealCookieValues ? c.value : '********'}
+	                        </td>
                         <td className="px-3 py-2 font-mono break-all">{c.domain}</td>
                         <td className="px-3 py-2 font-mono break-all">{c.path}</td>
                         <td className="px-3 py-2 font-mono text-slate-500">

@@ -8,6 +8,16 @@ DevToolsBridge::DevToolsBridge() = default;
 DevToolsBridge::~DevToolsBridge() = default;
 
 void DevToolsBridge::Attach(CefRefPtr<CefBrowser> browser) {
+  if (browser_ && browser &&
+      browser_->GetIdentifier() == browser->GetIdentifier() && registration_) {
+    return;
+  }
+  if (!pending_.empty()) {
+    for (auto& [id, cb] : pending_) {
+      if (cb) cb(false, "{\"error\":\"devtools target changed\"}");
+    }
+    pending_.clear();
+  }
   // Drop any prior registration before re-attaching. The CefRegistration
   // destructor disconnects the previous observer.
   registration_ = nullptr;

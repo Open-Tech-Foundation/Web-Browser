@@ -1,18 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import Popup, { usePopupRestore } from '../components/Popup';
 import { formatBytes } from '../shared/format';
-
-const callQuery = (request) => new Promise((resolve) => {
-  if (!window.cefQuery) {
-    resolve({ ok: false, error: 'cefQuery unavailable' });
-    return;
-  }
-  window.cefQuery({
-    request,
-    onSuccess: (response) => resolve({ ok: true, response }),
-    onFailure: (code, msg) => resolve({ ok: false, error: msg || `code ${code}` }),
-  });
-});
+import { createNativeRequestScope, nativeRequest } from '../shared/nativeRequest';
 
 const Spinner = () => (
   <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -85,25 +74,29 @@ const ClearSiteData = () => {
   const [cookieCount, setCookieCount] = useState(null);
   const [storageBytes, setStorageBytes] = useState(null);
   const [selection, setSelection] = useState(defaultSelection);
+  const [error, setError] = useState('');
+  const requestScope = useRef(createNativeRequestScope());
 
   const refreshCounts = async (forOrigin) => {
     const target = forOrigin || origin;
     if (!target) return;
-    // Run both queries in parallel — they're independent.
-    const [cookies, storage] = await Promise.all([
-      callQuery(`get-cookies-for-site:${target}`),
-      callQuery(`get-storage-for-site:${target}`),
+    const token = requestScope.current.next();
+    const [cookies, storage] = await Promise.allSettled([
+      nativeRequest(`get-cookies-for-site:${target}`, { parseJson: true }),
+      nativeRequest(`get-storage-for-site:${target}`, { parseJson: true }),
     ]);
-    if (cookies.ok) {
-      try { setCookieCount(JSON.parse(cookies.response).length); } catch (_) {}
+    if (!requestScope.current.isCurrent(token)) return;
+    if (cookies.status === 'fulfilled') {
+      setCookieCount(Array.isArray(cookies.value) ? cookies.value.length : 0);
+    } else {
+      setCookieCount(null);
+      setError(cookies.reason.message);
     }
-    if (storage.ok) {
-      try {
-        const parsed = JSON.parse(storage.response);
-        setStorageBytes(typeof parsed.usage === 'number' ? parsed.usage : null);
-      } catch (_) { setStorageBytes(null); }
+    if (storage.status === 'fulfilled') {
+      setStorageBytes(typeof storage.value?.usage === 'number' ? storage.value.usage : null);
     } else {
       setStorageBytes(null);
+      setError(storage.reason.message);
     }
   };
 
@@ -117,6 +110,7 @@ const ClearSiteData = () => {
       setSelection(defaultSelection());
       setCookieCount(null);
       setStorageBytes(null);
+      setError('');
       refreshCounts(payload.origin);
     }
   });
@@ -128,21 +122,29 @@ const ClearSiteData = () => {
     const kinds = Object.entries(selection).filter(([, v]) => v).map(([k]) => k);
     if (kinds.length === 0) return;
     setPhase('running');
-    await Promise.all(
-      kinds.map((k) => callQuery(`clear-${k}-for-site:${origin}`))
+    setError('');
+    const results = await Promise.allSettled(
+      kinds.map((k) => nativeRequest(`clear-${k}-for-site:${origin}`))
     );
-    setPhase('done');
+    const failures = results.filter((item) => item.status === 'rejected');
+    if (failures.length > 0) {
+      setError(failures.map((item) => item.reason.message).join('; '));
+      setPhase('error');
+    } else {
+      setPhase('done');
+    }
     refreshCounts(origin);
   };
 
   const openDetails = () => {
     if (!origin) return;
-    window.cefQuery?.({ request: `open-site-data-page:${origin}` });
+    nativeRequest(`open-site-data-page:${origin}`).catch((err) => setError(err.message));
   };
 
   const anyChecked = selection.cookies || selection.storage || selection.permissions;
   const busy = phase === 'running';
   const done = phase === 'done';
+  const failed = phase === 'error';
 
   return (
     <Popup name="cleardata" title="Clear site data">
@@ -178,7 +180,7 @@ const ClearSiteData = () => {
             }
           />
           <CategoryRow
-            label="Storage & Cache"
+            label="Storage"
             detail={storageBytes === null ? 'Calculating…' : `${formatBytes(storageBytes)} used`}
             color="blue"
             checked={selection.storage}
@@ -213,15 +215,23 @@ const ClearSiteData = () => {
             disabled={!origin || busy || !anyChecked}
             onClick={clearSelected}
             className={`w-full py-3 rounded-xl text-white disabled:opacity-40 font-semibold text-[12.5px] tracking-wide flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer active:scale-[0.98] ${
-              done
+              failed
+                ? 'bg-red-500 hover:bg-red-600'
+                : done
                 ? 'bg-emerald-500 hover:bg-emerald-600'
                 : 'bg-brand-orange hover:bg-brand-orange/90'
             }`}
           >
             {busy ? (<><Spinner /> Clearing…</>)
+              : failed ? 'Failed'
               : done ? (<><Check /> Cleared</>)
               : 'Clear Selected Data'}
           </button>
+          {error && (
+            <div className="text-[10.5px] leading-relaxed text-red-600 dark:text-red-300 text-center">
+              {error}
+            </div>
+          )}
           <button
             disabled={!origin}
             onClick={openDetails}
