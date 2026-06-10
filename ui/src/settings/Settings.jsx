@@ -253,26 +253,20 @@ const Settings = () => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: 'get-settings',
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            setSelectedEngine(settings.searchEngine || '');
-            setSearchEngine(settings.searchEngine || '');
-            setCustomEngines(settings.customSearchEngines || []);
-            setHistoryEnabled(settings.historyEnabled || false);
-            setDownloadsEnabled(settings.downloadsEnabled || false);
-            setStartupBehavior(settings.startupBehavior || 'newtab');
-            setStartupUrls(settings.startupUrls || []);
-            setHttpsOnly(settings.httpsOnly || false);
+      nativeRequest({ method: 'settings.get' })
+        .then((settings) => {
+          setSelectedEngine(settings.searchEngine || '');
+          setSearchEngine(settings.searchEngine || '');
+          setCustomEngines(settings.customSearchEngines || []);
+          setHistoryEnabled(settings.historyEnabled || false);
+          setDownloadsEnabled(settings.downloadsEnabled || false);
+          setStartupBehavior(settings.startupBehavior || 'newtab');
+          setStartupUrls(settings.startupUrls || []);
+          setHttpsOnly(settings.httpsOnly || false);
 
-            setAppearanceMode(settings.appearanceMode || 'auto');
-          } catch (e) {
-            console.error('Failed to parse settings:', e);
-          }
-        }
-      });
+          setAppearanceMode(settings.appearanceMode || 'auto');
+        })
+        .catch((e) => console.error('Failed to load settings:', e));
       window.cefQuery({
         request: 'get-storage-paths',
         onSuccess: (response) => {
@@ -346,8 +340,9 @@ const Settings = () => {
 
   const saveSettings = (updates) => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: `set-settings:${JSON.stringify({
+      nativeRequest({
+        method: 'settings.set',
+        params: {
           searchEngine: selectedEngine || null,
           historyEnabled,
           downloadsEnabled,
@@ -358,9 +353,10 @@ const Settings = () => {
           appearanceMode,
           customSearchEngines: customEngines,
           ...updates
-        })}`,
-        onSuccess: () => console.log('Settings saved')
-      });
+        },
+      })
+        .then(() => console.log('Settings saved'))
+        .catch((e) => console.error('Failed to save settings:', e));
     }
   };
 

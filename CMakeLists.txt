@@ -76,6 +76,7 @@ set(OTF_BROWSER_SRCS
     src/otf_native_rpc.cc
     src/otf_page_policy.cc
     src/otf_popup_overlay.cc
+    src/otf_settings_rpc.cc
     src/otf_site_data_rpc.cc
     src/otf_store.cc
     src/otf_utils.cc
@@ -90,6 +91,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_native_rpc.h
     include/otf_page_policy.h
     include/otf_popup_overlay.h
+    include/otf_settings_rpc.h
     include/otf_site_data_rpc.h
     include/otf_browser_shell.h
     include/otf_store.h

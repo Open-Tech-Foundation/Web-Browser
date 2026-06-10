@@ -3,6 +3,7 @@
 #include "otf_clear_data_rpc.h"
 #include "otf_keyboard_shortcuts.h"
 #include "otf_native_rpc.h"
+#include "otf_settings_rpc.h"
 #include "otf_site_data_rpc.h"
 
 #include <algorithm>
@@ -2338,6 +2339,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandleClearDataRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandleSettingsRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
