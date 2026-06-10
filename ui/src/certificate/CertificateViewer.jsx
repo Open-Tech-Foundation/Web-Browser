@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 const CertificateViewer = () => {
   const [certData, setCertData] = useState(null);
@@ -89,15 +90,9 @@ const CertificateViewer = () => {
 
     if (window.cefQuery) {
       // Get initial settings for theme
-      window.cefQuery({
-        request: 'get-settings',
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            setAppearanceMode(settings.appearanceMode || 'auto');
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
+        .catch(() => {});
 
       window.cefQuery({
         request: 'certificate-subscribe',

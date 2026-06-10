@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 export default function Bookmarks() {
   const [items, setItems] = useState([]);
@@ -36,15 +37,9 @@ export default function Bookmarks() {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: "get-settings",
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            setAppearanceMode(settings.appearanceMode || 'auto');
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
+        .catch(() => {});
     }
   }, []);
 

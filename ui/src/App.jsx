@@ -3,7 +3,7 @@ import AddressBar from './components/AddressBar';
 import TabStrip from './components/TabStrip';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { resolveUrl } from './shared/search';
-import { nativeRequest } from './shared/nativeRequest';
+import { getNativeSettings, nativeRequest } from './shared/nativeRequest';
 import './styles/App.css';
 
 const BROWSER_SCHEME = {
@@ -208,17 +208,13 @@ const App = () => {
         onSuccess: (value) => setGuestSession(value === 'true'),
       });
       // Load settings
-      window.cefQuery({
-        request: "get-settings",
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            setSearchEngine(settings.searchEngine || '');
-            setCustomEngines(settings.customSearchEngines || []);
-            setAppearanceMode(settings.appearanceMode || 'auto');
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((settings) => {
+          setSearchEngine(settings.searchEngine || '');
+          setCustomEngines(settings.customSearchEngines || []);
+          setAppearanceMode(settings.appearanceMode || 'auto');
+        })
+        .catch(() => {});
 
       // Subscribe to real-time events from the browser engine
       window.cefQuery({
@@ -365,16 +361,12 @@ const App = () => {
 
         if (finalUrl === BROWSER_SCHEME.SETTINGS) {
           setTimeout(() => {
-            window.cefQuery({
-              request: "get-settings",
-              onSuccess: (response) => {
-                try {
-                  const settings = JSON.parse(response);
-                  setSearchEngine(settings.searchEngine || '');
-                  setCustomEngines(settings.customSearchEngines || []);
-                } catch (e) {}
-              }
-            });
+            getNativeSettings()
+              .then((settings) => {
+                setSearchEngine(settings.searchEngine || '');
+                setCustomEngines(settings.customSearchEngines || []);
+              })
+              .catch(() => {});
           }, 1000);
         }
       };

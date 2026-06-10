@@ -57,6 +57,8 @@ export const nativeRequest = (request, options = {}) => new Promise((resolve, re
   });
 });
 
+export const getNativeSettings = () => nativeRequest({ method: 'settings.get' });
+
 export const createNativeRequestScope = () => {
   let version = 0;
   return {

@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect, useState } from 'react';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 const InsecureBlocked = () => {
   const [appearanceMode, setAppearanceMode] = useState('auto');
@@ -20,17 +21,13 @@ const InsecureBlocked = () => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: "get-settings",
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            const mode = settings.appearanceMode || 'auto';
-            setAppearanceMode(mode);
-            applyTheme(mode);
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((settings) => {
+          const mode = settings.appearanceMode || 'auto';
+          setAppearanceMode(mode);
+          applyTheme(mode);
+        })
+        .catch(() => {});
     }
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { resolveUrl } from '../shared/search';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 const stateByTab = {};
 
@@ -70,22 +71,18 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: 'get-settings',
-        onSuccess: (response) => {
-          try {
-            const s = JSON.parse(response);
-            setCustomEngines(s.customSearchEngines || []);
-            if (s.searchEngine) {
-               setEngine(s.searchEngine);
-               localStorage.setItem('otf_last_engine', s.searchEngine);
-            } else {
-               localStorage.removeItem('otf_last_engine');
-               setEngine('');
-            }
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((s) => {
+          setCustomEngines(s.customSearchEngines || []);
+          if (s.searchEngine) {
+            setEngine(s.searchEngine);
+            localStorage.setItem('otf_last_engine', s.searchEngine);
+          } else {
+            localStorage.removeItem('otf_last_engine');
+            setEngine('');
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 

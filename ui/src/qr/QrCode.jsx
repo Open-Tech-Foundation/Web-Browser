@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import Popup, { usePopupRestore } from '../components/Popup';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 const stripUtmParams = (rawUrl) => {
   try {
@@ -46,12 +47,9 @@ const QrCodeViewer = () => {
 
   useEffect(() => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: 'get-settings',
-      onSuccess: (res) => {
-        try { setAppearanceMode(JSON.parse(res).appearanceMode || 'auto'); } catch (_) {}
-      },
-    });
+    getNativeSettings()
+      .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
+      .catch(() => {});
   }, []);
 
   // Receive URL from C++ restore producer on every Show()

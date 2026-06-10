@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import SearchHero from './SearchHero';
 import QuickLinks from './QuickLinks';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 const PrivateBadge = () => (
   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 dark:bg-violet-500/20 border border-violet-300 dark:border-violet-500/40 shadow-sm animate-in fade-in duration-500">
@@ -49,15 +50,9 @@ const NewTab = () => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: "get-settings",
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            setAppearanceMode(settings.appearanceMode || 'auto');
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
+        .catch(() => {});
     }
   }, []);
 

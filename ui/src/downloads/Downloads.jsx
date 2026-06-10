@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getNativeSettings } from '../shared/nativeRequest';
 
 const SUPPORTED_IMAGE_FORMATS = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO', 'SVG', 'AVIF', 'TIFF'];
 
@@ -56,15 +57,9 @@ export default function Downloads() {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: "get-settings",
-        onSuccess: (response) => {
-          try {
-            const settings = JSON.parse(response);
-            setAppearanceMode(settings.appearanceMode || 'auto');
-          } catch (e) {}
-        }
-      });
+      getNativeSettings()
+        .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
+        .catch(() => {});
     }
   }, []);
 
