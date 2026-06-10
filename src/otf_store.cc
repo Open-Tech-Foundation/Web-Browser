@@ -2,7 +2,10 @@
 
 #include <ctime>
 #include <filesystem>
+#include <iomanip>
+#include <random>
 #include <set>
+#include <sstream>
 #include <sqlite3.h>
 
 #include "otf_utils.h"
@@ -52,6 +55,26 @@ std::string NormalizeOrigin(const std::string& origin) {
     }
   }
   return origin;
+}
+
+std::string GenerateUuidV4() {
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  std::uniform_int_distribution<uint64_t> dist;
+  uint64_t high = dist(gen);
+  uint64_t low = dist(gen);
+
+  high = (high & 0xffffffffffff0fffULL) | 0x0000000000004000ULL;
+  low = (low & 0x3fffffffffffffffULL) | 0x8000000000000000ULL;
+
+  std::ostringstream out;
+  out << std::hex << std::setfill('0')
+      << std::setw(8) << static_cast<uint32_t>(high >> 32) << "-"
+      << std::setw(4) << static_cast<uint16_t>(high >> 16) << "-"
+      << std::setw(4) << static_cast<uint16_t>(high) << "-"
+      << std::setw(4) << static_cast<uint16_t>(low >> 48) << "-"
+      << std::setw(12) << (low & 0x0000ffffffffffffULL);
+  return out.str();
 }
 
 }  // namespace
@@ -156,6 +179,7 @@ bool OtfStore::RunMigrations() {
       Exec(
           "CREATE TABLE IF NOT EXISTS workspaces ("
           "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "uuid TEXT NOT NULL DEFAULT '',"
           "name TEXT NOT NULL DEFAULT '',"
           "color TEXT NOT NULL DEFAULT '',"
           "position INTEGER NOT NULL DEFAULT 0,"
@@ -196,10 +220,12 @@ bool OtfStore::RunMigrations() {
   if (ws_count == 0) {
     sqlite3_stmt* ins = nullptr;
     if (sqlite3_prepare_v2(db_,
-                           "INSERT INTO workspaces(id, name, color, position, created_at) "
-                           "VALUES(1, 'Default', '', 0, ?);",
+                           "INSERT INTO workspaces(id, uuid, name, color, position, created_at) "
+                           "VALUES(1, ?, 'Default', '', 0, ?);",
                            -1, &ins, nullptr) == SQLITE_OK) {
-      sqlite3_bind_int64(ins, 1, Now());
+      const std::string uuid = GenerateUuidV4();
+      sqlite3_bind_text(ins, 1, uuid.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_int64(ins, 2, Now());
       sqlite3_step(ins);
     }
     sqlite3_finalize(ins);
@@ -327,6 +353,39 @@ bool OtfStore::RunMigrations() {
   // Migration v11: doc preview tabs
   Exec("ALTER TABLE workspace_tabs ADD COLUMN is_doc_preview INTEGER NOT NULL DEFAULT 0;");
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (11);");
+
+  // Migration v12: stable workspace UUIDs for future sync/import/export while
+  // retaining integer local primary keys for joins and foreign keys.
+  Exec("ALTER TABLE workspaces ADD COLUMN uuid TEXT NOT NULL DEFAULT '';");
+  {
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "SELECT id FROM workspaces WHERE uuid = '';",
+                           -1, &stmt, nullptr) == SQLITE_OK) {
+      std::vector<int> ids;
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ids.push_back(sqlite3_column_int(stmt, 0));
+      }
+      sqlite3_finalize(stmt);
+      for (int id : ids) {
+        sqlite3_stmt* update = nullptr;
+        if (sqlite3_prepare_v2(db_, "UPDATE workspaces SET uuid = ? WHERE id = ?;",
+                               -1, &update, nullptr) == SQLITE_OK) {
+          const std::string uuid = GenerateUuidV4();
+          sqlite3_bind_text(update, 1, uuid.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_bind_int(update, 2, id);
+          sqlite3_step(update);
+        }
+        sqlite3_finalize(update);
+      }
+    } else {
+      sqlite3_finalize(stmt);
+    }
+  }
+  if (!Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_uuid "
+            "ON workspaces(uuid);")) {
+    return false;
+  }
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (12);");
 
   return true;
 }
@@ -895,19 +954,14 @@ std::string OtfStore::GetSitePermissionsJson(const std::string& origin) const {
     return "{}";
   }
   sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
-  std::string json = "{";
-  bool first = true;
+  JsonObjectBuilder builder;
   while (sqlite3_step(stmt) == SQLITE_ROW) {
-    if (!first) json += ",";
-    first = false;
     const char* perm = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
     const char* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-    json += "\"" + (perm ? std::string(perm) : "") + "\":\""
-          + (val ? std::string(val) : "") + "\"";
+    builder.AddString(perm ? perm : "", val ? val : "");
   }
   sqlite3_finalize(stmt);
-  json += "}";
-  return json;
+  return builder.Build();
 }
 
 std::string OtfStore::GetSitePermission(const std::string& origin,
@@ -1011,7 +1065,7 @@ std::vector<Workspace> OtfStore::GetWorkspaces() const {
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(
           db_,
-          "SELECT id, name, color, position, created_at FROM workspaces "
+          "SELECT id, uuid, name, color, position, created_at FROM workspaces "
           "ORDER BY position ASC, id ASC;",
           -1, &stmt, nullptr) != SQLITE_OK) {
     return out;
@@ -1019,12 +1073,14 @@ std::vector<Workspace> OtfStore::GetWorkspaces() const {
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     Workspace w;
     w.id = sqlite3_column_int(stmt, 0);
-    const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+    const char* uuid = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+    w.uuid = uuid ? uuid : "";
+    const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
     w.name = name ? name : "";
-    const char* color = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+    const char* color = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
     w.color = color ? color : "";
-    w.position = sqlite3_column_int(stmt, 3);
-    w.created_at = sqlite3_column_int64(stmt, 4);
+    w.position = sqlite3_column_int(stmt, 4);
+    w.created_at = sqlite3_column_int64(stmt, 5);
     out.push_back(w);
   }
   sqlite3_finalize(stmt);
@@ -1046,14 +1102,17 @@ int OtfStore::CreateWorkspace(const std::string& name, const std::string& color)
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(
           db_,
-          "INSERT INTO workspaces(name, color, position, created_at) VALUES(?, ?, ?, ?);",
+          "INSERT INTO workspaces(uuid, name, color, position, created_at) "
+          "VALUES(?, ?, ?, ?, ?);",
           -1, &stmt, nullptr) != SQLITE_OK) {
     return 0;
   }
-  sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt, 2, color.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmt, 3, position);
-  sqlite3_bind_int64(stmt, 4, Now());
+  const std::string uuid = GenerateUuidV4();
+  sqlite3_bind_text(stmt, 1, uuid.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, color.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmt, 4, position);
+  sqlite3_bind_int64(stmt, 5, Now());
   const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
   sqlite3_finalize(stmt);
   if (!ok) return 0;

@@ -100,6 +100,14 @@ static int RunApp(int argc, char* argv[]) {
   // Apply any pending storage path changes before CEF initializes.
   otf::ApplyPendingPathsOnStartup();
 
+  // Freeze runtime storage paths so mid-session changes don't take effect.
+  // Everything below (including the CEF cache layout) reads the active paths.
+  otf::LockStoragePaths();
+
+  // Relocate workspace contexts created by older builds (<cache>/workspaces)
+  // under the CEF cache root so their data survives and stops leaking disk.
+  otf::MigrateLegacyWorkspaceCacheDirs();
+
   CefSettings settings;
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
   settings.uncaught_exception_stack_size = 50;
@@ -116,14 +124,8 @@ static int RunApp(int argc, char* argv[]) {
   settings.no_sandbox = true;
 #endif
 
-  // Determine cache path: use user-configured cacheDir if set, otherwise default.
-  std::filesystem::path app_cache;
-  const auto configured_cache = otf::GetConfiguredCacheDir();
-  if (!configured_cache.empty()) {
-    app_cache = configured_cache;
-  } else {
-    app_cache = otf::GetAppCacheDir();
-  }
+  // Active cache path: the user-configured cacheDir if set, otherwise default.
+  const std::filesystem::path app_cache = otf::GetActiveCacheDir();
   const std::filesystem::path app_data = otf::GetAppDataDir();
   const std::string exe_dir = otf::GetExecutableDir();
 
@@ -169,18 +171,21 @@ static int RunApp(int argc, char* argv[]) {
 
   // Point CEF at the platform-correct cache directory so cookies, HTTP cache,
   // and localStorage survive across restarts in a predictable location.
-  // workspace-specific request contexts each get a sub-directory under this.
-  const std::filesystem::path cef_cache = app_cache / "cef";
+  // Profile-specific cache paths must be equal to or children of
+  // root_cache_path: the default workspace uses "Default" and other
+  // workspaces use "workspaces/<id>".
+  const std::filesystem::path cef_cache = otf::GetCefCacheRootDir();
+  const std::filesystem::path default_profile_cache =
+      otf::GetDefaultProfileCefCacheDir();
   if (!cef_cache.empty()) {
 #if defined(_WIN32)
     CefString(&settings.root_cache_path) = cef_cache.wstring();
+    CefString(&settings.cache_path) = default_profile_cache.wstring();
 #else
     CefString(&settings.root_cache_path).FromString(cef_cache.string());
+    CefString(&settings.cache_path).FromString(default_profile_cache.string());
 #endif
   }
-
-  // Freeze runtime storage paths so mid-session changes don't take effect.
-  otf::LockStoragePaths();
 
   LOG(INFO) << "[otf] startup 1/4: cef cache path = " << cef_cache.string();
   LOG(INFO) << "[otf] startup 2/4: calling CefInitialize...";

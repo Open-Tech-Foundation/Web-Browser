@@ -27,6 +27,9 @@ You can download the latest version of OTF Web Browser for your platform from ou
 | **Windows (x64)** | TBD | 🚧 In Progress |
 | **macOS** | TBD | 🚧 In Progress |
 
+> [!IMPORTANT]
+> **Chromium sandbox status:** the `.deb`/`.rpm` packages and the install script enable the full Chromium sandbox automatically (SUID `chrome-sandbox` helper). The **AppImage runs with the sandbox disabled** (`--no-sandbox`) because AppImages cannot ship a SUID helper — prefer the packages, or extract the tarball and run `sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox` next to the binary. The in-progress **Windows builds currently run without the Chromium sandbox** (`cef_sandbox.lib` is not yet linked).
+
 
 
 ## Development

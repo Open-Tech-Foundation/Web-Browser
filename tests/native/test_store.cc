@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -155,6 +156,7 @@ void TestWorkspaceLifecycleAndTabs() {
   auto workspaces = store.GetWorkspaces();
   assert(workspaces.size() == 1);
   assert(workspaces[0].id == 1);
+  assert(!workspaces[0].uuid.empty());
   assert(workspaces[0].name == "Default");
   assert(store.GetActiveWorkspace() == 0);
 
@@ -176,6 +178,11 @@ void TestWorkspaceLifecycleAndTabs() {
 
   workspaces = store.GetWorkspaces();
   assert(workspaces.size() == 2);
+  std::set<std::string> uuids;
+  for (const auto& workspace : workspaces) {
+    assert(!workspace.uuid.empty());
+    assert(uuids.insert(workspace.uuid).second);
+  }
 
   std::vector<otf::WorkspaceTab> tabs;
   otf::WorkspaceTab first;

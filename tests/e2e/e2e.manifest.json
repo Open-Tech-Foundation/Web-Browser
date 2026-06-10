@@ -30,6 +30,7 @@
         "history.test.js",
         "bookmarks.test.js",
         "workspaces.test.js",
+        "cookie-tracking.test.js",
         "session-restore.test.js",
         "startup-urls.test.js"
       ]

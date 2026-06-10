@@ -1000,6 +1000,7 @@ std::string BuildWorkspacesJson(const std::vector<Workspace>& workspaces,
     first = false;
     ss << JsonObjectBuilder()
               .AddInt("id", w.id)
+              .AddString("uuid", w.uuid)
               .AddString("name", w.name)
               .AddString("color", w.color)
               .AddInt("position", w.position)
@@ -2158,11 +2159,127 @@ static void ApplyJsPermission(CefBrowserSettings& settings,
   }
 }
 
+std::string CookiePathForTracking(const CefCookie& cookie);
+int64_t CefBaseTimeToUnixSeconds(cef_basetime_t base_time);
 
 // Handle messages from the UI Shell (index.html)
 class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
  public:
   OtfMessageRouterHandler() {}
+
+  // Aggregates per-origin CDP Storage.getUsageAndQuota responses for the
+  // get-site-usage-list query. Quota data replaces the old approach of
+  // parsing Chromium's private on-disk formats (LevelDB content scans),
+  // which could break silently on any Chromium/CEF upgrade. Origins come
+  // from history and the cookie store; usage is read from the UI shell's
+  // browser context (the default profile), matching the cookie data
+  // gathered alongside it.
+  static void QuerySiteUsageOverCdp(OtfHandler* handler,
+                                    CefRefPtr<CefBrowser> ui_browser,
+                                    CefRefPtr<Callback> callback,
+                                    std::vector<std::string> extra_origins,
+                                    std::map<std::string, uint64_t> cookie_sizes,
+                                    std::map<std::string, uint64_t> cookie_counts) {
+    struct Aggregation {
+      CefRefPtr<Callback> callback;
+      std::vector<std::string> extra_origins;
+      std::map<std::string, uint64_t> cookie_sizes;
+      std::map<std::string, uint64_t> cookie_counts;
+      std::map<std::string, uint64_t> local_storage;
+      std::map<std::string, uint64_t> indexed_db;
+      std::map<std::string, uint64_t> cache_storage;
+      int pending = 0;
+      bool resolved = false;
+      void Resolve() {
+        if (resolved) return;
+        resolved = true;
+        callback->Success(otf::BuildSiteUsageJson(
+            extra_origins, cookie_sizes, cookie_counts, local_storage,
+            indexed_db, cache_storage));
+      }
+    };
+
+    // Quota usage is keyed by exact origin, so raw origins are queried;
+    // BuildSiteUsageJson normalizes them for display.
+    std::set<std::string> origins(extra_origins.begin(), extra_origins.end());
+    for (const auto& [origin, size] : cookie_sizes) origins.insert(origin);
+
+    auto agg = std::make_shared<Aggregation>();
+    agg->callback = callback;
+    agg->extra_origins = std::move(extra_origins);
+    agg->cookie_sizes = std::move(cookie_sizes);
+    agg->cookie_counts = std::move(cookie_counts);
+
+    if (!handler || !handler->devtools_bridge_ || !ui_browser ||
+        origins.empty()) {
+      agg->Resolve();
+      return;
+    }
+    handler->devtools_bridge_->Attach(ui_browser);
+
+    for (const auto& origin : origins) {
+      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+      params->SetString("origin", origin);
+      const int message_id = handler->devtools_bridge_->Execute(
+          "Storage.getUsageAndQuota", params,
+          [agg, origin](bool ok, const std::string& result_json) {
+            --agg->pending;
+            if (ok) {
+              CefRefPtr<CefValue> parsed =
+                  CefParseJSON(result_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+              CefRefPtr<CefDictionaryValue> dict =
+                  (parsed && parsed->GetType() == VTYPE_DICTIONARY)
+                      ? parsed->GetDictionary()
+                      : nullptr;
+              CefRefPtr<CefListValue> breakdown =
+                  (dict && dict->HasKey("usageBreakdown"))
+                      ? dict->GetList("usageBreakdown")
+                      : nullptr;
+              if (breakdown) {
+                for (size_t i = 0; i < breakdown->GetSize(); ++i) {
+                  CefRefPtr<CefDictionaryValue> entry =
+                      breakdown->GetDictionary(i);
+                  if (!entry) continue;
+                  const std::string type =
+                      entry->GetString("storageType").ToString();
+                  CefRefPtr<CefValue> usage_value = entry->GetValue("usage");
+                  uint64_t usage = 0;
+                  if (usage_value && usage_value->GetType() == VTYPE_DOUBLE) {
+                    const double d = usage_value->GetDouble();
+                    if (d > 0) usage = static_cast<uint64_t>(d);
+                  } else if (usage_value &&
+                             usage_value->GetType() == VTYPE_INT) {
+                    const int v = usage_value->GetInt();
+                    if (v > 0) usage = static_cast<uint64_t>(v);
+                  }
+                  if (usage == 0) continue;
+                  if (type == "indexeddb") {
+                    agg->indexed_db[origin] += usage;
+                  } else if (type == "cache_storage") {
+                    agg->cache_storage[origin] += usage;
+                  } else if (type == "local_storage") {
+                    agg->local_storage[origin] += usage;
+                  }
+                }
+              }
+            }
+            if (agg->pending == 0) agg->Resolve();
+          });
+      if (message_id != 0) ++agg->pending;
+    }
+    if (agg->pending == 0) {
+      agg->Resolve();
+      return;
+    }
+    // Safety net: the bridge fails pending callbacks on agent detach, but a
+    // hung target could still strand the query — answer with whatever has
+    // arrived rather than never.
+    CefPostDelayedTask(
+        TID_UI,
+        base::BindOnce([](std::shared_ptr<Aggregation> a) { a->Resolve(); },
+                       agg),
+        5000);
+  }
 
   bool OnQuery(CefRefPtr<CefBrowser> browser,
                CefRefPtr<CefFrame> frame,
@@ -3156,12 +3273,8 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       // workspace (see GetWorkspaceRequestContext). Errors are silently
       // ignored — a leftover directory is a disk leak, not a correctness bug.
       {
-        {
-          std::error_code ec;
-          std::filesystem::remove_all(
-              otf::GetAppCacheDir() / "workspaces" / std::to_string(target),
-              ec);
-        }
+        std::error_code ec;
+        std::filesystem::remove_all(otf::GetWorkspaceCefCacheDir(target), ec);
       }
 
       handler->SendEvent(JsonObjectBuilder()
@@ -3651,9 +3764,24 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (mgr) {
         class CookieSizeVisitor : public CefCookieVisitor {
          public:
-          CookieSizeVisitor(CefRefPtr<Callback> cb,
+          CookieSizeVisitor(OtfHandler* handler,
+                            CefRefPtr<CefBrowser> ui_browser,
+                            CefRefPtr<Callback> cb,
                             std::vector<std::string> extra)
-              : callback_(cb), extra_origins_(std::move(extra)) {}
+              : handler_(handler),
+                ui_browser_(ui_browser),
+                callback_(cb),
+                extra_origins_(std::move(extra)) {}
+          // CEF calls Visit on the UI thread and drops its last reference when
+          // iteration ends — including the zero-cookie case where Visit never
+          // runs — so the destructor is the reliable completion signal. It
+          // hands off to the CDP stage that fills in per-origin quota usage.
+          ~CookieSizeVisitor() {
+            QuerySiteUsageOverCdp(handler_, ui_browser_, callback_,
+                                  std::move(extra_origins_),
+                                  std::move(cookie_sizes_),
+                                  std::move(cookie_counts_));
+          }
           bool Visit(const CefCookie& cookie, int count, int total,
                      bool& delete_cookie) override {
             delete_cookie = false;
@@ -3669,44 +3797,84 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                           + CefString(&cookie.path).length() + 50;
             cookie_sizes_[origin] += size;
             cookie_counts_[origin] += 1;
-            if (count + 1 >= total) Resolve();
             return true;
           }
-          void Resolve() {
-            if (resolved_) return;
-            resolved_ = true;
-            callback_->Success(
-                otf::BuildSiteUsageJson(extra_origins_, cookie_sizes_,
-                                        cookie_counts_));
-          }
          private:
+          OtfHandler* handler_;
+          CefRefPtr<CefBrowser> ui_browser_;
           CefRefPtr<Callback> callback_;
           std::vector<std::string> extra_origins_;
           std::map<std::string, uint64_t> cookie_sizes_;
           std::map<std::string, uint64_t> cookie_counts_;
-          bool resolved_ = false;
           IMPLEMENT_REFCOUNTING(CookieSizeVisitor);
         };
-        class FallbackTask : public CefTask {
-         public:
-          FallbackTask(CefRefPtr<CookieSizeVisitor> v) : visitor_(v) {}
-          void Execute() override { visitor_->Resolve(); }
-         private:
-          CefRefPtr<CookieSizeVisitor> visitor_;
-          IMPLEMENT_REFCOUNTING(FallbackTask);
-        };
-        CefRefPtr<CookieSizeVisitor> visitor =
-            new CookieSizeVisitor(callback, std::move(history_origins));
-        mgr->VisitAllCookies(visitor);
-        CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 500);
+        mgr->VisitAllCookies(new CookieSizeVisitor(
+            handler, browser, callback, std::move(history_origins)));
       } else {
-        callback->Success(otf::BuildSiteUsageJson(history_origins));
+        QuerySiteUsageOverCdp(handler, browser, callback,
+                              std::move(history_origins), {}, {});
       }
       return true;
     }
 
     if (msg == "get-storage-totals") {
       callback->Success(otf::BuildStorageTotalsJson());
+      return true;
+    }
+
+    if (msg == "get-tracked-cookies") {
+      // Inspect the active tab's cookie store — its request context is
+      // workspace-specific. Without a live tab there is no browsing context
+      // to inspect (the UI shell's store holds no user data), so fail loudly
+      // instead of answering from the wrong store.
+      CefRefPtr<CefBrowser> context_browser;
+      if (OtfApp* app = OtfApp::GetInstance()) {
+        const int current_id = app->GetCurrentTabId();
+        if (handler->tab_manager_ && current_id >= 0) {
+          context_browser = handler->tab_manager_->GetBrowser(current_id);
+        }
+      }
+      if (!context_browser) {
+        callback->Failure(1, "no active tab");
+        return true;
+      }
+      CefRefPtr<CefCookieManager> mgr =
+          context_browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr);
+      if (!mgr) {
+        callback->Success("[]");
+        return true;
+      }
+      class CookieInspectVisitor : public CefCookieVisitor {
+       public:
+        explicit CookieInspectVisitor(CefRefPtr<Callback> cb)
+            : callback_(cb) {}
+        // CEF calls Visit on the UI thread and drops its last reference when
+        // iteration ends — including the zero-cookie case where Visit never
+        // runs — so the destructor is the reliable completion signal.
+        ~CookieInspectVisitor() { callback_->Success("[" + json_ + "]"); }
+        bool Visit(const CefCookie& cookie, int count, int total,
+                   bool& delete_cookie) override {
+          delete_cookie = false;
+          if (!json_.empty()) json_ += ",";
+          json_ += JsonObjectBuilder()
+                       .AddString("name", CefString(&cookie.name).ToString())
+                       .AddString("domain", CefString(&cookie.domain).ToString())
+                       .AddString("path", CookiePathForTracking(cookie))
+                       .AddBool("secure", cookie.secure != 0)
+                       .AddBool("httpOnly", cookie.httponly != 0)
+                       .AddRaw("createdAt",
+                               std::to_string(CefBaseTimeToUnixSeconds(cookie.creation)))
+                       .AddRaw("lastAccessAt",
+                               std::to_string(CefBaseTimeToUnixSeconds(cookie.last_access)))
+                       .Build();
+          return true;
+        }
+       private:
+        CefRefPtr<Callback> callback_;
+        std::string json_;
+        IMPLEMENT_REFCOUNTING(CookieInspectVisitor);
+      };
+      mgr->VisitAllCookies(new CookieInspectVisitor(callback));
       return true;
     }
 
@@ -3753,30 +3921,24 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         CefRefPtr<CefRequestContext> req_ctx = browser ? browser->GetHost()->GetRequestContext() : nullptr;
         CefRefPtr<CefCookieManager> mgr = req_ctx ? req_ctx->GetCookieManager(nullptr) : nullptr;
         if (mgr) {
-          if (!filtered_origins.empty()) {
-            std::set<std::string> origin_set(filtered_origins.begin(), filtered_origins.end());
-            class OriginCookieDeleter : public CefCookieVisitor {
+          if (cutoff > 0) {
+            class TimeRangeCookieDeleter : public CefCookieVisitor {
              public:
-              OriginCookieDeleter(const std::set<std::string>& origins, CefRefPtr<CefCookieManager> mgr)
-                  : origins_(origins), mgr_(mgr) {}
-              bool Visit(const CefCookie& cookie, int count, int total, bool& delete_cookie) override {
-                std::string domain = CefString(&cookie.domain).ToString();
-                if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
-                std::string scheme = cookie.secure ? "https://" : "http://";
-                std::string origin = scheme + domain;
-                if (origins_.count(origin)) {
-                  delete_cookie = true;
-                } else {
-                  delete_cookie = false;
+              explicit TimeRangeCookieDeleter(int64_t cutoff) : cutoff_(cutoff) {}
+              bool Visit(const CefCookie& cookie, int count, int total,
+                         bool& delete_cookie) override {
+                int64_t created_at = CefBaseTimeToUnixSeconds(cookie.creation);
+                if (created_at <= 0) {
+                  created_at = CefBaseTimeToUnixSeconds(cookie.last_access);
                 }
+                delete_cookie = created_at >= cutoff_;
                 return true;
               }
              private:
-              const std::set<std::string>& origins_;
-              CefRefPtr<CefCookieManager> mgr_;
-              IMPLEMENT_REFCOUNTING(OriginCookieDeleter);
+              int64_t cutoff_;
+              IMPLEMENT_REFCOUNTING(TimeRangeCookieDeleter);
             };
-            mgr->VisitAllCookies(new OriginCookieDeleter(origin_set, mgr));
+            mgr->VisitAllCookies(new TimeRangeCookieDeleter(cutoff));
           } else {
             mgr->DeleteCookies("", "", nullptr);
           }
@@ -3792,7 +3954,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
               params->SetString("storageTypes", "cache_storage");
               browser->GetHost()->ExecuteDevToolsMethod(0, "Storage.clearDataForOrigin", params);
             }
-          } else {
+          } else if (cutoff == 0) {
             req_ctx->ClearHttpCache(nullptr);
           }
         }
@@ -3852,7 +4014,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
               browser->GetHost()->ExecuteDevToolsMethod(
                   0, "Storage.clearDataForOrigin", params);
             }
-          } else {
+          } else if (cutoff == 0) {
             class StorageClearVisitor : public CefCookieVisitor {
              public:
               StorageClearVisitor(CefRefPtr<CefBrowser> b)
@@ -4687,17 +4849,16 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Failure(1, "invalid site origin");
         return true;
       }
-      // Visitor accumulates rows into a JSON array. CEF docs warn that Visit
-      // is never called when zero cookies match, so we schedule a delayed
-      // fallback task that resolves to "[]" if the visitor hasn't already
-      // resolved. The visitor self-disables once it resolves so the late
-      // fallback no-ops.
+      // Visitor accumulates rows into a JSON array. CEF never calls Visit
+      // when zero cookies match and drops its last reference when iteration
+      // ends, so the destructor is the reliable completion signal — it
+      // answers "[]" for the zero-cookie case with no fallback timer.
       class CookieListVisitor : public CefCookieVisitor {
        public:
         CookieListVisitor(CefRefPtr<Callback> cb) : callback_(cb) {}
+        ~CookieListVisitor() { callback_->Success("[" + rows_ + "]"); }
         bool Visit(const CefCookie& cookie, int count, int total,
                    bool& delete_cookie) override {
-          if (resolved_) return false;
           if (!rows_.empty()) rows_ += ",";
           rows_ += JsonObjectBuilder()
                        .AddString("name", CefString(&cookie.name).ToString())
@@ -4707,48 +4868,22 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                        .AddBool("secure", cookie.secure != 0)
                        .AddBool("httpOnly", cookie.httponly != 0)
                        .Build();
-          if (count + 1 >= total) Resolve();
           return true;
-        }
-        void Resolve() {
-          if (resolved_) return;
-          resolved_ = true;
-          callback_->Success("[" + rows_ + "]");
-        }
-        void ResolveWatchdog() {
-          if (resolved_) return;
-          resolved_ = true;
-          if (rows_.empty()) {
-            callback_->Success("[]");
-          } else {
-            callback_->Failure(1, "Cookie listing timed out");
-          }
         }
        private:
         CefRefPtr<Callback> callback_;
-        bool resolved_ = false;
         std::string rows_;
         IMPLEMENT_REFCOUNTING(CookieListVisitor);
       };
-      CefRefPtr<CookieListVisitor> visitor = new CookieListVisitor(callback);
       CefRefPtr<CefBrowser> ctx_browser = handler->ResolveSiteDataBrowser(browser);
       CefRefPtr<CefCookieManager> mgr =
           ctx_browser ? ctx_browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr)
                       : CefCookieManager::GetGlobalManager(nullptr);
       if (mgr) {
-        mgr->VisitUrlCookies(origin, true, visitor);
+        mgr->VisitUrlCookies(origin, true, new CookieListVisitor(callback));
+      } else {
+        callback->Success("[]");
       }
-      // 250ms fallback: if zero cookies were found, Visit never fired —
-      // resolve to "[]" so the UI doesn't hang on a missing response.
-      class FallbackTask : public CefTask {
-       public:
-        FallbackTask(CefRefPtr<CookieListVisitor> v) : visitor_(v) {}
-        void Execute() override { visitor_->ResolveWatchdog(); }
-       private:
-        CefRefPtr<CookieListVisitor> visitor_;
-        IMPLEMENT_REFCOUNTING(FallbackTask);
-      };
-      CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 2000);
       return true;
     } else if (msg.rfind("clear-cookies-for-site:", 0) == 0) {
       const std::string origin = ParseSiteDataOrigin(msg.substr(23));
@@ -6016,11 +6151,11 @@ CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspac
   if (it != workspace_contexts_.end() && it->second) {
     return it->second;
   }
-  std::filesystem::path cache_dir = GetAppCacheDir();
-  if (cache_dir.empty()) {
-    cache_dir = std::filesystem::temp_directory_path() / "otf-browser" / "cache";
+  std::filesystem::path base = otf::GetWorkspaceCefCacheDir(workspace_id);
+  if (base.empty()) {
+    base = std::filesystem::temp_directory_path() / "otf-browser" / "cache" /
+           "cef" / "workspaces" / std::to_string(workspace_id);
   }
-  const std::filesystem::path base = cache_dir / "workspaces" / std::to_string(workspace_id);
   std::error_code ec;
   std::filesystem::create_directories(base, ec);
 
@@ -7779,6 +7914,21 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
 }
 
 namespace {
+
+std::string CookiePathForTracking(const CefCookie& cookie) {
+  std::string path = CefString(&cookie.path).ToString();
+  return path.empty() ? "/" : path;
+}
+
+int64_t CefBaseTimeToUnixSeconds(cef_basetime_t base_time) {
+  cef_time_t cef_time{};
+  time_t out = 0;
+  if (cef_time_from_basetime(base_time, &cef_time) &&
+      cef_time_to_timet(&cef_time, &out)) {
+    return static_cast<int64_t>(out);
+  }
+  return 0;
+}
 
 class ImageBlockHandler : public CefResourceRequestHandler {
  public:

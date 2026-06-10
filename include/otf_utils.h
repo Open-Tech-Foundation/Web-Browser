@@ -157,6 +157,22 @@ std::filesystem::path GetActiveDataDir();
 std::filesystem::path GetActiveCacheDir();
 std::filesystem::path GetActiveDownloadsDir();
 
+// CEF cache layout. CEF requires every request-context cache path to equal or
+// be a child of root_cache_path, so all profile directories live under one
+// root: <active cache>/cef. These helpers are the single authority for that
+// layout; main.cc, workspace request contexts, and the storage scanners must
+// all build paths through them. Each returns an empty path when no cache
+// directory is available.
+std::filesystem::path GetCefCacheRootDir();
+std::filesystem::path GetDefaultProfileCefCacheDir();
+std::filesystem::path GetWorkspaceCefCacheDir(int workspace_id);
+
+// Moves workspace context directories from the legacy pre-alpha.47 location
+// (<active cache>/workspaces/<id>) under GetCefCacheRootDir() so existing
+// data is preserved and the orphaned tree stops leaking disk. Call once at
+// startup, after LockStoragePaths and before CefInitialize.
+void MigrateLegacyWorkspaceCacheDirs();
+
 // User-configured paths from settings.json (may differ from active paths).
 std::filesystem::path GetConfiguredCacheDir();
 std::filesystem::path GetConfiguredDownloadsDir();
@@ -177,15 +193,19 @@ bool TestDirectoryWriteAccess(const std::filesystem::path& p);
 // Directory size in bytes. Returns 0 on error or empty path.
 uint64_t GetDirectorySize(const std::filesystem::path& dir);
 
-// Scans IndexedDB and CacheStorage directories for per-origin storage usage.
+// Merges per-origin storage usage (gathered by the caller, e.g. via CDP
+// Storage.getUsageAndQuota and cookie visiting) into the site-usage JSON.
 // Accepts additional origins (e.g. from history) that should appear in the
-// result even if they have no local site storage.
+// result even if they have no local site storage. Keys are raw origins;
+// normalization/merging happens here.
 // Returns a JSON array: [{origin, storageBytes, cookieCount}, ...]
 std::string BuildSiteUsageJson(
     const std::vector<std::string>& extra_origins = {},
     const std::map<std::string, uint64_t>& cookie_sizes = {},
     const std::map<std::string, uint64_t>& cookie_counts = {},
-    const std::map<std::string, uint64_t>& local_storage_sizes = {});
+    const std::map<std::string, uint64_t>& local_storage_sizes = {},
+    const std::map<std::string, uint64_t>& indexed_db_sizes = {},
+    const std::map<std::string, uint64_t>& cache_storage_sizes = {});
 
 std::string BuildStorageTotalsJson();
 

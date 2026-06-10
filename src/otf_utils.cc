@@ -2070,141 +2070,63 @@ uint64_t GetDirectorySize(const std::filesystem::path& dir) {
   return total;
 }
 
-// Scans IndexedDB directory for per-origin storage sizes.
-// Returns a vector of {origin, sizeBytes} pairs.
-static std::vector<std::pair<std::string, uint64_t>> ScanIndexedDbOrigins() {
-  std::vector<std::pair<std::string, uint64_t>> results;
-  const auto db_dir = GetActiveCacheDir() / "cef" / "Default" / "IndexedDB";
-  std::error_code ec;
-  if (!std::filesystem::is_directory(db_dir, ec)) return results;
-  for (const auto& entry : std::filesystem::directory_iterator(db_dir, ec)) {
-    if (!entry.is_directory(ec)) continue;
-    const std::string name = entry.path().filename().string();
-    // Pattern: https_google.com_0.indexeddb.leveldb or similar
-    const size_t idx = name.rfind(".indexeddb.leveldb");
-    if (idx == std::string::npos) continue;
-    std::string prefix = name.substr(0, idx);
-    // Remove trailing _<digits> from the prefix to get the origin
-    // e.g. "https_google.com_0" -> "https://google.com"
-    size_t last_underscore = prefix.rfind('_');
-    if (last_underscore == std::string::npos) continue;
-    // Check if the part after last underscore is all digits (it's the schema version marker)
-    bool all_digits = true;
-    for (size_t i = last_underscore + 1; i < prefix.size(); ++i) {
-      if (!std::isdigit(static_cast<unsigned char>(prefix[i]))) { all_digits = false; break; }
-    }
-    std::string origin_part;
-    if (all_digits) {
-      origin_part = prefix.substr(0, last_underscore);
-    } else {
-      origin_part = prefix;
-    }
-    // Replace underscores in the scheme prefix (first _ after scheme)
-    // e.g. "https_google.com" -> "https://google.com"
-    size_t scheme_sep = origin_part.find('_');
-    if (scheme_sep == std::string::npos) continue;
-    std::string origin = origin_part.substr(0, scheme_sep) + "://" + origin_part.substr(scheme_sep + 1);
-    if (origin.empty()) continue;
-    const uint64_t size = GetDirectorySize(entry.path());
-    results.emplace_back(origin, size);
-  }
-  return results;
+std::filesystem::path GetCefCacheRootDir() {
+  const auto cache_dir = GetActiveCacheDir();
+  if (cache_dir.empty()) return {};
+  return cache_dir / "cef";
 }
 
-// Scans CacheStorage (Service Worker cache) directories for per-origin sizes.
-// Directory names are opaque hashes, but each contains an index.txt with the
-// origin URL stored as a plaintext string (protobuf-embedded).
-// Returns a vector of {origin, sizeBytes} pairs.
-static std::vector<std::pair<std::string, uint64_t>> ScanCacheStorageOrigins() {
-  std::vector<std::pair<std::string, uint64_t>> results;
-  const auto cs_dir = GetActiveCacheDir() / "cef" / "Default" / "Service Worker" / "CacheStorage";
+std::filesystem::path GetDefaultProfileCefCacheDir() {
+  const auto root = GetCefCacheRootDir();
+  if (root.empty()) return {};
+  return root / "Default";
+}
+
+std::filesystem::path GetWorkspaceCefCacheDir(int workspace_id) {
+  const auto root = GetCefCacheRootDir();
+  if (root.empty()) return {};
+  return root / "workspaces" / std::to_string(workspace_id);
+}
+
+void MigrateLegacyWorkspaceCacheDirs() {
   std::error_code ec;
-  if (!std::filesystem::is_directory(cs_dir, ec)) return results;
-  for (const auto& entry : std::filesystem::directory_iterator(cs_dir, ec)) {
+  const auto cache_dir = GetActiveCacheDir();
+  const auto cef_root = GetCefCacheRootDir();
+  if (cache_dir.empty() || cef_root.empty()) return;
+  const auto legacy_root = cache_dir / "workspaces";
+  if (!std::filesystem::is_directory(legacy_root, ec)) return;
+  const auto new_root = cef_root / "workspaces";
+  std::filesystem::create_directories(new_root, ec);
+  for (const auto& entry :
+       std::filesystem::directory_iterator(legacy_root, ec)) {
     if (!entry.is_directory(ec)) continue;
-    // Each subdirectory is a hash-named origin directory containing cache bodies.
-    const auto index_file = entry.path() / "index.txt";
-    if (!std::filesystem::is_regular_file(index_file, ec)) continue;
-    // Read the index file and search for an http(s):// URL
-    std::ifstream ifs(index_file, std::ios::binary);
-    if (!ifs) continue;
-    std::string content((std::istreambuf_iterator<char>(ifs)),
-                         std::istreambuf_iterator<char>());
-    ifs.close();
-    // Search for "http://" or "https://" - the origin URL is stored in the
-    // protobuf-encoded index.txt as an opaque string field.
-    static constexpr std::string_view kHttpPrefix = "http://";
-    static constexpr std::string_view kHttpsPrefix = "https://";
-    std::string origin;
-    for (size_t i = 0; i < content.size(); ++i) {
-      if (content.compare(i, kHttpPrefix.size(), kHttpPrefix) == 0 ||
-          content.compare(i, kHttpsPrefix.size(), kHttpsPrefix) == 0) {
-        // Found a URL - extract up to the first space/control/quote char
-        size_t end = i;
-        while (end < content.size() && content[end] > 0x1f &&
-               content[end] != '"' && content[end] != '<' && content[end] != '>' &&
-               content[end] != '[' && content[end] != ']' && content[end] != ' ') {
-          ++end;
-        }
-        const std::string url_str = content.substr(i, end - i);
-        origin = ExtractOrigin(url_str);
-        if (!origin.empty()) break;
+    const auto target = new_root / entry.path().filename();
+    if (std::filesystem::exists(target, ec)) continue;
+    std::filesystem::rename(entry.path(), target, ec);
+  }
+  // remove() refuses non-empty directories, so anything that could not be
+  // migrated stays on disk instead of being destroyed.
+  std::filesystem::remove(legacy_root, ec);
+}
+
+static std::vector<std::filesystem::path> GetCefProfileDirs() {
+  std::vector<std::filesystem::path> dirs;
+  std::error_code ec;
+  const auto default_dir = GetDefaultProfileCefCacheDir();
+  if (!default_dir.empty() && std::filesystem::is_directory(default_dir, ec)) {
+    dirs.push_back(default_dir);
+  }
+  const auto cef_root = GetCefCacheRootDir();
+  if (cef_root.empty()) return dirs;
+  const auto workspaces_dir = cef_root / "workspaces";
+  if (std::filesystem::is_directory(workspaces_dir, ec)) {
+    for (const auto& entry : std::filesystem::directory_iterator(workspaces_dir, ec)) {
+      if (entry.is_directory(ec)) {
+        dirs.push_back(entry.path());
       }
     }
-    if (origin.empty()) continue;
-    const uint64_t size = GetDirectorySize(entry.path());
-    results.emplace_back(std::move(origin), size);
   }
-  return results;
-}
-
-// Scans Local Storage LevelDB for per-origin data presence.
-// Returns a vector of {origin, 0} for each origin found to have localStorage.
-// Accurate per-origin sizing would require LevelDB parsing; we detect
-// presence by scanning for META:https:// / META:http:// patterns in the
-// binary LevelDB files.
-static std::vector<std::pair<std::string, uint64_t>> ScanLocalStorageOrigins() {
-  std::vector<std::pair<std::string, uint64_t>> results;
-  const auto ls_dir = GetActiveCacheDir() / "cef" / "Default" / "Local Storage" / "leveldb";
-  std::error_code ec;
-  if (!std::filesystem::is_directory(ls_dir, ec)) return results;
-
-  std::string all_data;
-  for (const auto& entry : std::filesystem::directory_iterator(ls_dir, ec)) {
-    if (!entry.is_regular_file(ec)) continue;
-    const auto name = entry.path().filename().string();
-    if (name.size() < 4) continue;
-    const auto ext = name.substr(name.size() - 4);
-    if (ext != ".ldb" && ext != ".log") continue;
-    std::ifstream ifs(entry.path(), std::ios::binary);
-    if (!ifs) continue;
-    all_data.append((std::istreambuf_iterator<char>(ifs)),
-                     std::istreambuf_iterator<char>());
-  }
-  if (all_data.empty()) return results;
-
-  std::set<std::string> origins_found;
-  static constexpr std::string_view kMetaHttp = "META:http://";
-  static constexpr std::string_view kMetaHttps = "META:https://";
-  for (size_t i = 0; i + 5 < all_data.size(); ++i) {
-    size_t meta_end = 0;
-    if (all_data.compare(i, kMetaHttps.size(), kMetaHttps) == 0)
-      meta_end = i + kMetaHttps.size();
-    else if (all_data.compare(i, kMetaHttp.size(), kMetaHttp) == 0)
-      meta_end = i + kMetaHttp.size();
-    else
-      continue;
-    size_t end = meta_end;
-    while (end < all_data.size() && all_data[end] >= 0x20) ++end;
-    if (end > meta_end) {
-      std::string origin_url = all_data.substr(i + 5, end - i - 5);
-      std::string origin = ExtractOrigin(origin_url);
-      if (!origin.empty()) origins_found.insert(origin);
-    }
-  }
-  for (const auto& origin : origins_found)
-    results.emplace_back(origin, 0);
-  return results;
+  return dirs;
 }
 
 static std::string NormalizeOrigin(const std::string& origin) {
@@ -2244,26 +2166,18 @@ static std::string NormalizeOrigin(const std::string& origin) {
 std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins,
                                const std::map<std::string, uint64_t>& cookie_sizes,
                                const std::map<std::string, uint64_t>& cookie_counts,
-                               const std::map<std::string, uint64_t>& local_storage_sizes) {
-  auto idb_origins = ScanIndexedDbOrigins();
-  auto cs_origins = ScanCacheStorageOrigins();
-  auto ls_origins = ScanLocalStorageOrigins();
-
+                               const std::map<std::string, uint64_t>& local_storage_sizes,
+                               const std::map<std::string, uint64_t>& indexed_db_sizes,
+                               const std::map<std::string, uint64_t>& cache_storage_sizes) {
   // Build normalized maps by origin for each storage type
-  auto insert_into = [](std::map<std::string, uint64_t>& map,
-                         const std::vector<std::pair<std::string, uint64_t>>& vec) {
-    for (const auto& [origin, size] : vec)
-      map[NormalizeOrigin(origin)] += size;
-  };
   std::map<std::string, uint64_t> idb_map;
+  for (const auto& [origin, size] : indexed_db_sizes)
+    idb_map[NormalizeOrigin(origin)] += size;
   std::map<std::string, uint64_t> cs_map;
-  insert_into(idb_map, idb_origins);
-  insert_into(cs_map, cs_origins);
-  // Merge caller-provided localStorage sizes with scanned ones
+  for (const auto& [origin, size] : cache_storage_sizes)
+    cs_map[NormalizeOrigin(origin)] += size;
   std::map<std::string, uint64_t> ls_map;
   for (const auto& [origin, size] : local_storage_sizes)
-    ls_map[NormalizeOrigin(origin)] += size;
-  for (const auto& [origin, size] : ls_origins)
     ls_map[NormalizeOrigin(origin)] += size;
   // Normalize cookie_sizes
   std::map<std::string, uint64_t> cookies_map;
@@ -2314,22 +2228,29 @@ std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins,
 
 std::string BuildStorageTotalsJson() {
   std::error_code ec;
-  const auto profile_dir = GetActiveCacheDir() / "cef" / "Default";
-
-  const uint64_t http_cache = GetDirectorySize(profile_dir / "Cache");
-  const uint64_t indexed_db = GetDirectorySize(profile_dir / "IndexedDB");
-  const uint64_t localStorage = GetDirectorySize(profile_dir / "Local Storage");
-  const uint64_t sessionStorage = GetDirectorySize(profile_dir / "Session Storage");
-  const uint64_t blob_storage = GetDirectorySize(profile_dir / "blob_storage");
-  const uint64_t file_system = GetDirectorySize(profile_dir / "File System");
-  // Service Workers disabled in this browser - skip SW script dirs
-  const uint64_t cs_total = GetDirectorySize(profile_dir / "Service Worker" / "CacheStorage");
-  // Cookies file size
+  uint64_t http_cache = 0;
+  uint64_t indexed_db = 0;
+  uint64_t localStorage = 0;
+  uint64_t sessionStorage = 0;
+  uint64_t blob_storage = 0;
+  uint64_t file_system = 0;
+  uint64_t cs_total = 0;
   uint64_t cookies = 0;
-  if (std::filesystem::is_regular_file(profile_dir / "Cookies", ec))
-    cookies = std::filesystem::file_size(profile_dir / "Cookies", ec);
-  // Code Cache
-  const uint64_t code_cache = GetDirectorySize(profile_dir / "Code Cache");
+  uint64_t code_cache = 0;
+
+  for (const auto& profile_dir : GetCefProfileDirs()) {
+    http_cache += GetDirectorySize(profile_dir / "Cache");
+    indexed_db += GetDirectorySize(profile_dir / "IndexedDB");
+    localStorage += GetDirectorySize(profile_dir / "Local Storage");
+    sessionStorage += GetDirectorySize(profile_dir / "Session Storage");
+    blob_storage += GetDirectorySize(profile_dir / "blob_storage");
+    file_system += GetDirectorySize(profile_dir / "File System");
+    cs_total += GetDirectorySize(profile_dir / "Service Worker" / "CacheStorage");
+    if (std::filesystem::is_regular_file(profile_dir / "Cookies", ec)) {
+      cookies += std::filesystem::file_size(profile_dir / "Cookies", ec);
+    }
+    code_cache += GetDirectorySize(profile_dir / "Code Cache");
+  }
 
   return JsonObjectBuilder()
       .AddRaw("httpCache", std::to_string(http_cache))

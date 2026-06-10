@@ -37,6 +37,7 @@ struct PersistedDownload {
 
 struct Workspace {
   int id = 0;
+  std::string uuid;
   std::string name;
   std::string color;
   int position = 0;
