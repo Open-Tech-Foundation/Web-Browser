@@ -3,6 +3,7 @@ import AddressBar from './components/AddressBar';
 import TabStrip from './components/TabStrip';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { resolveUrl } from './shared/search';
+import { nativeRequest } from './shared/nativeRequest';
 import './styles/App.css';
 
 const BROWSER_SCHEME = {
@@ -463,9 +464,7 @@ const App = () => {
       origin = parsed.origin;
     } catch (_) {}
     if (!origin) return;
-    window.cefQuery({
-      request: `show-clear-site-data:${origin}`,
-    });
+    nativeRequest({ method: 'siteData.showClearPopup', params: { origin } }).catch(() => {});
   };
 
   const splitState = state.splitView || {};

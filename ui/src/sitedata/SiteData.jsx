@@ -16,6 +16,12 @@ const PERMISSION_SETTING_ORDER = {
   javascript: ['allow', 'block'],
 };
 
+const CLEAR_METHODS = {
+  cookies: 'siteData.clearCookies',
+  storage: 'siteData.clearStorage',
+  permissions: 'siteData.clearPermissions',
+};
+
 const SiteData = () => {
   const [origin, setOrigin] = useState('');
   const [cookies, setCookies] = useState([]);
@@ -48,10 +54,10 @@ const SiteData = () => {
     setLoading(true);
     setLoadError('');
     const results = await Promise.allSettled([
-      nativeRequest(`get-cookies-for-site:${targetOrigin}`, { parseJson: true }),
-      nativeRequest(`get-storage-for-site:${targetOrigin}`, { parseJson: true }),
-      nativeRequest(`get-permissions-for-site:${targetOrigin}`, { parseJson: true }),
-      nativeRequest(`get-cross-origin-resources:${targetOrigin}`, { parseJson: true }),
+      nativeRequest({ method: 'siteData.getCookies', params: { origin: targetOrigin } }),
+      nativeRequest({ method: 'siteData.getStorage', params: { origin: targetOrigin } }),
+      nativeRequest({ method: 'siteData.getPermissions', params: { origin: targetOrigin } }),
+      nativeRequest({ method: 'siteData.getCrossOriginResources', params: { origin: targetOrigin } }),
     ]);
     if (!requestScope.current.isCurrent(token)) return;
     setLoading(false);
@@ -71,7 +77,10 @@ const SiteData = () => {
     setSettingBusy((s) => ({ ...s, [perm]: true }));
     setStatus('');
     try {
-      await nativeRequest(`set-permission-for-site:${origin}:${perm}:${setting}`);
+      await nativeRequest({
+        method: 'siteData.setPermission',
+        params: { origin, permission: perm, setting },
+      });
       setPermissions((p) => ({ ...p, [perm]: setting }));
       if (perm === 'javascript') setJsJustChanged(true);
     } catch (err) {
@@ -95,7 +104,7 @@ const SiteData = () => {
     setBusy(true);
     setStatus('');
     const results = await Promise.allSettled(
-      kinds.map((k) => nativeRequest(`clear-${k}-for-site:${origin}`))
+      kinds.map((k) => nativeRequest({ method: CLEAR_METHODS[k], params: { origin } }))
     );
     setBusy(false);
     const failures = results.filter((r) => r.status === 'rejected');
@@ -413,7 +422,10 @@ const SiteData = () => {
                         <td className="px-3 py-2.5 font-mono">{res}</td>
                         <td className="px-3 py-2.5 text-right">
                           <button
-                            onClick={() => window.cefQuery?.({ request: `open-site-data-page:${res}` })}
+                            onClick={() => nativeRequest({
+                              method: 'siteData.openPage',
+                              params: { origin: res },
+                            }).catch((err) => setStatus(`Failed: ${err.message}`))}
                             className="px-2 py-1 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 cursor-pointer"
                           >
                             Configure

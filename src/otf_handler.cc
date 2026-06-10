@@ -1,6 +1,8 @@
 #include "otf_handler.h"
 #include "otf_app.h"
 #include "otf_keyboard_shortcuts.h"
+#include "otf_native_rpc.h"
+#include "otf_site_data_rpc.h"
 
 #include <algorithm>
 #include <array>
@@ -2323,6 +2325,21 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
     OtfHandler* handler = OtfHandler::GetInstance();
     if (!handler || !handler->tab_manager_) return false;
     const std::string msg = request.ToString();
+    const size_t first_non_space = msg.find_first_not_of(" \t\r\n");
+    if (first_non_space != std::string::npos && msg[first_non_space] == '{') {
+      NativeRpcRequest rpc_request;
+      std::string parse_error;
+      if (!ParseNativeRpcRequest(msg, &rpc_request, &parse_error)) {
+        callback->Failure(1, parse_error);
+        return true;
+      }
+      if (HandleSiteDataRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      NativeRpcFailure(callback, rpc_request, "unknown_method",
+                       "Unknown native RPC method");
+      return true;
+    }
 
     if (msg == "get-my-tab-id") {
       CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);

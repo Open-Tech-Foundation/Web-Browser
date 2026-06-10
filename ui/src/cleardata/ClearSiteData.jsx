@@ -17,6 +17,11 @@ const Check = () => (
 );
 
 const defaultSelection = () => ({ cookies: true, storage: true, permissions: true });
+const CLEAR_METHODS = {
+  cookies: 'siteData.clearCookies',
+  storage: 'siteData.clearStorage',
+  permissions: 'siteData.clearPermissions',
+};
 
 /* ── Data category row ─────────────────────────────────────────────── */
 const CategoryRow = ({ label, detail, icon, color, checked, onToggle, disabled }) => {
@@ -82,8 +87,8 @@ const ClearSiteData = () => {
     if (!target) return;
     const token = requestScope.current.next();
     const [cookies, storage] = await Promise.allSettled([
-      nativeRequest(`get-cookies-for-site:${target}`, { parseJson: true }),
-      nativeRequest(`get-storage-for-site:${target}`, { parseJson: true }),
+      nativeRequest({ method: 'siteData.getCookies', params: { origin: target } }),
+      nativeRequest({ method: 'siteData.getStorage', params: { origin: target } }),
     ]);
     if (!requestScope.current.isCurrent(token)) return;
     if (cookies.status === 'fulfilled') {
@@ -124,7 +129,7 @@ const ClearSiteData = () => {
     setPhase('running');
     setError('');
     const results = await Promise.allSettled(
-      kinds.map((k) => nativeRequest(`clear-${k}-for-site:${origin}`))
+      kinds.map((k) => nativeRequest({ method: CLEAR_METHODS[k], params: { origin } }))
     );
     const failures = results.filter((item) => item.status === 'rejected');
     if (failures.length > 0) {
@@ -138,7 +143,8 @@ const ClearSiteData = () => {
 
   const openDetails = () => {
     if (!origin) return;
-    nativeRequest(`open-site-data-page:${origin}`).catch((err) => setError(err.message));
+    nativeRequest({ method: 'siteData.openPage', params: { origin } })
+      .catch((err) => setError(err.message));
   };
 
   const anyChecked = selection.cookies || selection.storage || selection.permissions;
