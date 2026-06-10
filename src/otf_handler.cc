@@ -4685,7 +4685,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           ctx_browser ? ctx_browser->GetHost()->GetRequestContext()->GetCookieManager(nullptr)
                       : CefCookieManager::GetGlobalManager(nullptr);
       if (mgr) {
-        mgr->VisitUrlCookies(origin, false, visitor);
+        mgr->VisitUrlCookies(origin, true, visitor);
       }
       // 250ms fallback: if zero cookies were found, Visit never fired —
       // resolve to "[]" so the UI doesn't hang on a missing response.
