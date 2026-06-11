@@ -6,6 +6,7 @@
 #include "otf_keyboard_shortcuts.h"
 #include "otf_navigation_rpc.h"
 #include "otf_native_rpc.h"
+#include "otf_search_rpc.h"
 #include "otf_settings_rpc.h"
 #include "otf_site_data_rpc.h"
 #include "otf_ui_rpc.h"
@@ -2362,6 +2363,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandleUiRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandleSearchRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
@@ -5620,28 +5624,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->FocusCurrentTabContent();
       }
       callback->Success("");
-    } else if (msg.rfind("save-search-hist:", 0) == 0) {
-      const std::string query = msg.substr(17);
-      if (!handler->guest_session_active_ && handler->store_ && !query.empty()) {
-        handler->store_->AddSearchHistory(query);
-      }
-      callback->Success("");
-    } else if (msg.rfind("get-search-suggestions:", 0) == 0) {
-      const std::string prefix = msg.substr(23);
-      if (handler->guest_session_active_) {
-        callback->Success("[]");
-      } else if (handler->store_ && !prefix.empty()) {
-        auto suggestions = handler->store_->GetSearchSuggestions(prefix, 10);
-        std::string json = "[";
-        for (size_t i = 0; i < suggestions.size(); ++i) {
-          if (i > 0) json += ",";
-          json += "\"" + otf::JsonEscape(suggestions[i]) + "\"";
-        }
-        json += "]";
-        callback->Success(json);
-      } else {
-        callback->Success("[]");
-      }
     } else if (msg == "focus-ui") {
       if (handler->ui_browser_) {
         handler->ui_browser_->GetHost()->SetFocus(true);

@@ -342,7 +342,10 @@ const App = () => {
     if (state.activeTabId !== null) {
       // Save raw user input as search history for address bar suggestions.
       if (input && window.cefQuery && !guestSession) {
-        window.cefQuery({ request: `save-search-hist:${input}` });
+        nativeRequest({
+          method: 'search.history.add',
+          params: { query: input },
+        }).catch(() => {});
       }
 
       const navigateTo = (finalUrl) => {

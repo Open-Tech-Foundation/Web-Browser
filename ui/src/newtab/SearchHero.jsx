@@ -91,18 +91,12 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
       setSuggestions([]);
       return;
     }
-    window.cefQuery({
-      request: `get-search-suggestions:${value}`,
-      onSuccess: (json) => {
-        try {
-          const list = JSON.parse(json);
-          setSuggestions(Array.isArray(list) ? list : []);
-        } catch (_) {
-          setSuggestions([]);
-        }
-      },
-      onFailure: () => setSuggestions([]),
-    });
+    nativeRequest({
+      method: 'search.suggestions',
+      params: { prefix: value, limit: 10 },
+    })
+      .then((list) => setSuggestions(Array.isArray(list) ? list : []))
+      .catch(() => setSuggestions([]));
   }, [isGuest]);
 
   const triggerSuggestions = useCallback((value) => {
@@ -118,7 +112,10 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
     setSuggestions([]);
     setSelectedIdx(-1);
     if (window.cefQuery && !isGuest) {
-      window.cefQuery({ request: `save-search-hist:${input}` });
+      nativeRequest({
+        method: 'search.history.add',
+        params: { query: input },
+      }).catch(() => {});
     }
     const navigateTo = (url) => {
       nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
