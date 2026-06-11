@@ -1,12 +1,16 @@
 import React from 'react';
 import Popup from '../components/Popup';
+import { nativeRequest } from '../shared/nativeRequest';
 import '../styles/App.css';
 
 const send = (request) => {
   if (window.cefQuery) window.cefQuery({ request });
 };
 
-const close = () => send('hide-popup:splitmenu');
+const close = () => nativeRequest({
+  method: 'ui.popup.hide',
+  params: { name: 'splitmenu' },
+}).catch(() => {});
 
 const MenuButton = ({ label, children, onClick }) => (
   <button

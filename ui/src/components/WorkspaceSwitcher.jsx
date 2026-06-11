@@ -1,4 +1,5 @@
 import React from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const WorkspaceSwitcher = ({ workspaces, activeId }) => {
   const active = workspaces.find((w) => w.id === activeId) || workspaces[0];
@@ -7,7 +8,10 @@ const WorkspaceSwitcher = ({ workspaces, activeId }) => {
   return (
     <button
       tabIndex={-1}
-      onClick={() => window.cefQuery?.({ request: 'toggle-popup:workspace' })}
+      onClick={() => nativeRequest({
+        method: 'ui.popup.toggle',
+        params: { name: 'workspace' },
+      }).catch(() => {})}
       title="Workspaces"
       className="h-[23px] mx-1 px-2 flex items-center gap-1 rounded-md text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-[#1a1a20] hover:text-brand-orange transition-all shadow-sm shrink-0"
     >

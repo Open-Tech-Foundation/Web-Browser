@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { getNativeSettings } from '../shared/nativeRequest';
+import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const CertificateViewer = () => {
   const [certData, setCertData] = useState(null);
@@ -9,7 +9,7 @@ const CertificateViewer = () => {
 
   const handleClose = () => {
     if (window.cefQuery) {
-      window.cefQuery({ request: 'hide-certificate' });
+      nativeRequest({ method: 'ui.certificate.hide' }).catch(() => {});
     }
   };
 

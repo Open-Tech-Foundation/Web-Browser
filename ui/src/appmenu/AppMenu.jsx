@@ -3,13 +3,24 @@ import { nativeRequest } from '../shared/nativeRequest';
 
 const AppMenu = () => {
   const [guestSession, setGuestSession] = React.useState(false);
+  const hideAppMenu = () => nativeRequest({ method: 'ui.appMenu.hide' }).catch(() => {});
   const handleAction = (request) => {
+    const rpcMethods = {
+      'toggle-console': 'ui.console.toggle',
+      'show-findbar': 'ui.findbar.show',
+    };
+    if (rpcMethods[request]) {
+      nativeRequest({ method: rpcMethods[request] })
+        .then(hideAppMenu)
+        .catch(() => {});
+      return;
+    }
     if (window.cefQuery) {
       window.cefQuery({
         request,
         onSuccess: () => {
           // Hide menu after action
-          window.cefQuery({ request: 'hide-appmenu' });
+          hideAppMenu();
         }
       });
     }
@@ -25,7 +36,7 @@ const AppMenu = () => {
     nativeRequest({ method: 'session.createGuest' })
       .then(() => {
         setGuestSession(true);
-        window.cefQuery?.({ request: 'hide-appmenu' });
+        hideAppMenu();
       })
       .catch(() => {});
   };
@@ -37,7 +48,7 @@ const AppMenu = () => {
         params: { url },
       })
         .then(() => {
-          window.cefQuery({ request: 'hide-appmenu' });
+          hideAppMenu();
         })
         .catch(() => {});
     }
@@ -46,12 +57,12 @@ const AppMenu = () => {
   React.useEffect(() => {
     const onBlur = () => {
       if (window.cefQuery) {
-        window.cefQuery({ request: 'hide-appmenu' });
+        hideAppMenu();
       }
     };
     const onKeyDown = (e) => {
       if (e.key === 'Escape' && window.cefQuery) {
-        window.cefQuery({ request: 'hide-appmenu' });
+        hideAppMenu();
       }
     };
     window.addEventListener('blur', onBlur);

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Popup, { usePopupRestore } from '../components/Popup';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const BlockedPopup = () => {
   const [id, setId] = useState(0);
@@ -21,7 +22,10 @@ const BlockedPopup = () => {
   };
 
   const handleBlock = () => {
-    window.cefQuery?.({ request: `hide-popup:blockedpopup` });
+    nativeRequest({
+      method: 'ui.popup.hide',
+      params: { name: 'blockedpopup' },
+    }).catch(() => {});
   };
 
   if (!origin) {

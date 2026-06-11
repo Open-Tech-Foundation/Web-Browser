@@ -8,6 +8,7 @@
 #include "otf_native_rpc.h"
 #include "otf_settings_rpc.h"
 #include "otf_site_data_rpc.h"
+#include "otf_ui_rpc.h"
 #include "otf_workspaces_rpc.h"
 
 #include <algorithm>
@@ -2358,6 +2359,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandleWorkspacesRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandleUiRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",

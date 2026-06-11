@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 
 // Shared frame for any overlay backed by otf::PopupOverlay on the C++
 // side. Wires up the contract that every popup needs:
-//   • Esc → hide-popup:<name>
-//   • Close button → hide-popup:<name>
+//   • Esc → ui.popup.hide
+//   • Close button → ui.popup.hide
 //   • Standardized container + header so popups look consistent
 // Body content is whatever the caller passes as children.
 const Popup = ({ name, title, children, className = '', closeOnBlur = false }) => {
@@ -13,7 +14,10 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false }) =
   // feature that needs to be implemented on the C++ side via a focus
   // handler, not from the popup's renderer.)
   useEffect(() => {
-    const hide = () => window.cefQuery?.({ request: `hide-popup:${name}` });
+    const hide = () => nativeRequest({
+      method: 'ui.popup.hide',
+      params: { name },
+    }).catch(() => {});
     const onKeyDown = (e) => { if (e.key === 'Escape') hide(); };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -21,7 +25,10 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false }) =
 
   useEffect(() => {
     if (!closeOnBlur) return undefined;
-    const hide = () => window.cefQuery?.({ request: `hide-popup:${name}` });
+    const hide = () => nativeRequest({
+      method: 'ui.popup.hide',
+      params: { name },
+    }).catch(() => {});
     const onBlur = () => {
       window.setTimeout(() => {
         if (!document.hasFocus()) hide();
@@ -31,7 +38,10 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false }) =
     return () => window.removeEventListener('blur', onBlur);
   }, [closeOnBlur, name]);
 
-  const close = () => window.cefQuery?.({ request: `hide-popup:${name}` });
+  const close = () => nativeRequest({
+    method: 'ui.popup.hide',
+    params: { name },
+  }).catch(() => {});
 
   return (
     <div className="w-full h-full p-1.5 bg-transparent box-border">

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Popup, { usePopupRestore } from '../components/Popup';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const DownloadRequest = () => {
   const [url, setUrl] = useState('');
@@ -21,7 +22,10 @@ const DownloadRequest = () => {
   };
 
   const handleBlock = () => {
-    window.cefQuery?.({ request: `hide-popup:downloadrequest` });
+    nativeRequest({
+      method: 'ui.popup.hide',
+      params: { name: 'downloadrequest' },
+    }).catch(() => {});
   };
 
   if (!origin) {

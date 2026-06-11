@@ -25,12 +25,16 @@ const WorkspacePopup = () => {
   });
 
   useEffect(() => {
+    const hideWorkspace = () => nativeRequest({
+      method: 'ui.popup.hide',
+      params: { name: 'workspace' },
+    }).catch(() => {});
     const onBlur = () => {
-      window.cefQuery?.({ request: 'hide-popup:workspace' });
+      hideWorkspace();
     };
     const onKeyDown = (e) => {
       if (e.key === 'Escape') {
-        window.cefQuery?.({ request: 'hide-popup:workspace' });
+        hideWorkspace();
       }
     };
     window.addEventListener('blur', onBlur);
