@@ -5427,18 +5427,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         handler->ui_browser_->GetHost()->SetFocus(true);
       }
       callback->Success("");
-    } else if (msg == "toggle-console") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) app->ToggleConsoleOverlay();
-      callback->Success("");
-    } else if (msg == "show-console") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) app->ShowConsoleOverlay();
-      callback->Success("");
-    } else if (msg == "hide-console") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) app->HideConsoleOverlay();
-      callback->Success("");
     } else if (msg == "subscribe-console") {
       handler->console_subscription_ = callback;
       // Send all buffered entries for the current tab on subscribe.

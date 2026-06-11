@@ -144,6 +144,8 @@ bool HandleUiRpc(
       request.method != "ui.zoomBar.hide" &&
       request.method != "ui.certificate.hide" &&
       request.method != "ui.console.toggle" &&
+      request.method != "ui.console.show" &&
+      request.method != "ui.console.hide" &&
       request.method != "ui.toast.show" &&
       request.method != "ui.findbar.show") {
     return false;
@@ -208,6 +210,10 @@ bool HandleUiRpc(
     app->HideCertificateOverlay();
   } else if (request.method == "ui.console.toggle") {
     app->ToggleConsoleOverlay();
+  } else if (request.method == "ui.console.show") {
+    app->ShowConsoleOverlay();
+  } else if (request.method == "ui.console.hide") {
+    app->HideConsoleOverlay();
   } else if (handler->tab_manager_) {
     const int tab_id = app->GetCurrentTabId();
     if (tab_id >= 0) {

@@ -678,7 +678,7 @@ export default function ConsolePanel() {
   };
 
   const handleClose = () => {
-    if (window.cefQuery) window.cefQuery({ request: 'hide-console' });
+    nativeRequest({ method: 'ui.console.hide' }).catch(() => {});
   };
 
   const filtered = filter === FILTER_ALL
