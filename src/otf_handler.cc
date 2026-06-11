@@ -1,6 +1,7 @@
 #include "otf_handler.h"
 #include "otf_app.h"
 #include "otf_clear_data_rpc.h"
+#include "otf_downloads_rpc.h"
 #include "otf_history_bookmarks_rpc.h"
 #include "otf_keyboard_shortcuts.h"
 #include "otf_navigation_rpc.h"
@@ -2350,6 +2351,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandleNavigationRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandleDownloadsRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",

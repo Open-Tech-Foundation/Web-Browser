@@ -337,15 +337,9 @@ const App = () => {
         onFailure: (code, msg) => console.error("Failed to get tabs:", msg)
       });
 
-      window.cefQuery({
-        request: 'get-downloads',
-        onSuccess: (json) => {
-          try {
-            const items = JSON.parse(json);
-            setHasDownloads(Array.isArray(items) && items.length > 0);
-          } catch (e) {}
-        },
-      });
+      nativeRequest({ method: 'downloads.list' })
+        .then((items) => setHasDownloads(Array.isArray(items) && items.length > 0))
+        .catch(() => {});
     }
   }, []);
 

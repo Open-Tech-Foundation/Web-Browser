@@ -64,16 +64,9 @@ export default function Downloads() {
   }, []);
 
   const load = useCallback(() => {
-    window.cefQuery?.({
-      request: 'get-downloads',
-      onSuccess: (json) => {
-        try {
-          setDownloads(JSON.parse(json));
-        } catch {
-          setDownloads([]);
-        }
-      },
-    });
+    nativeRequest({ method: 'downloads.list' })
+      .then((items) => setDownloads(Array.isArray(items) ? items : []))
+      .catch(() => setDownloads([]));
   }, []);
 
   const getDownloadName = useCallback((item) => item?.suggestedName || item?.url || '', []);
@@ -96,11 +89,16 @@ export default function Downloads() {
     load();
     // Subscribe to download updates
     window.cefQuery?.({
-      request: 'downloads-subscribe',
+      request: JSON.stringify({
+        id: `downloads-subscribe-${Date.now()}`,
+        method: 'downloads.subscribe',
+        params: {},
+      }),
       persistent: true,
-      onSuccess: (json) => {
+      onSuccess: (response) => {
         try {
-          const event = JSON.parse(json);
+          const parsed = JSON.parse(response);
+          const event = parsed && parsed.ok === true ? parsed.result : parsed;
           if (event.key === 'downloads-update' && event.downloads) {
             setDownloads(event.downloads);
           } else if (event.key === 'downloads-refresh') {
@@ -132,14 +130,20 @@ export default function Downloads() {
   }, [filteredDownloads]);
 
   const handleAction = (action, id) => {
+    const methods = {
+      cancel: 'downloads.cancel',
+      pause: 'downloads.pause',
+      resume: 'downloads.resume',
+    };
+    if (methods[action]) {
+      nativeRequest({ method: methods[action], params: { id } }).catch(() => {});
+      return;
+    }
     window.cefQuery?.({ request: `${action}-download:${id}` });
   };
 
   const clearFinished = () => {
-    window.cefQuery?.({ 
-      request: 'clear-finished-downloads',
-      onSuccess: load
-    });
+    nativeRequest({ method: 'downloads.clearFinished' }).then(load).catch(() => {});
   };
 
   const formatSize = (bytes) => {

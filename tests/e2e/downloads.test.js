@@ -1,4 +1,5 @@
 import test from 'node:test';
+import assert from 'node:assert/strict';
 
 import {
   allowDownloadOnce,
@@ -10,6 +11,52 @@ import {
   timeoutMs,
   waitFor,
 } from './helpers/browserHarness.js';
+
+test('downloads RPC rejects unknown schema fields',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let downloadsCdp = null;
+    try {
+      await navigateFromAddressBar(browser.cdp, 'browser://downloads');
+      downloadsCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Downloads' ||
+        /downloads\.html/i.test(target.url || ''),
+        15000,
+      );
+
+      await waitFor(
+        downloadsCdp,
+        `typeof window.cefQuery === 'function' && document.body.innerText`,
+        (text) => /Downloads/i.test(text),
+        15000,
+      );
+
+      const response = await downloadsCdp.evaluate(`
+        new Promise((resolve) => {
+          window.cefQuery({
+            request: JSON.stringify({
+              id: 'downloads-extra-param',
+              method: 'downloads.list',
+              params: { extra: true },
+            }),
+            onSuccess: resolve,
+            onFailure: (code, message) => resolve(JSON.stringify({
+              ok: false,
+              error: { code: String(code), message },
+            })),
+          });
+        })
+      `);
+      const parsed = JSON.parse(response);
+      assert.equal(parsed.id, 'downloads-extra-param');
+      assert.equal(parsed.ok, false);
+      assert.match(parsed.error.message, /unexpected param: extra/);
+    } finally {
+      if (downloadsCdp) downloadsCdp.close();
+      await browser.close();
+    }
+  });
 
 test('user can download a file and clear finished downloads from the downloads page',
   { timeout: timeoutMs + 20000 },
