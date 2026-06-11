@@ -72,6 +72,7 @@ void DiagLog(const std::string& line);
 void ApplyProductionCommandLineSwitches(CefRefPtr<CefCommandLine> command_line);
 
 std::string ExtractOrigin(const std::string& url);
+std::string NormalizeOrigin(const std::string& origin);
 std::string JsonEscape(const std::string& s);
 std::string JsonString(const std::string& s);
 

@@ -14,11 +14,17 @@ const BlockedPopup = () => {
   });
 
   const handleAllow = () => {
-    window.cefQuery?.({ request: `allow-popup:${id}` });
+    nativeRequest({
+      method: 'permissions.popup.allow',
+      params: { id },
+    }).catch(() => {});
   };
 
   const handleAlwaysAllow = () => {
-    window.cefQuery?.({ request: `always-allow-popup:${origin}:${id}` });
+    nativeRequest({
+      method: 'permissions.popup.alwaysAllow',
+      params: { id, origin },
+    }).catch(() => {});
   };
 
   const handleBlock = () => {

@@ -14,11 +14,17 @@ const DownloadRequest = () => {
   });
 
   const handleAllow = () => {
-    window.cefQuery?.({ request: `allow-download:${origin}` });
+    nativeRequest({
+      method: 'permissions.download.allow',
+      params: { origin },
+    }).catch(() => {});
   };
 
   const handleAlwaysAllow = () => {
-    window.cefQuery?.({ request: `always-allow-download:${origin}` });
+    nativeRequest({
+      method: 'permissions.download.alwaysAllow',
+      params: { origin },
+    }).catch(() => {});
   };
 
   const handleBlock = () => {

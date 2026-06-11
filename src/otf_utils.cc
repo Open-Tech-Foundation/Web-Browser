@@ -1448,6 +1448,25 @@ std::string ExtractOrigin(const std::string& url) {
   return origin;
 }
 
+std::string NormalizeOrigin(const std::string& origin) {
+  // Strip default ports from http/https origins so that
+  // https://example.com:443 and https://example.com match.
+  size_t port_start = std::string::npos;
+  if (origin.rfind("http://", 0) == 0) {
+    port_start = origin.find(':', 7);
+  } else if (origin.rfind("https://", 0) == 0) {
+    port_start = origin.find(':', 8);
+  }
+  if (port_start != std::string::npos) {
+    std::string port_str = origin.substr(port_start + 1);
+    if ((origin.rfind("http://", 0) == 0 && port_str == "80") ||
+        (origin.rfind("https://", 0) == 0 && port_str == "443")) {
+      return origin.substr(0, port_start);
+    }
+  }
+  return origin;
+}
+
 int SelectNextActiveTabId(const std::vector<int>& tab_ids, int closing_tab_id) {
   if (tab_ids.empty()) {
     return -1;
@@ -2129,7 +2148,7 @@ static std::vector<std::filesystem::path> GetCefProfileDirs() {
   return dirs;
 }
 
-static std::string NormalizeOrigin(const std::string& origin) {
+static std::string NormalizeSiteUsageOrigin(const std::string& origin) {
   // Strip www. prefix(es) from host and remove default ports (80, 443)
   // so e.g. https://www.www.youtube.com:443 normalizes to https://youtube.com.
   std::string result = origin;
@@ -2172,25 +2191,25 @@ std::string BuildSiteUsageJson(const std::vector<std::string>& extra_origins,
   // Build normalized maps by origin for each storage type
   std::map<std::string, uint64_t> idb_map;
   for (const auto& [origin, size] : indexed_db_sizes)
-    idb_map[NormalizeOrigin(origin)] += size;
+    idb_map[NormalizeSiteUsageOrigin(origin)] += size;
   std::map<std::string, uint64_t> cs_map;
   for (const auto& [origin, size] : cache_storage_sizes)
-    cs_map[NormalizeOrigin(origin)] += size;
+    cs_map[NormalizeSiteUsageOrigin(origin)] += size;
   std::map<std::string, uint64_t> ls_map;
   for (const auto& [origin, size] : local_storage_sizes)
-    ls_map[NormalizeOrigin(origin)] += size;
+    ls_map[NormalizeSiteUsageOrigin(origin)] += size;
   // Normalize cookie_sizes
   std::map<std::string, uint64_t> cookies_map;
   for (const auto& [origin, size] : cookie_sizes)
-    cookies_map[NormalizeOrigin(origin)] += size;
+    cookies_map[NormalizeSiteUsageOrigin(origin)] += size;
   // Normalize cookie_counts
   std::map<std::string, uint64_t> cookie_count_map;
   for (const auto& [origin, count] : cookie_counts)
-    cookie_count_map[NormalizeOrigin(origin)] += count;
+    cookie_count_map[NormalizeSiteUsageOrigin(origin)] += count;
   // Normalize extra_origins
   std::set<std::string> extra_set;
   for (const auto& origin : extra_origins)
-    extra_set.insert(NormalizeOrigin(origin));
+    extra_set.insert(NormalizeSiteUsageOrigin(origin));
 
   // Collect all unique normalized origins
   std::set<std::string> all_origins;

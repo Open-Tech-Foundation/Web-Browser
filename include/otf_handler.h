@@ -424,7 +424,7 @@ class OtfHandler : public CefClient,
   std::map<int, std::string> http_upgraded_urls_;
 
   // Transient allow-once set for downloads. Populated by the
-  // allow-download cefQuery handler, consumed (and erased) by CanDownload so
+  // permissions.download.allow RPC, consumed (and erased) by CanDownload so
   // the next download from that origin proceeds immediately.
   std::set<std::string> allow_once_downloads_;
 

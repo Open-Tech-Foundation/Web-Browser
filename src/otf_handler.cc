@@ -8,6 +8,7 @@
 #include "otf_native_rpc.h"
 #include "otf_search_rpc.h"
 #include "otf_settings_rpc.h"
+#include "otf_permissions_rpc.h"
 #include "otf_site_data_rpc.h"
 #include "otf_ui_rpc.h"
 #include "otf_workspaces_rpc.h"
@@ -202,24 +203,6 @@ constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_CONTENT_CONTEXT_OPENLINKNEWTAB,
     IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,
 };
-
-std::string NormalizeOrigin(const std::string& origin) {
-  // Strip default ports from http/https origins so that
-  // https://example.com:443 and https://example.com match.
-  size_t port_start = std::string::npos;
-  if (origin.rfind("http://", 0) == 0)
-    port_start = origin.find(':', 7);
-  else if (origin.rfind("https://", 0) == 0)
-    port_start = origin.find(':', 8);
-  if (port_start != std::string::npos) {
-    std::string port_str = origin.substr(port_start + 1);
-    if ((origin.rfind("http://", 0) == 0 && port_str == "80") ||
-        (origin.rfind("https://", 0) == 0 && port_str == "443")) {
-      return origin.substr(0, port_start);
-    }
-  }
-  return origin;
-}
 
 std::string ParseSiteDataOrigin(const std::string& raw) {
   const std::string extracted = NormalizeOrigin(otf::ExtractOrigin(raw));
@@ -2366,6 +2349,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandleSearchRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandlePermissionsRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
@@ -5115,92 +5101,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Failure(1, "invalid payload");
       return true;
-    } else if (msg.rfind("allow-popup:", 0) == 0) {
-      const std::string id_str = msg.substr(12);
-      char* parse_end = nullptr;
-      errno = 0;
-      long parsed_id = std::strtol(id_str.c_str(), &parse_end, 10);
-      int popup_id = (errno == 0 && parse_end != id_str.c_str() && *parse_end == '\0')
-                         ? static_cast<int>(parsed_id)
-                         : -1;
-      auto it = handler->pending_popups_.find(popup_id);
-      if (it != handler->pending_popups_.end()) {
-        OtfApp* app = OtfApp::GetInstance();
-        handler->OpenAcceptedPopup(it->second);
-        if (app) {
-          if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
-        }
-        handler->pending_popups_.erase(it);
-      }
-      callback->Success("ok");
-      return true;
-    } else if (msg.rfind("always-allow-popup:", 0) == 0) {
-      if (handler->guest_session_active_) {
-        callback->Success("ok");
-        return true;
-      }
-      const std::string payload = msg.substr(19);
-      size_t last_colon = payload.rfind(':');
-      if (last_colon != std::string::npos && last_colon > 0) {
-        std::string origin = NormalizeOrigin(payload.substr(0, last_colon));
-        std::string id_str = payload.substr(last_colon + 1);
-        char* parse_end = nullptr;
-        errno = 0;
-        long parsed_id = std::strtol(id_str.c_str(), &parse_end, 10);
-        int popup_id = (errno == 0 && parse_end != id_str.c_str() && *parse_end == '\0')
-                           ? static_cast<int>(parsed_id)
-                           : -1;
-
-        if (handler->store_) {
-          handler->store_->SetSitePermission(origin, "popup", "allow");
-        }
-
-        auto it = handler->pending_popups_.find(popup_id);
-        if (it != handler->pending_popups_.end()) {
-          OtfApp* app = OtfApp::GetInstance();
-          handler->OpenAcceptedPopup(it->second);
-          if (app) {
-            if (auto* popup = app->GetPopup("blockedpopup")) popup->Hide();
-          }
-          handler->pending_popups_.erase(it);
-        }
-      }
-      callback->Success("ok");
-      return true;
-    } else if (msg.rfind("allow-download:", 0) == 0) {
-      const std::string origin = NormalizeOrigin(msg.substr(15));
-      if (!origin.empty()) {
-        handler->allow_once_downloads_.insert(origin);
-        if (OtfApp* a = OtfApp::GetInstance()) {
-          if (auto* ov = a->GetPopup("downloadrequest")) ov->Hide();
-        }
-        if (!handler->download_ask_pending_url_.empty() && handler->download_ask_pending_browser_) {
-          handler->download_ask_pending_browser_->GetHost()->StartDownload(handler->download_ask_pending_url_);
-          handler->download_ask_pending_url_.clear();
-          handler->download_ask_pending_browser_ = nullptr;
-        }
-      }
-      callback->Success("ok");
-      return true;
-    } else if (msg.rfind("always-allow-download:", 0) == 0) {
-      if (handler->guest_session_active_) {
-        callback->Success("ok");
-        return true;
-      }
-      const std::string origin = NormalizeOrigin(msg.substr(22));
-      if (!origin.empty() && handler->store_) {
-        handler->store_->SetSitePermission(origin, "downloads", "allow");
-        if (OtfApp* a = OtfApp::GetInstance()) {
-          if (auto* ov = a->GetPopup("downloadrequest")) ov->Hide();
-        }
-        if (!handler->download_ask_pending_url_.empty() && handler->download_ask_pending_browser_) {
-          handler->download_ask_pending_browser_->GetHost()->StartDownload(handler->download_ask_pending_url_);
-          handler->download_ask_pending_url_.clear();
-          handler->download_ask_pending_browser_ = nullptr;
-        }
-      }
-      callback->Success("ok");
-      return true;
     } else if (msg.rfind("clear-all-for-site:", 0) == 0) {
       if (handler->guest_session_active_) {
         callback->Success("ok");
@@ -6418,7 +6318,7 @@ bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
       main_frame ? ExtractOrigin(main_frame->GetURL().ToString()) : "";
   if (page_origin.empty()) return true;
 
-  // Check transient allow-once (set by allow-download handler).
+  // Check transient allow-once (set by permissions.download.allow).
   if (allow_once_downloads_.erase(page_origin) > 0) {
     return true;
   }
@@ -7342,7 +7242,7 @@ bool OtfHandler::OnBeforeDownload(CefRefPtr<CefBrowser> browser,
     }
   }
 
-  // Consume transient allow-once entry set by the allow-download handler.
+  // Consume transient allow-once entry set by permissions.download.allow.
   // StartDownload may bypass CanDownload where it's normally consumed, so
   // we must consume it here to prevent a stale entry from silently allowing
   // the next download from this origin.

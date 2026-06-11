@@ -39,24 +39,6 @@ bool IsInternalBrowserHistoryUrl(const std::string& url) {
   return otf::IsInternalUiUrl(url);
 }
 
-std::string NormalizeOrigin(const std::string& origin) {
-  // Strip default ports so https://example.com:443 and https://example.com match.
-  if (origin.rfind("http://", 0) == 0) {
-    size_t port_start = origin.find(':', 7);
-    if (port_start != std::string::npos) {
-      std::string port_str = origin.substr(port_start + 1);
-      if (port_str == "80") return origin.substr(0, port_start);
-    }
-  } else if (origin.rfind("https://", 0) == 0) {
-    size_t port_start = origin.find(':', 8);
-    if (port_start != std::string::npos) {
-      std::string port_str = origin.substr(port_start + 1);
-      if (port_str == "443") return origin.substr(0, port_start);
-    }
-  }
-  return origin;
-}
-
 std::string GenerateUuidV4() {
   std::random_device rd;
   std::mt19937_64 gen(rd());
