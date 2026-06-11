@@ -7,6 +7,8 @@
 #include "otf_handler.h"
 #include "otf_utils.h"
 
+#include "include/cef_task_manager.h"
+
 namespace otf {
 namespace {
 
@@ -118,6 +120,7 @@ bool HandleTabsRpc(
        request.method != "split.withCurrent" &&
        request.method != "split.close" &&
        request.method != "split.swap" &&
+       request.method != "tabs.memory" &&
        request.method != "split.closePane")) {
     return false;
   }
@@ -253,6 +256,26 @@ bool HandleTabsRpc(
     }
     handler->PersistWorkspaceForTab(tab_id);
     Success(callback, request);
+    return true;
+  }
+
+  if (request.method == "tabs.memory") {
+    int64_t memory_bytes = -1;
+    CefRefPtr<CefBrowser> target =
+        handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id) : nullptr;
+    if (target) {
+      auto tm = CefTaskManager::GetTaskManager();
+      if (tm) {
+        int64_t task_id = tm->GetTaskIdForBrowserId(target->GetIdentifier());
+        if (task_id >= 0) {
+          CefTaskInfo info;
+          if (tm->GetTaskInfo(task_id, info) && info.memory > 0) {
+            memory_bytes = info.memory;
+          }
+        }
+      }
+    }
+    NativeRpcSuccessRaw(callback, request, std::to_string(memory_bytes));
     return true;
   }
 

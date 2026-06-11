@@ -24,7 +24,7 @@ const normalizeTab = (tab) => ({
   private: Boolean(tab.private),
   pinned: Boolean(tab.pinned),
   guest: Boolean(tab.guest),
-  memoryBytes: Number(tab.memoryBytes ?? -1),
+  memoryBytes: Number(tab.memoryBytes > 0 ? tab.memoryBytes : -1),
 });
 
 const tabReducer = (state, action) => {
@@ -161,6 +161,18 @@ const App = () => {
       })
       .then((activeId) => {
         dispatch({ type: 'SET_ACTIVE', payload: Number(activeId) });
+        fetchTabMemory(Number(activeId));
+      })
+      .catch(() => {});
+  };
+
+  const fetchTabMemory = (tabId) => {
+    if (!window.cefQuery || tabId == null) return;
+    nativeRequest({ method: 'tabs.memory', params: { tabId } })
+      .then((bytes) => {
+        if (bytes > 0) {
+          dispatch({ type: 'UPDATE_TAB', payload: { id: tabId, key: 'memoryBytes', value: bytes } });
+        }
       })
       .catch(() => {});
   };
@@ -255,6 +267,7 @@ const App = () => {
             } else if (event.key === 'active-tab-changed') {
               dispatch({ type: 'SET_ACTIVE', payload: event.id });
               addressBarRef.current?.blur();
+              fetchTabMemory(event.id);
             } else if (event.key === 'downloads-badge') {
               setDownloadBadge(Number(event.value) || 0);
               setHasDownloads(Number(event.total) > 0);
@@ -304,7 +317,10 @@ const App = () => {
           if (existingTabs.length > 0) {
             dispatch({ type: 'SET_TABS', payload: existingTabs });
             nativeRequest({ method: 'tabs.active' })
-              .then((activeId) => dispatch({ type: 'SET_ACTIVE', payload: Number(activeId) }))
+              .then((activeId) => {
+                dispatch({ type: 'SET_ACTIVE', payload: Number(activeId) });
+                fetchTabMemory(Number(activeId));
+              })
               .catch(() => {});
           } else {
             handleNewTab();

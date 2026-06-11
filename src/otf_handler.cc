@@ -5629,7 +5629,7 @@ class MemoryLogTask : public CefTask {
   void Execute() override {
     if (handler_ && handler_->IsMemoryLoggingRunning()) {
       handler_->LogTabMemoryUsage();
-      CefPostDelayedTask(TID_UI, new MemoryLogTask(handler_), 10000);
+      CefPostDelayedTask(TID_UI, new MemoryLogTask(handler_), 60000);
     }
   }
  private:
@@ -5642,7 +5642,7 @@ void OtfHandler::StartMemoryLogging() {
   if (memory_log_running_ || !tab_manager_) return;
   memory_log_running_ = true;
   memory_task_manager_ = CefTaskManager::GetTaskManager();
-  CefPostDelayedTask(TID_UI, new MemoryLogTask(this), 10000);
+  CefPostDelayedTask(TID_UI, new MemoryLogTask(this), 60000);
 }
 
 void OtfHandler::StopMemoryLogging() {
@@ -5658,20 +5658,23 @@ void OtfHandler::LogTabMemoryUsage() {
   auto tm = memory_task_manager_;
   if (!tm) return;
 
-  const auto tab_ids = tab_manager_->GetAllTabIds();
-  if (tab_ids.empty()) return;
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) return;
 
-  for (int tab_id : tab_ids) {
-    CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(tab_id);
-    if (!b) continue;
-    int64_t task_id = tm->GetTaskIdForBrowserId(b->GetIdentifier());
-    if (task_id < 0) continue;
-    CefTaskInfo info;
-    if (!tm->GetTaskInfo(task_id, info)) continue;
+  const int active_tab_id = app->GetCurrentTabId();
+  if (active_tab_id < 0) return;
 
-    int64_t ram = info.memory;
-    SendEvent(BuildTabPropertyEvent(tab_id, "memoryBytes", ram));
-  }
+  CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(active_tab_id);
+  if (!b) return;
+
+  int64_t task_id = tm->GetTaskIdForBrowserId(b->GetIdentifier());
+  if (task_id < 0) return;
+
+  CefTaskInfo info;
+  if (!tm->GetTaskInfo(task_id, info)) return;
+
+  int64_t ram = info.memory > 0 ? info.memory : -1;
+  SendEvent(BuildTabPropertyEvent(active_tab_id, "memoryBytes", ram));
 }
 
 void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
