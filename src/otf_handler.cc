@@ -12,6 +12,7 @@
 #include "otf_settings_rpc.h"
 #include "otf_permissions_rpc.h"
 #include "otf_site_data_rpc.h"
+#include "otf_tabs_rpc.h"
 #include "otf_ui_rpc.h"
 #include "otf_workspaces_rpc.h"
 
@@ -2325,6 +2326,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (HandleConsoleRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
+      if (HandleTabsRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
                        "Unknown native RPC method");
       return true;
@@ -3128,34 +3132,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->HideBookmarkOverlay();
       }
       callback->Success("");
-      return true;
-    }
-
-    if (msg == "get-tabs") {
-      std::stringstream ss;
-      ss << "[";
-      std::vector<int> ids =
-          handler->guest_session_active_
-              ? handler->tab_manager_->GetTabIdsForWorkspace(0)
-              : handler->tab_manager_->GetTabIdsForWorkspace(
-                    handler->active_workspace_id_);
-      for (size_t i = 0; i < ids.size(); ++i) {
-        ss << BuildTabJson(handler->tab_manager_, handler->store_.get(), ids[i]);
-        if (i < ids.size() - 1) ss << ",";
-      }
-      ss << "]";
-      callback->Success(ss.str());
-      return true;
-    }
-
-    if (msg == "get-active-tab") {
-      OtfApp* app = OtfApp::GetInstance();
-      callback->Success(app ? std::to_string(app->GetCurrentTabId()) : "-1");
-      return true;
-    }
-
-    if (msg == "get-split-state") {
-      callback->Success(handler->BuildSplitViewStateJson(handler->active_workspace_id_));
       return true;
     }
 
@@ -4375,286 +4351,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       app->SwitchTab(id);
       // Private tabs are never persisted to the workspace session.
       callback->Success(std::to_string(id));
-    } else if (msg == "split-current") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app || !handler->tab_manager_) {
-        callback->Failure(1, "App not ready");
-        return true;
-      }
-      int active_tab_id = app->GetCurrentTabId();
-      if (active_tab_id < 0) {
-        callback->Failure(1, "No active tab");
-        return true;
-      }
-      auto existing_state = handler->GetSplitViewState(handler->active_workspace_id_);
-      if (existing_state.enabled) {
-        handler->ApplySplitViewState(handler->active_workspace_id_);
-        callback->Success("");
-        return true;
-      }
-      const int secondary_tab_id = app->CreateTab("browser://split-placeholder", active_tab_id);
-      handler->NotifyNewTab(secondary_tab_id, active_tab_id);
-      handler->tab_manager_->SetTitle(secondary_tab_id, "Add a tab to split view");
-      handler->tab_manager_->SetSchemeUrl(secondary_tab_id, "browser://split-placeholder");
-      app->OpenSplitView(active_tab_id, secondary_tab_id, active_tab_id);
-      handler->SetSplitViewTabs(handler->active_workspace_id_, active_tab_id,
-                                secondary_tab_id, active_tab_id);
-      handler->PersistWorkspaceForTab(active_tab_id);
-      handler->NotifySplitStateChanged(handler->active_workspace_id_);
-      callback->Success("");
-    } else if (msg.rfind("add-tab-to-split:", 0) == 0 ||
-               msg.rfind("split-with-current:", 0) == 0) {
-      const size_t prefix_len = msg.rfind("add-tab-to-split:", 0) == 0 ? 17 : 19;
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(prefix_len));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int target_tab_id = *tab_id_opt;
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app || !handler->tab_manager_) {
-        callback->Failure(1, "App not ready");
-        return true;
-      }
-      auto state = handler->GetSplitViewState(handler->active_workspace_id_);
-      if (!state.enabled) {
-        callback->Failure(1, "Split view inactive");
-        return true;
-      }
-      const auto ids =
-          handler->tab_manager_->GetTabIdsForWorkspace(handler->active_workspace_id_);
-      if (std::find(ids.begin(), ids.end(), target_tab_id) == ids.end()) {
-        callback->Failure(1, "Tab is not in the active workspace");
-        return true;
-      }
-      if (target_tab_id == state.left_tab_id || target_tab_id == state.right_tab_id) {
-        app->SwitchTab(target_tab_id);
-        handler->SyncSplitStateFromApp();
-        callback->Success("");
-        return true;
-      }
-      const bool left_is_placeholder =
-          IsSplitPlaceholderTab(handler->tab_manager_, state.left_tab_id);
-      const bool right_is_placeholder =
-          IsSplitPlaceholderTab(handler->tab_manager_, state.right_tab_id);
-      const bool replace_right =
-          right_is_placeholder ? true :
-          left_is_placeholder ? false :
-          state.active_tab_id != state.right_tab_id;
-      const int replaced_tab_id = replace_right ? state.right_tab_id : state.left_tab_id;
-      const int next_left = replace_right ? state.left_tab_id : target_tab_id;
-      const int next_right = replace_right ? target_tab_id : state.right_tab_id;
-      app->OpenSplitView(next_left, next_right, target_tab_id);
-      handler->SetSplitViewTabs(handler->active_workspace_id_, next_left,
-                                next_right, target_tab_id);
-      app->ActivateSplitPane(target_tab_id, true);
-      const bool should_close_placeholder =
-          IsSplitPlaceholderTab(handler->tab_manager_, replaced_tab_id);
-      handler->PersistWorkspaceForTab(target_tab_id);
-      handler->NotifySplitStateChanged(handler->active_workspace_id_);
-      callback->Success("");
-      if (should_close_placeholder) {
-        CefPostDelayedTask(TID_UI, base::BindOnce([](int tab_id) {
-          if (auto* handler = OtfHandler::GetInstance()) {
-            handler->CloseTabAndNotify(tab_id);
-          }
-        }, replaced_tab_id), 100);
-      }
-    } else if (msg == "close-split") {
-      OtfApp* app = OtfApp::GetInstance();
-      const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
-      int placeholder_tab_id = -1;
-      if (handler->tab_manager_ && state.enabled) {
-        if (IsSplitPlaceholderTab(handler->tab_manager_, state.left_tab_id)) {
-          placeholder_tab_id = state.left_tab_id;
-        } else if (IsSplitPlaceholderTab(handler->tab_manager_, state.right_tab_id)) {
-          placeholder_tab_id = state.right_tab_id;
-        }
-      }
-      if (app) {
-        app->ClearSplitView();
-      }
-      handler->ClearSplitViewState(handler->active_workspace_id_);
-      handler->NotifySplitStateChanged(handler->active_workspace_id_);
-      if (placeholder_tab_id >= 0) {
-        handler->CloseTabAndNotify(placeholder_tab_id);
-      }
-      callback->Success("");
-    } else if (msg == "swap-split") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app) { callback->Failure(1, "App not ready"); return true; }
-      const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
-      if (!state.enabled) {
-        callback->Failure(1, "Split view inactive");
-        return true;
-      }
-      const int active_tab_id = app->GetCurrentTabId() == state.left_tab_id
-                                    ? state.right_tab_id
-                                    : state.left_tab_id;
-      app->OpenSplitView(state.right_tab_id, state.left_tab_id, active_tab_id);
-      handler->SetSplitViewTabs(handler->active_workspace_id_, state.right_tab_id,
-                                state.left_tab_id, active_tab_id);
-      handler->NotifySplitStateChanged(handler->active_workspace_id_);
-      callback->Success("");
-    } else if (msg.rfind("close-split-pane:", 0) == 0) {
-      const std::string pane = msg.substr(17);
-      const auto state = handler->GetSplitViewState(handler->active_workspace_id_);
-      if (!state.enabled) {
-        callback->Failure(1, "Split view inactive");
-        return true;
-      }
-      int tab_id = -1;
-      if (pane == "left") {
-        tab_id = state.left_tab_id;
-      } else if (pane == "right") {
-        tab_id = state.right_tab_id;
-      } else {
-        callback->Failure(1, "Invalid split pane");
-        return true;
-      }
-      if (handler->tab_manager_ && handler->tab_manager_->IsPinned(tab_id)) {
-        callback->Failure(1, "Pinned tabs cannot be closed");
-        return true;
-      }
-      callback->Success("");
-      handler->CloseTabAndNotify(tab_id);
-      return true;
-    } else if (msg.find("close-tab:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      const int ws =
-          handler->tab_manager_ ? handler->tab_manager_->GetWorkspaceId(tab_id) : 0;
-      const bool closes_guest_session =
-          handler->guest_session_active_ && ws == 0 && handler->tab_manager_ &&
-          handler->tab_manager_->GetTabIdsForWorkspace(0).size() == 1;
-      if (closes_guest_session) {
-        callback->Success("");
-        handler->CloseTabAndNotify(tab_id);
-        return true;
-      }
-      if (OtfApp::GetInstance()) {
-        handler->CloseTabAndNotify(tab_id);
-      }
-      if (ws > 0) handler->PersistWorkspaceTabs(ws);
-      callback->Success("");
-    } else if (msg.find("switch-tab:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) app->SwitchTab(tab_id);
-      if (handler->IsSplitTab(tab_id)) {
-        handler->SyncSplitStateFromApp();
-      }
-      // Persist so was_active is up to date on next restore.
-      handler->PersistWorkspaceForTab(tab_id);
-      callback->Success("");
-    } else if (msg.find("back:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
-      if (b) b->GoBack();
-      callback->Success("");
-    } else if (msg.find("forward:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(8));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
-      if (b) b->GoForward();
-      callback->Success("");
-    } else if (msg.find("reload:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(7));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
-      if (b) b->Reload();
-      callback->Success("");
-    } else if (msg.find("stop:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
-      if (b) b->StopLoad();
-      callback->Success("");
-    } else if (msg.find("zoom-in:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(8));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) {
-        double zoom = b->GetHost()->GetZoomLevel();
-        double next_zoom = otf::ZoomIn(zoom);
-        b->GetHost()->SetZoomLevel(next_zoom);
-        const int pct = ToRoundedZoomPercent(next_zoom);
-        handler->tab_manager_->SetZoomPercent(tab_id, pct);
-        SaveWorkspaceOriginZoom(handler->tab_manager_, handler->store_.get(),
-                                tab_id, pct);
-        handler->SendEvent(BuildTabPropertyEvent(
-            tab_id, "zoomPercent", std::to_string(pct)));
-        if (handler->zoombar_subscription_) {
-          handler->zoombar_subscription_->Success(
-              BuildZoomUpdateEvent(tab_id, pct));
-        }
-      }
-      callback->Success("");
-    } else if (msg.find("zoom-out:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(9));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) {
-        double zoom = b->GetHost()->GetZoomLevel();
-        double next_zoom = otf::ZoomOut(zoom);
-        b->GetHost()->SetZoomLevel(next_zoom);
-        const int pct = ToRoundedZoomPercent(next_zoom);
-        handler->tab_manager_->SetZoomPercent(tab_id, pct);
-        SaveWorkspaceOriginZoom(handler->tab_manager_, handler->store_.get(),
-                                tab_id, pct);
-        handler->SendEvent(BuildTabPropertyEvent(
-            tab_id, "zoomPercent", std::to_string(pct)));
-        if (handler->zoombar_subscription_) {
-          handler->zoombar_subscription_->Success(
-              BuildZoomUpdateEvent(tab_id, pct));
-        }
-      }
-      callback->Success("");
-    } else if (msg.find("zoom-reset:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) {
-        double next_zoom = otf::ZoomReset();
-        b->GetHost()->SetZoomLevel(next_zoom);
-        const int pct = ToRoundedZoomPercent(next_zoom);
-        handler->tab_manager_->SetZoomPercent(tab_id, pct);
-        SaveWorkspaceOriginZoom(handler->tab_manager_, handler->store_.get(),
-                                tab_id, pct);
-        handler->SendEvent(BuildTabPropertyEvent(
-            tab_id, "zoomPercent", std::to_string(pct)));
-        if (handler->zoombar_subscription_) {
-          handler->zoombar_subscription_->Success(
-              BuildZoomUpdateEvent(tab_id, pct));
-        }
-      }
-      callback->Success("");
-    } else if (msg.find("mute-tab:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(9));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) {
-        b->GetHost()->SetAudioMuted(true);
-        handler->tab_manager_->SetMuted(tab_id, true);
-        handler->SendEvent(BuildTabPropertyEvent(tab_id, "muted", true));
-      }
-      callback->Success("");
-    } else if (msg.find("unmute-tab:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(11));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      const int tab_id = *tab_id_opt;
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(tab_id);
-      if (b) {
-        b->GetHost()->SetAudioMuted(false);
-        handler->tab_manager_->SetMuted(tab_id, false);
-        handler->SendEvent(BuildTabPropertyEvent(tab_id, "muted", false));
-      }
-      callback->Success("");
     } else if (msg == "toggle-zoombar") {
       OtfApp* app = OtfApp::GetInstance();
       if (app && app->zoombar_overlay_) {
@@ -6175,6 +5871,194 @@ bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
 
 std::string OtfHandler::GetDownloadsJson() const {
   return BuildDownloadsJson(downloads_);
+}
+
+std::string OtfHandler::BuildTabsJson() const {
+  std::stringstream ss;
+  ss << "[";
+  const std::vector<int> ids =
+      guest_session_active_
+          ? tab_manager_->GetTabIdsForWorkspace(0)
+          : tab_manager_->GetTabIdsForWorkspace(active_workspace_id_);
+  for (size_t i = 0; i < ids.size(); ++i) {
+    ss << BuildTabJson(tab_manager_, store_.get(), ids[i]);
+    if (i + 1 < ids.size()) ss << ",";
+  }
+  ss << "]";
+  return ss.str();
+}
+
+bool OtfHandler::ApplyTabZoomAction(int tab_id, const std::string& action) {
+  if (!tab_manager_) return false;
+  CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(tab_id);
+  if (!b) return false;
+
+  double next_zoom = b->GetHost()->GetZoomLevel();
+  if (action == "in") {
+    next_zoom = otf::ZoomIn(next_zoom);
+  } else if (action == "out") {
+    next_zoom = otf::ZoomOut(next_zoom);
+  } else if (action == "reset") {
+    next_zoom = otf::ZoomReset();
+  } else {
+    return false;
+  }
+
+  b->GetHost()->SetZoomLevel(next_zoom);
+  const int pct = ToRoundedZoomPercent(next_zoom);
+  tab_manager_->SetZoomPercent(tab_id, pct);
+  SaveWorkspaceOriginZoom(tab_manager_, store_.get(), tab_id, pct);
+  SendEvent(BuildTabPropertyEvent(tab_id, "zoomPercent", std::to_string(pct)));
+  if (zoombar_subscription_) {
+    zoombar_subscription_->Success(BuildZoomUpdateEvent(tab_id, pct));
+  }
+  return true;
+}
+
+bool OtfHandler::SplitCurrentTab(std::string* error) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !tab_manager_) {
+    if (error) *error = "App not ready";
+    return false;
+  }
+  const int active_tab_id = app->GetCurrentTabId();
+  if (active_tab_id < 0) {
+    if (error) *error = "No active tab";
+    return false;
+  }
+  auto existing_state = GetSplitViewState(active_workspace_id_);
+  if (existing_state.enabled) {
+    ApplySplitViewState(active_workspace_id_);
+    return true;
+  }
+  const int secondary_tab_id =
+      app->CreateTab("browser://split-placeholder", active_tab_id);
+  NotifyNewTab(secondary_tab_id, active_tab_id);
+  tab_manager_->SetTitle(secondary_tab_id, "Add a tab to split view");
+  tab_manager_->SetSchemeUrl(secondary_tab_id, "browser://split-placeholder");
+  app->OpenSplitView(active_tab_id, secondary_tab_id, active_tab_id);
+  SetSplitViewTabs(active_workspace_id_, active_tab_id, secondary_tab_id,
+                   active_tab_id);
+  PersistWorkspaceForTab(active_tab_id);
+  NotifySplitStateChanged(active_workspace_id_);
+  return true;
+}
+
+bool OtfHandler::AddTabToSplit(int target_tab_id, std::string* error) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !tab_manager_) {
+    if (error) *error = "App not ready";
+    return false;
+  }
+  auto state = GetSplitViewState(active_workspace_id_);
+  if (!state.enabled) {
+    if (error) *error = "Split view inactive";
+    return false;
+  }
+  const auto ids = tab_manager_->GetTabIdsForWorkspace(active_workspace_id_);
+  if (std::find(ids.begin(), ids.end(), target_tab_id) == ids.end()) {
+    if (error) *error = "Tab is not in the active workspace";
+    return false;
+  }
+  if (target_tab_id == state.left_tab_id || target_tab_id == state.right_tab_id) {
+    app->SwitchTab(target_tab_id);
+    SyncSplitStateFromApp();
+    return true;
+  }
+  const bool left_is_placeholder =
+      IsSplitPlaceholderTab(tab_manager_, state.left_tab_id);
+  const bool right_is_placeholder =
+      IsSplitPlaceholderTab(tab_manager_, state.right_tab_id);
+  const bool replace_right =
+      right_is_placeholder ? true
+                           : left_is_placeholder
+                                 ? false
+                                 : state.active_tab_id != state.right_tab_id;
+  const int replaced_tab_id = replace_right ? state.right_tab_id : state.left_tab_id;
+  const int next_left = replace_right ? state.left_tab_id : target_tab_id;
+  const int next_right = replace_right ? target_tab_id : state.right_tab_id;
+  app->OpenSplitView(next_left, next_right, target_tab_id);
+  SetSplitViewTabs(active_workspace_id_, next_left, next_right, target_tab_id);
+  app->ActivateSplitPane(target_tab_id, true);
+  const bool should_close_placeholder =
+      IsSplitPlaceholderTab(tab_manager_, replaced_tab_id);
+  PersistWorkspaceForTab(target_tab_id);
+  NotifySplitStateChanged(active_workspace_id_);
+  if (should_close_placeholder) {
+    CefPostDelayedTask(TID_UI, base::BindOnce([](int tab_id) {
+      if (auto* handler = OtfHandler::GetInstance()) {
+        handler->CloseTabAndNotify(tab_id);
+      }
+    }, replaced_tab_id), 100);
+  }
+  return true;
+}
+
+bool OtfHandler::CloseSplitView(std::string* error) {
+  (void)error;
+  OtfApp* app = OtfApp::GetInstance();
+  const auto state = GetSplitViewState(active_workspace_id_);
+  int placeholder_tab_id = -1;
+  if (tab_manager_ && state.enabled) {
+    if (IsSplitPlaceholderTab(tab_manager_, state.left_tab_id)) {
+      placeholder_tab_id = state.left_tab_id;
+    } else if (IsSplitPlaceholderTab(tab_manager_, state.right_tab_id)) {
+      placeholder_tab_id = state.right_tab_id;
+    }
+  }
+  if (app) {
+    app->ClearSplitView();
+  }
+  ClearSplitViewState(active_workspace_id_);
+  NotifySplitStateChanged(active_workspace_id_);
+  if (placeholder_tab_id >= 0) {
+    CloseTabAndNotify(placeholder_tab_id);
+  }
+  return true;
+}
+
+bool OtfHandler::SwapSplitView(std::string* error) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) {
+    if (error) *error = "App not ready";
+    return false;
+  }
+  const auto state = GetSplitViewState(active_workspace_id_);
+  if (!state.enabled) {
+    if (error) *error = "Split view inactive";
+    return false;
+  }
+  const int active_tab_id =
+      app->GetCurrentTabId() == state.left_tab_id ? state.right_tab_id
+                                                  : state.left_tab_id;
+  app->OpenSplitView(state.right_tab_id, state.left_tab_id, active_tab_id);
+  SetSplitViewTabs(active_workspace_id_, state.right_tab_id, state.left_tab_id,
+                   active_tab_id);
+  NotifySplitStateChanged(active_workspace_id_);
+  return true;
+}
+
+bool OtfHandler::CloseSplitPane(const std::string& pane, std::string* error) {
+  const auto state = GetSplitViewState(active_workspace_id_);
+  if (!state.enabled) {
+    if (error) *error = "Split view inactive";
+    return false;
+  }
+  int tab_id = -1;
+  if (pane == "left") {
+    tab_id = state.left_tab_id;
+  } else if (pane == "right") {
+    tab_id = state.right_tab_id;
+  } else {
+    if (error) *error = "Invalid split pane";
+    return false;
+  }
+  if (tab_manager_ && tab_manager_->IsPinned(tab_id)) {
+    if (error) *error = "Pinned tabs cannot be closed";
+    return false;
+  }
+  CloseTabAndNotify(tab_id);
+  return true;
 }
 
 void OtfHandler::NotifyDownloadsChanged() {

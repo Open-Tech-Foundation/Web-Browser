@@ -109,6 +109,38 @@ async function cefQuery(cdp, request) {
   `);
 }
 
+async function nativeRpc(cdp, method, params = {}) {
+  return await cdp.evaluate(`
+    new Promise((resolve, reject) => {
+      const id = 'workspace-rpc-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      window.cefQuery({
+        request: JSON.stringify({
+          id,
+          method: ${JSON.stringify(method)},
+          params: ${JSON.stringify(params)},
+        }),
+        onSuccess: (json) => {
+          try {
+            const envelope = JSON.parse(json);
+            if (!envelope || envelope.id !== id || typeof envelope.ok !== 'boolean') {
+              reject(new Error('Malformed native RPC response'));
+              return;
+            }
+            if (!envelope.ok) {
+              reject(new Error(envelope.error?.message || 'Native RPC failed'));
+              return;
+            }
+            resolve(envelope.result);
+          } catch (err) {
+            reject(err);
+          }
+        },
+        onFailure: (_code, message) => reject(new Error(message || 'cefQuery failed')),
+      });
+    })
+  `);
+}
+
 test('workspace RPC rejects unknown schema fields',
   { timeout: timeoutMs + 10000 },
   async () => {
@@ -207,9 +239,15 @@ test('guest session is isolated and discarded when closed',
       const historyWhileGuest = JSON.parse(await cefQuery(browser.cdp, 'get-history'));
       assert.equal(historyWhileGuest.some((item) => String(item.url || '').includes('/guest-one')), false);
 
-      const guestTabId = Number(await cefQuery(browser.cdp, 'get-active-tab'));
+      const guestTabId = Number(await nativeRpc(browser.cdp, 'tabs.active'));
       await browser.cdp.evaluate(`
-        window.cefQuery({ request: ${JSON.stringify(`close-tab:${guestTabId}`)} });
+        window.cefQuery({
+          request: JSON.stringify({
+            id: 'workspace-close-guest',
+            method: 'tabs.close',
+            params: { tabId: ${JSON.stringify(guestTabId)} },
+          }),
+        });
       `);
       await sleep(1000);
       await browser.close();

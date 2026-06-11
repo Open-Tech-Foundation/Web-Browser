@@ -235,6 +235,13 @@ class OtfHandler : public CefClient,
   bool IsClosing() const { return is_closing_; }
 
   std::string GetDownloadsJson() const;
+  std::string BuildTabsJson() const;
+  bool ApplyTabZoomAction(int tab_id, const std::string& action);
+  bool SplitCurrentTab(std::string* error);
+  bool AddTabToSplit(int target_tab_id, std::string* error);
+  bool CloseSplitView(std::string* error);
+  bool SwapSplitView(std::string* error);
+  bool CloseSplitPane(const std::string& pane, std::string* error);
   void NotifyDownloadsChanged();
   void NotifyDownloadBadge();
   void NotifyBookmarkStateForTab(int tab_id);

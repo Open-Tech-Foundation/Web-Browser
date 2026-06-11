@@ -32,21 +32,60 @@ async function cefQuery(cdp, request) {
   `);
 }
 
+async function nativeRpc(cdp, method, params = {}) {
+  const response = await cdp.evaluate(`
+    new Promise((resolve, reject) => {
+      const id = 'split-rpc-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      window.cefQuery({
+        request: JSON.stringify({
+          id,
+          method: ${JSON.stringify(method)},
+          params: ${JSON.stringify(params)},
+        }),
+        onSuccess: (json) => {
+          try {
+            const envelope = JSON.parse(json);
+            if (!envelope || envelope.id !== id || typeof envelope.ok !== 'boolean') {
+              reject(new Error('Malformed native RPC response'));
+              return;
+            }
+            if (!envelope.ok) {
+              reject(new Error(envelope.error?.message || 'Native RPC failed'));
+              return;
+            }
+            resolve(envelope.result);
+          } catch (err) {
+            reject(err);
+          }
+        },
+        onFailure: (_code, message) => reject(new Error(message || 'cefQuery failed')),
+      });
+    })
+  `);
+  return response;
+}
+
 async function getTabs(cdp) {
-  return JSON.parse(await cefQuery(cdp, 'get-tabs'));
+  return await nativeRpc(cdp, 'tabs.list');
 }
 
 async function getSplitState(cdp) {
-  return JSON.parse(await cefQuery(cdp, 'get-split-state'));
+  return await nativeRpc(cdp, 'tabs.splitState');
 }
 
 async function waitForSplitState(cdp, predicate, deadlineMs = 15000) {
   return await waitFor(
     cdp,
     `new Promise((resolve) => {
+      const id = 'split-state-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       window.cefQuery({
-        request: 'get-split-state',
-        onSuccess: (json) => { try { resolve(JSON.parse(json)); } catch (_) { resolve({}); } },
+        request: JSON.stringify({ id, method: 'tabs.splitState', params: {} }),
+        onSuccess: (json) => {
+          try {
+            const envelope = JSON.parse(json);
+            resolve(envelope?.ok ? envelope.result : {});
+          } catch (_) { resolve({}); }
+        },
         onFailure: () => resolve({}),
       });
     })`,
@@ -59,9 +98,15 @@ async function waitForTabs(cdp, predicate, deadlineMs = 15000) {
   return await waitFor(
     cdp,
     `new Promise((resolve) => {
+      const id = 'tabs-list-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       window.cefQuery({
-        request: 'get-tabs',
-        onSuccess: (json) => { try { resolve(JSON.parse(json)); } catch (_) { resolve([]); } },
+        request: JSON.stringify({ id, method: 'tabs.list', params: {} }),
+        onSuccess: (json) => {
+          try {
+            const envelope = JSON.parse(json);
+            resolve(envelope?.ok && Array.isArray(envelope.result) ? envelope.result : []);
+          } catch (_) { resolve([]); }
+        },
         onFailure: () => resolve([]),
       });
     })`,
@@ -83,9 +128,15 @@ async function waitForActiveTab(cdp, tabId, deadlineMs = 15000) {
   return await waitFor(
     cdp,
     `new Promise((resolve) => {
+      const id = 'tabs-active-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       window.cefQuery({
-        request: 'get-active-tab',
-        onSuccess: (value) => resolve(Number(value)),
+        request: JSON.stringify({ id, method: 'tabs.active', params: {} }),
+        onSuccess: (json) => {
+          try {
+            const envelope = JSON.parse(json);
+            resolve(envelope?.ok ? Number(envelope.result) : -1);
+          } catch (_) { resolve(-1); }
+        },
         onFailure: () => resolve(-1),
       });
     })`,
@@ -106,7 +157,7 @@ async function createSplitWithPlaceholder(browser, leftUrl) {
   const left = new URL(leftUrl);
   await waitForActiveAddress(browser.cdp, `${left.host}${left.pathname}`, 20000);
 
-  const leftTabId = Number(await cefQuery(browser.cdp, 'get-active-tab'));
+  const leftTabId = Number(await nativeRpc(browser.cdp, 'tabs.active'));
   assert.ok(leftTabId >= 0, 'left tab should be active before splitting');
 
   assert.equal(
@@ -273,7 +324,7 @@ test('placeholder tab list adds an existing workspace tab and destroys the place
         0,
         'tab-level add-to-split button must not appear after opening another tab',
       );
-      await cefQuery(browser.cdp, `switch-tab:${initial.rightTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: initial.rightTabId });
       await waitForSplitState(
         browser.cdp,
         (item) => item.enabled === true && item.activeTabId === initial.rightTabId,
@@ -356,7 +407,7 @@ test('split state survives ordinary tab switching and address state follows the 
       const thirdUrl = `${server.origin}/third?case=${unique}`;
       const initial = await createSplitWithPlaceholder(browser, leftUrl);
       const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
-      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'split.addTab', { tabId: rightTabId });
       await waitForSplitState(browser.cdp, (item) => item.rightTabId === rightTabId && item.activeTabId === rightTabId, 20000);
 
       const thirdTabId = await openUrlInNewTab(browser.cdp, thirdUrl);
@@ -366,7 +417,7 @@ test('split state survives ordinary tab switching and address state follows the 
       assert.equal(state.leftTabId, initial.leftTabId);
       assert.equal(state.rightTabId, rightTabId);
 
-      await cefQuery(browser.cdp, `switch-tab:${initial.leftTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: initial.leftTabId });
       await waitForActiveAddress(browser.cdp, '/left', 20000);
       state = await waitForSplitState(
         browser.cdp,
@@ -376,7 +427,7 @@ test('split state survives ordinary tab switching and address state follows the 
       assert.equal(state.leftTabId, initial.leftTabId);
       assert.equal(state.rightTabId, rightTabId);
 
-      await cefQuery(browser.cdp, `switch-tab:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: rightTabId });
       await waitForActiveAddress(browser.cdp, '/right', 20000);
       state = await waitForSplitState(
         browser.cdp,
@@ -386,7 +437,7 @@ test('split state survives ordinary tab switching and address state follows the 
       assert.equal(state.leftTabId, initial.leftTabId);
       assert.equal(state.rightTabId, rightTabId);
 
-      await cefQuery(browser.cdp, `switch-tab:${thirdTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: thirdTabId });
       await waitForActiveAddress(browser.cdp, '/third', 20000);
       state = await getSplitState(browser.cdp);
       assert.equal(state.enabled, true, 'switching back to a normal tab must preserve split state in backend');
@@ -410,7 +461,7 @@ test('closing a normal tab while split view is hidden does not corrupt the persi
 
       const initial = await createSplitWithPlaceholder(browser, leftUrl);
       const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
-      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'split.addTab', { tabId: rightTabId });
       await waitForSplitState(
         browser.cdp,
         (item) =>
@@ -426,7 +477,7 @@ test('closing a normal tab while split view is hidden does not corrupt the persi
       const normalTwoId = await openUrlInNewTab(browser.cdp, normalTwoUrl);
       await waitForActiveAddress(browser.cdp, '/normal-two', 20000);
 
-      await cefQuery(browser.cdp, `close-tab:${normalTwoId}`);
+      await nativeRpc(browser.cdp, 'tabs.close', { tabId: normalTwoId });
       await waitForTabs(
         browser.cdp,
         (tabs) =>
@@ -444,7 +495,7 @@ test('closing a normal tab while split view is hidden does not corrupt the persi
       assert.notEqual(state.leftTabId, normalTwoId);
       assert.notEqual(state.rightTabId, normalTwoId);
 
-      await cefQuery(browser.cdp, `switch-tab:${initial.leftTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: initial.leftTabId });
       await waitForActiveAddress(browser.cdp, '/left', 20000);
       state = await waitForSplitState(
         browser.cdp,
@@ -458,7 +509,7 @@ test('closing a normal tab while split view is hidden does not corrupt the persi
       assert.equal(state.leftTabId, initial.leftTabId);
       assert.equal(state.rightTabId, rightTabId);
 
-      await cefQuery(browser.cdp, `switch-tab:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: rightTabId });
       await waitForActiveAddress(browser.cdp, '/right', 20000);
       state = await waitForSplitState(
         browser.cdp,
@@ -488,7 +539,7 @@ test('tab strip keeps a later active tab in view instead of snapping back to the
       const rightUrl = `${server.origin}/right?case=${unique}`;
       const initial = await createSplitWithPlaceholder(browser, leftUrl);
       const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
-      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'split.addTab', { tabId: rightTabId });
       await waitForSplitState(
         browser.cdp,
         (item) =>
@@ -517,7 +568,7 @@ test('tab strip keeps a later active tab in view instead of snapping back to the
       );
       assert.ok(visible.scrollLeft > 0, `expected tab strip to remain scrolled right, got ${JSON.stringify(visible)}`);
 
-      await cefQuery(browser.cdp, `switch-tab:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'tabs.switch', { tabId: rightTabId });
       await waitForActiveAddress(browser.cdp, '/right', 20000);
       const splitVisible = await waitFor(
         browser.cdp,
@@ -546,7 +597,7 @@ test('split popup exposes native-frame actions for swap and pane close',
       const rightUrl = `${server.origin}/right?case=${unique}`;
       const initial = await createSplitWithPlaceholder(browser, leftUrl);
       const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
-      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'split.addTab', { tabId: rightTabId });
       await waitForSplitState(browser.cdp, (item) => item.rightTabId === rightTabId, 20000);
       await waitFor(
         browser.cdp,
@@ -593,7 +644,7 @@ test('split popup exposes native-frame actions for swap and pane close',
       assert.equal(state.leftTabId, rightTabId);
       assert.equal(state.rightTabId, initial.leftTabId);
 
-      await cefQuery(browser.cdp, 'close-split-pane:right');
+      await nativeRpc(browser.cdp, 'split.closePane', { pane: 'right' });
       state = await waitForSplitState(browser.cdp, (item) => item.enabled === false, 20000);
       assert.equal(state.enabled, false);
       const tabs = await getTabs(browser.cdp);
@@ -632,7 +683,7 @@ test('real split panes are persisted and restored after restart, placeholders ar
       );
 
       const rightTabId = await openUrlInNewTab(browser.cdp, rightUrl);
-      await cefQuery(browser.cdp, `add-tab-to-split:${rightTabId}`);
+      await nativeRpc(browser.cdp, 'split.addTab', { tabId: rightTabId });
       await waitForSplitState(browser.cdp, (item) => item.rightTabId === rightTabId && item.activeTabId === rightTabId, 20000);
       const persistedBeforeRestart = readPersistedSplitState(profileRoot);
       assert.match(persistedBeforeRestart, /"enabled":true/);

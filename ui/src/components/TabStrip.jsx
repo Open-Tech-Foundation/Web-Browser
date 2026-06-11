@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const PinnedBadge = () => (
   <svg className="w-3.5 h-3.5 shrink-0 text-slate-500 dark:text-slate-400" viewBox="0 0 24 24" fill="currentColor" aria-label="Pinned tab">
@@ -253,7 +254,7 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
         onClick={(e) => {
           e.stopPropagation();
           e.preventDefault();
-          window.cefQuery({ request: 'close-split' });
+          nativeRequest({ method: 'split.close' }).catch(() => {});
         }}
         title="Close split view"
         className="mx-1 my-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/70 text-slate-600 opacity-100 shadow-sm ring-1 ring-inset ring-brand-orange/30 transition-all hover:bg-slate-300 hover:text-slate-900 dark:bg-white/10 dark:text-slate-300 dark:hover:bg-white/20 dark:hover:text-white"
@@ -321,7 +322,11 @@ const TabStrip = ({ tabs, onSwitch, onClose, onNew, splitActive = false, splitVi
           {getTabIcon(tab)}
           {tab.muted && (
             <button
-              onClick={(e) => { e.stopPropagation(); e.preventDefault(); window.cefQuery({ request: `unmute-tab:${tab.id}` }); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                nativeRequest({ method: 'tabs.unmute', params: { tabId: tab.id } }).catch(() => {});
+              }}
               title="Unmute tab"
               className="w-4 h-4 shrink-0 flex items-center justify-center rounded-full hover:bg-slate-300 dark:hover:bg-white/20 transition-all text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
             >

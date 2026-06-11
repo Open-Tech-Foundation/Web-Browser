@@ -641,17 +641,16 @@ export default function ConsolePanel() {
       },
     });
 
-    window.cefQuery({
-      request: 'get-active-tab',
-      onSuccess: (id) => {
-        const tid = parseInt(id, 10);
+    nativeRequest({ method: 'tabs.active' })
+      .then((id) => {
+        const tid = Number(id);
         if (!isNaN(tid) && tid >= 0) {
           tabIdRef.current = tid;
           setTabId(tid);
           loadLogsForTab(tid);
         }
-      },
-    });
+      })
+      .catch(() => {});
   }, [loadLogsForTab]);
 
   useEffect(() => {

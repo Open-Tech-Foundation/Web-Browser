@@ -150,46 +150,36 @@ const App = () => {
 
   // After a workspace switch the C++ side surfaces a new active tab; the
   // React tabs list needs a full refetch because the previous tabs belong
-  // to a different workspace and were filtered out by get-tabs.
+  // to a different workspace and were filtered out by tabs.list.
   const refreshWorkspaceTabs = () => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: 'get-tabs',
-      onSuccess: (tabsJson) => {
-        try {
-          const tabs = JSON.parse(tabsJson).map(normalizeTab);
-          dispatch({ type: 'SET_TABS', payload: tabs });
-          window.cefQuery({
-            request: 'get-active-tab',
-            onSuccess: (activeId) => {
-              const parsed = parseInt(activeId, 10);
-              dispatch({ type: 'SET_ACTIVE', payload: parsed });
-            },
-          });
-        } catch (e) {}
-      },
-    });
+    nativeRequest({ method: 'tabs.list' })
+      .then((items) => {
+        const tabs = Array.isArray(items) ? items.map(normalizeTab) : [];
+        dispatch({ type: 'SET_TABS', payload: tabs });
+        return nativeRequest({ method: 'tabs.active' });
+      })
+      .then((activeId) => {
+        dispatch({ type: 'SET_ACTIVE', payload: Number(activeId) });
+      })
+      .catch(() => {});
   };
 
   const refreshSplitState = () => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: 'get-split-state',
-      onSuccess: (json) => {
-        try {
-          const split = JSON.parse(json);
-          dispatch({
-            type: 'SET_SPLIT_VIEW',
-            payload: {
-              enabled: Boolean(split?.enabled),
-              leftTabId: Number(split?.leftTabId ?? -1),
-              rightTabId: Number(split?.rightTabId ?? -1),
-              activeTabId: Number(split?.activeTabId ?? -1),
-            },
-          });
-        } catch (e) {}
-      },
-    });
+    nativeRequest({ method: 'tabs.splitState' })
+      .then((split) => {
+        dispatch({
+          type: 'SET_SPLIT_VIEW',
+          payload: {
+            enabled: Boolean(split?.enabled),
+            leftTabId: Number(split?.leftTabId ?? -1),
+            rightTabId: Number(split?.rightTabId ?? -1),
+            activeTabId: Number(split?.activeTabId ?? -1),
+          },
+        });
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -308,29 +298,19 @@ const App = () => {
       });
 
       // Sync initial state with the C++ backend
-      window.cefQuery({ 
-        request: "get-tabs",
-        onSuccess: (tabsJson) => {
-          try {
-            const existingTabs = JSON.parse(tabsJson).map(normalizeTab);
-            if (existingTabs.length > 0) {
-              dispatch({ type: 'SET_TABS', payload: existingTabs });
-              window.cefQuery({
-                request: 'get-active-tab',
-                onSuccess: (activeId) => {
-                  const parsedId = parseInt(activeId, 10);
-                  dispatch({ type: 'SET_ACTIVE', payload: parsedId });
-                },
-              });
-            } else {
-              handleNewTab();
-            }
-          } catch (e) {
-            console.error("Failed to parse initial tabs:", e);
+      nativeRequest({ method: 'tabs.list' })
+        .then((tabs) => {
+          const existingTabs = Array.isArray(tabs) ? tabs.map(normalizeTab) : [];
+          if (existingTabs.length > 0) {
+            dispatch({ type: 'SET_TABS', payload: existingTabs });
+            nativeRequest({ method: 'tabs.active' })
+              .then((activeId) => dispatch({ type: 'SET_ACTIVE', payload: Number(activeId) }))
+              .catch(() => {});
+          } else {
+            handleNewTab();
           }
-        },
-        onFailure: (code, msg) => console.error("Failed to get tabs:", msg)
-      });
+        })
+        .catch((e) => console.error("Failed to get tabs:", e));
 
       nativeRequest({ method: 'downloads.list' })
         .then((items) => setHasDownloads(Array.isArray(items) && items.length > 0))
@@ -389,26 +369,43 @@ const App = () => {
       }).catch(() => {});
       return;
     }
-    window.cefQuery({ request: 'split-current' });
+    nativeRequest({ method: 'split.current' }).catch(() => {});
   };
 
   const handleCloseTab = (id) => {
-    window.cefQuery({ request: `close-tab:${id}` });
+    nativeRequest({ method: 'tabs.close', params: { tabId: id } }).catch(() => {});
   };
 
   const handleSwitchTab = (id) => {
-    window.cefQuery({ request: `switch-tab:${id}` });
+    nativeRequest({ method: 'tabs.switch', params: { tabId: id } }).catch(() => {});
   };
 
   const handleNavAction = (action) => {
     if (state.activeTabId !== null) {
-      window.cefQuery({ request: `${action}:${state.activeTabId}` });
+      const methods = {
+        back: 'tabs.back',
+        forward: 'tabs.forward',
+        reload: 'tabs.reload',
+        stop: 'tabs.stop',
+      };
+      const method = methods[action];
+      if (method) {
+        nativeRequest({ method, params: { tabId: state.activeTabId } }).catch(() => {});
+      }
     }
   };
 
   const handleZoomAction = (action) => {
     if (state.activeTabId !== null) {
-      window.cefQuery({ request: `${action}:${state.activeTabId}` });
+      const methods = {
+        'zoom-in': 'tabs.zoomIn',
+        'zoom-out': 'tabs.zoomOut',
+        'zoom-reset': 'tabs.zoomReset',
+      };
+      const method = methods[action];
+      if (method) {
+        nativeRequest({ method, params: { tabId: state.activeTabId } }).catch(() => {});
+      }
     }
   };
 

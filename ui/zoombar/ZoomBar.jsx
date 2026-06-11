@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   wrapper: {
@@ -92,8 +93,16 @@ const ZoomBar = () => {
   }, []);
 
   const act = (action) => {
-    if (!window.cefQuery || tabId < 0) return;
-    window.cefQuery({ request: `${action}:${tabId}` });
+    if (tabId < 0) return;
+    const methodByAction = {
+      'zoom-in': 'tabs.zoomIn',
+      'zoom-out': 'tabs.zoomOut',
+      'zoom-reset': 'tabs.zoomReset',
+    };
+    nativeRequest({
+      method: methodByAction[action],
+      params: { tabId },
+    }).catch(() => {});
   };
 
   return (

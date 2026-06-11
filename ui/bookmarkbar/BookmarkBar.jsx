@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   wrapper: {
@@ -121,47 +122,42 @@ const BookmarkBar = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
     let mounted = true;
 
     const fetchInfo = () => {
-      window.cefQuery({
-        request: 'get-active-tab',
-        onSuccess: (tabIdStr) => {
-          if (!mounted) return;
-          const tabId = parseInt(tabIdStr, 10);
-          
-          window.cefQuery({
-            request: 'get-tabs',
-            onSuccess: (tabsJson) => {
-              if (!mounted) return;
-              try {
-                const tabs = JSON.parse(tabsJson);
-                const activeTab = tabs.find(t => t.id === tabId);
-                if (!activeTab) return;
-                
-                const currentUrl = activeTab.url || activeTab.schemeUrl;
-
-                window.cefQuery({
-                  request: 'get-bookmarks',
-                  onSuccess: (bmsJson) => {
-                    if (!mounted) return;
-                    try {
-                      const bookmarks = JSON.parse(bmsJson);
-                      const cleanUrl = normalizeBookmarkUrl(currentUrl);
-                      const activeBm = bookmarks.find(b => normalizeBookmarkUrl(b.url) === cleanUrl);
-                      if (activeBm) {
-                        setBookmark(activeBm);
-                        setTitle(activeBm.title);
-                      }
-                      setLoading(false);
-                    } catch (e) { setLoading(false); }
-                  }
-                });
-              } catch (e) { setLoading(false); }
-            }
-          });
+      Promise.all([
+        nativeRequest({ method: 'tabs.active' }),
+        nativeRequest({ method: 'tabs.list' }),
+      ]).then(([tabId, tabs]) => {
+        if (!mounted) return;
+        const activeTab = Array.isArray(tabs) ? tabs.find(t => t.id === tabId) : null;
+        if (!activeTab) {
+          setLoading(false);
+          return;
         }
+
+        const currentUrl = activeTab.url || activeTab.schemeUrl;
+        window.cefQuery({
+          request: 'get-bookmarks',
+          onSuccess: (bmsJson) => {
+            if (!mounted) return;
+            try {
+              const bookmarks = JSON.parse(bmsJson);
+              const cleanUrl = normalizeBookmarkUrl(currentUrl);
+              const activeBm = bookmarks.find(b => normalizeBookmarkUrl(b.url) === cleanUrl);
+              if (activeBm) {
+                setBookmark(activeBm);
+                setTitle(activeBm.title);
+              }
+              setLoading(false);
+            } catch (e) { setLoading(false); }
+          },
+          onFailure: () => {
+            if (mounted) setLoading(false);
+          },
+        });
+      }).catch(() => {
+        if (mounted) setLoading(false);
       });
     };
 

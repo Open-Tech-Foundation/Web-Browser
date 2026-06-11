@@ -1,25 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 import '../styles/App.css';
-
-const query = (request) => new Promise((resolve, reject) => {
-  if (typeof window.cefQuery !== 'function') {
-    reject(new Error('cefQuery is not available'));
-    return;
-  }
-  window.cefQuery({
-    request,
-    onSuccess: resolve,
-    onFailure: (_code, message) => reject(new Error(message || 'cefQuery failed')),
-  });
-});
-
-const parseJson = (value, fallback) => {
-  try {
-    return JSON.parse(value);
-  } catch (_) {
-    return fallback;
-  }
-};
 
 const getHostname = (url) => {
   try {
@@ -68,12 +49,12 @@ const SplitPlaceholder = () => {
 
   const refresh = async () => {
     try {
-      const [tabsJson, splitJson] = await Promise.all([
-        query('get-tabs'),
-        query('get-split-state'),
+      const [tabsList, split] = await Promise.all([
+        nativeRequest({ method: 'tabs.list' }),
+        nativeRequest({ method: 'tabs.splitState' }),
       ]);
-      setTabs(parseJson(tabsJson, []));
-      setSplitState(parseJson(splitJson, { enabled: false, leftTabId: -1, rightTabId: -1 }));
+      setTabs(Array.isArray(tabsList) ? tabsList : []);
+      setSplitState(split || { enabled: false, leftTabId: -1, rightTabId: -1 });
       setError('');
     } catch (err) {
       setError(err?.message || 'Could not load tabs');
@@ -107,7 +88,7 @@ const SplitPlaceholder = () => {
     setBusyTabId(tabId);
     setError('');
     try {
-      await query(`add-tab-to-split:${tabId}`);
+      await nativeRequest({ method: 'split.addTab', params: { tabId } });
     } catch (err) {
       setError(err?.message || 'Could not add tab to split view');
       setBusyTabId(null);
