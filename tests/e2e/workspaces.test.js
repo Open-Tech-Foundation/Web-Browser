@@ -207,15 +207,15 @@ test('guest session is isolated and discarded when closed',
     let browser = await launchDevBrowser({ preserveProfile: true });
     const profileRoot = browser.profileRoot;
     try {
-      await cefQuery(browser.cdp, 'create-guest-session');
-      assert.equal(await cefQuery(browser.cdp, 'is-guest-session'), 'true');
+      await nativeRpc(browser.cdp, 'session.createGuest');
+      assert.equal(await nativeRpc(browser.cdp, 'session.isGuest'), true);
       await waitFor(
         browser.cdp,
         `document.querySelector('button[title="Guest session"]')?.textContent || ''`,
         (text) => text.includes('Guest'),
         15000,
       );
-      assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-workspaces')), []);
+      assert.deepEqual(await nativeRpc(browser.cdp, 'workspaces.list'), []);
       assert.deepEqual(await nativeRpc(browser.cdp, 'bookmarks.list'), []);
       assert.deepEqual(await nativeRpc(browser.cdp, 'downloads.list'), []);
 
@@ -252,7 +252,7 @@ test('guest session is isolated and discarded when closed',
       await sleep(1000);
       await browser.close();
       browser = await launchDevBrowser({ profileRoot, preserveProfile: true });
-      assert.equal(await cefQuery(browser.cdp, 'is-guest-session'), 'false');
+      assert.equal(await nativeRpc(browser.cdp, 'session.isGuest'), false);
       await waitFor(browser.cdp, `!!document.querySelector('button[title="Workspaces"]')`, Boolean, 15000);
 
       await navigateFromAddressBar(browser.cdp, `${server.origin}/normal-after-guest`);
@@ -271,8 +271,8 @@ test('guest session is isolated and discarded when closed',
         normalCdp.close();
       }
 
-      await cefQuery(browser.cdp, 'create-guest-session');
-      assert.equal(await cefQuery(browser.cdp, 'is-guest-session'), 'true');
+      await nativeRpc(browser.cdp, 'session.createGuest');
+      assert.equal(await nativeRpc(browser.cdp, 'session.isGuest'), true);
       await navigateFromAddressBar(browser.cdp, `${server.origin}/guest-two`);
       const secondGuestCdp = await browser.connectToTarget(
         (t) => (t.url || '').includes('/guest-two'),
