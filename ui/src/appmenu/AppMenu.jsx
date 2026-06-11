@@ -1,4 +1,5 @@
 import React from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const AppMenu = () => {
   const [guestSession, setGuestSession] = React.useState(false);
@@ -23,12 +24,14 @@ const AppMenu = () => {
 
   const handleNavigate = (url) => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: `new-tab:${url}`,
-        onSuccess: () => {
+      nativeRequest({
+        method: 'navigation.newTab',
+        params: { url },
+      })
+        .then(() => {
           window.cefQuery({ request: 'hide-appmenu' });
-        }
-      });
+        })
+        .catch(() => {});
     }
   };
 

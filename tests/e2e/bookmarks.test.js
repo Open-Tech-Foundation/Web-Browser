@@ -18,6 +18,71 @@ import {
 
 const addressSelector = 'input[placeholder="Search or enter address..."]';
 
+test('history and bookmark RPCs reject unknown schema fields',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let bookmarksCdp = null;
+    try {
+      await navigateFromAddressBar(browser.cdp, 'browser://bookmarks');
+      bookmarksCdp = await browser.connectToTarget((target) =>
+        (target.title || '') === 'Bookmarks' ||
+        /bookmarks\.html/i.test(target.url || ''),
+        15000,
+      );
+
+      await waitFor(
+        bookmarksCdp,
+        `typeof window.cefQuery === 'function' && document.body.innerText`,
+        (text) => /Bookmarks/i.test(text),
+        15000,
+      );
+
+      const response = await bookmarksCdp.evaluate(`
+        Promise.all([
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'history-extra-param',
+                method: 'history.list',
+                params: { extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'bookmarks-extra-param',
+                method: 'bookmarks.list',
+                params: { extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+        ])
+      `);
+      const parsed = response.map((item) => JSON.parse(item));
+      assert.equal(parsed[0].id, 'history-extra-param');
+      assert.equal(parsed[0].ok, false);
+      assert.match(parsed[0].error.message, /unexpected param: extra/);
+      assert.equal(parsed[1].id, 'bookmarks-extra-param');
+      assert.equal(parsed[1].ok, false);
+      assert.match(parsed[1].error.message, /unexpected param: extra/);
+    } finally {
+      if (bookmarksCdp) bookmarksCdp.close();
+      await browser.close();
+    }
+  });
+
 test('user can bookmark a page, reopen the bookmark popup, and remove it',
   { timeout: timeoutMs + 15000 },
   async () => {

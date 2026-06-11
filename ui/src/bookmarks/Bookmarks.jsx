@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { getNativeSettings } from '../shared/nativeRequest';
+import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 export default function Bookmarks() {
   const [items, setItems] = useState([]);
@@ -44,16 +44,9 @@ export default function Bookmarks() {
   }, []);
 
   const load = useCallback(() => {
-    window.cefQuery?.({
-      request: 'get-bookmarks',
-      onSuccess: (json) => {
-        try {
-          setItems(JSON.parse(json));
-        } catch {
-          setItems([]);
-        }
-      },
-    });
+    nativeRequest({ method: 'bookmarks.list' })
+      .then((bookmarks) => setItems(Array.isArray(bookmarks) ? bookmarks : []))
+      .catch(() => setItems([]));
   }, []);
 
   useEffect(() => {
@@ -75,7 +68,7 @@ export default function Bookmarks() {
   }, [items, searchQuery]);
 
   const navigateTo = (url) => {
-    window.cefQuery?.({ request: `navigate-current:${url}` });
+    nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
   };
 
   const removeBookmark = (id) => {
@@ -84,13 +77,12 @@ export default function Bookmarks() {
 
   const confirmRemoveBookmark = () => {
     if (bookmarkToRemove) {
-      window.cefQuery?.({ 
-        request: `remove-bookmark:${bookmarkToRemove}`, 
-        onSuccess: () => {
+      nativeRequest({ method: 'bookmarks.remove', params: { id: bookmarkToRemove } })
+        .then(() => {
           load();
           setBookmarkToRemove(null);
-        }
-      });
+        })
+        .catch(() => {});
     }
   };
 
@@ -112,7 +104,7 @@ export default function Bookmarks() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
             All Bookmarks
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-main/5 text-muted font-medium text-sm transition-all text-left" onClick={() => window.cefQuery?.({ request: 'navigate-current:browser://history' })}>
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-main/5 text-muted font-medium text-sm transition-all text-left" onClick={() => nativeRequest({ method: 'navigation.current', params: { url: 'browser://history' } }).catch(() => {})}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             History
           </button>

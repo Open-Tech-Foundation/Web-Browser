@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { getNativeSettings } from '../shared/nativeRequest';
+import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const formatTime = (timestamp) => {
   if (!timestamp) return '';
@@ -67,16 +67,9 @@ export default function History() {
   }, []);
 
   const load = useCallback(() => {
-    window.cefQuery?.({
-      request: 'get-history',
-      onSuccess: (json) => {
-        try {
-          setItems(JSON.parse(json));
-        } catch {
-          setItems([]);
-        }
-      },
-    });
+    nativeRequest({ method: 'history.list' })
+      .then((historyItems) => setItems(Array.isArray(historyItems) ? historyItems : []))
+      .catch(() => setItems([]));
   }, []);
 
   useEffect(() => {
@@ -111,16 +104,16 @@ export default function History() {
 
   const clearHistory = () => {
     if (confirm("Are you sure you want to clear this workspace's browsing history?")) {
-      window.cefQuery?.({ request: 'clear-history', onSuccess: load });
+      nativeRequest({ method: 'history.clear' }).then(load).catch(() => {});
     }
   };
 
   const deleteItem = (id) => {
-    window.cefQuery?.({ request: `delete-history-item:${id}`, onSuccess: load });
+    nativeRequest({ method: 'history.delete', params: { id } }).then(load).catch(() => {});
   };
 
   const navigateTo = (url) => {
-    window.cefQuery?.({ request: `navigate-current:${url}` });
+    nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
   };
 
   useEffect(() => {
@@ -313,7 +306,10 @@ export default function History() {
               <button
                 className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:text-white hover:bg-orange-500 flex items-center gap-3"
                 onClick={() => {
-                  window.cefQuery?.({ request: `new-tab:${ctxMenu.url}` });
+                  nativeRequest({
+                    method: 'navigation.newTab',
+                    params: { url: ctxMenu.url },
+                  }).catch(() => {});
                   setCtxMenu(null);
                 }}
               >

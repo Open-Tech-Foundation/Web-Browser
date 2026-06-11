@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { resolveUrl } from '../shared/search';
-import { getNativeSettings } from '../shared/nativeRequest';
+import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const stateByTab = {};
 
@@ -121,7 +121,7 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
       window.cefQuery({ request: `save-search-hist:${input}` });
     }
     const navigateTo = (url) => {
-      window.cefQuery({ request: `navigate-current:${url}` });
+      nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
     };
     window.cefQuery({
       request: `resolve-input-url:${input.length}:${input}`,

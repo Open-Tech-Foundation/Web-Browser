@@ -434,7 +434,7 @@ const Settings = () => {
 
   const openInternalPage = (url) => {
     if (window.cefQuery) {
-      window.cefQuery({ request: `navigate-current:${url}` });
+      nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
       return;
     }
     window.location.href = url;

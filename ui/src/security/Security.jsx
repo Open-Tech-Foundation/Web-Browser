@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const Card = ({ title, description, enabled }) => (
   <div className="p-8 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-between gap-6">
@@ -23,7 +24,10 @@ const Security = () => {
   }, []);
 
   const openSecuritySettings = () => {
-    window.cefQuery?.({ request: 'navigate-current:browser://settings?tab=security' });
+    nativeRequest({
+      method: 'navigation.current',
+      params: { url: 'browser://settings?tab=security' },
+    }).catch(() => {});
   };
 
   return (

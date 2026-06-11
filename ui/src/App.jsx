@@ -357,7 +357,10 @@ const App = () => {
       }
 
       const navigateTo = (finalUrl) => {
-        window.cefQuery({ request: `navigate:${state.activeTabId}:${finalUrl}` });
+        nativeRequest({
+          method: 'navigation.tab',
+          params: { tabId: state.activeTabId, url: finalUrl },
+        }).catch(() => {});
 
         if (finalUrl === BROWSER_SCHEME.SETTINGS) {
           setTimeout(() => {
@@ -380,9 +383,10 @@ const App = () => {
   };
 
   const handleNewTab = (url = "") => {
-    window.cefQuery({
-      request: url ? `new-tab:${url}` : "new-tab:"
-    });
+    nativeRequest({
+      method: 'navigation.newTab',
+      params: url ? { url } : {},
+    }).catch(() => {});
   };
 
   const handleToggleSplit = () => {

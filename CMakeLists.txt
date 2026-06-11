@@ -73,6 +73,8 @@ set(OTF_BROWSER_SRCS
     src/otf_clear_data_rpc.cc
     src/otf_devtools_bridge.cc
     src/otf_handler.cc
+    src/otf_history_bookmarks_rpc.cc
+    src/otf_navigation_rpc.cc
     src/otf_native_rpc.cc
     src/otf_page_policy.cc
     src/otf_popup_overlay.cc
@@ -88,6 +90,8 @@ set(OTF_BROWSER_HEADERS
     include/otf_clear_data_rpc.h
     include/otf_devtools_bridge.h
     include/otf_handler.h
+    include/otf_history_bookmarks_rpc.h
+    include/otf_navigation_rpc.h
     include/otf_native_rpc.h
     include/otf_page_policy.h
     include/otf_popup_overlay.h

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { nativeRequest } from '../shared/nativeRequest';
 
 const GlobeIcon = ({ isPrivate }) => (
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${isPrivate ? 'text-violet-300' : 'text-muted'}`}>
@@ -9,7 +10,7 @@ const GlobeIcon = ({ isPrivate }) => (
 const QuickLink = ({ name, url, faviconUrl, onRemove, isPrivate }) => {
   const handleClick = () => {
     if (window.cefQuery) {
-      window.cefQuery({ request: `navigate-current:${url}` });
+      nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
     }
   };
 
@@ -51,16 +52,9 @@ const QuickLinks = ({ isPrivate }) => {
 
   const fetchLinks = () => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: 'get-bookmarks',
-        onSuccess: (json) => {
-          try {
-            setLinks(JSON.parse(json));
-          } catch (e) {
-            setLinks([]);
-          }
-        }
-      });
+      nativeRequest({ method: 'bookmarks.list' })
+        .then((bookmarks) => setLinks(Array.isArray(bookmarks) ? bookmarks : []))
+        .catch(() => setLinks([]));
     }
   };
 
@@ -76,16 +70,17 @@ const QuickLinks = ({ isPrivate }) => {
     if (!url.startsWith('http')) url = 'https://' + url;
     
     if (window.cefQuery) {
-      const request = `add-bookmark:${url.length}:${url}:${newName.length}:${newName}`;
-      window.cefQuery({
-        request,
-        onSuccess: () => {
+      nativeRequest({
+        method: 'bookmarks.add',
+        params: { url, title: newName },
+      })
+        .then(() => {
           fetchLinks();
           setNewName('');
           setNewUrl('');
           setIsModalOpen(false);
-        }
-      });
+        })
+        .catch(() => {});
     }
   };
 
@@ -95,13 +90,12 @@ const QuickLinks = ({ isPrivate }) => {
 
   const confirmRemove = () => {
     if (window.cefQuery && linkToRemove) {
-      window.cefQuery({
-        request: `remove-bookmark:${linkToRemove}`,
-        onSuccess: () => {
+      nativeRequest({ method: 'bookmarks.remove', params: { id: linkToRemove } })
+        .then(() => {
           fetchLinks();
           setLinkToRemove(null);
-        }
-      });
+        })
+        .catch(() => {});
     }
   };
 
