@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 // Must match cef_log_severity_t: DEFAULT=0, VERBOSE=1, INFO=2, WARNING=3, ERROR=4
 const LEVEL_VERBOSE = 1;
@@ -526,8 +527,11 @@ function ResizeHandle() {
     startXRef.current = e.clientX;
 
     const sendWidth = () => {
-      if (pendingWidthRef.current !== null && window.cefQuery) {
-        window.cefQuery({ request: `set-console-width:${pendingWidthRef.current}` });
+      if (pendingWidthRef.current !== null) {
+        nativeRequest({
+          method: 'console.setWidth',
+          params: { width: pendingWidthRef.current },
+        }).catch(() => {});
         pendingWidthRef.current = null;
       }
       rafRef.current = null;
@@ -549,8 +553,11 @@ function ResizeHandle() {
         rafRef.current = null;
       }
       // Flush final position
-      if (pendingWidthRef.current !== null && window.cefQuery) {
-        window.cefQuery({ request: `set-console-width:${pendingWidthRef.current}` });
+      if (pendingWidthRef.current !== null) {
+        nativeRequest({
+          method: 'console.setWidth',
+          params: { width: pendingWidthRef.current },
+        }).catch(() => {});
         pendingWidthRef.current = null;
       }
     };
@@ -594,17 +601,16 @@ export default function ConsolePanel() {
 
   const loadLogsForTab = useCallback((tid) => {
     if (!window.cefQuery || tid < 0) return;
-    window.cefQuery({
-      request: `get-console-logs:${tid}`,
-      onSuccess: (json) => {
+    nativeRequest({
+      method: 'console.logs',
+      params: { tabId: tid },
+    })
+      .then((items) => {
         if (tid !== tabIdRef.current) return;
-        try {
-          const items = JSON.parse(json);
-          setEntries(items.slice(-MAX_DISPLAY));
-          setTabId(tid);
-        } catch {}
-      },
-    });
+        setEntries(Array.isArray(items) ? items.slice(-MAX_DISPLAY) : []);
+        setTabId(tid);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -662,8 +668,11 @@ export default function ConsolePanel() {
   };
 
   const handleClear = () => {
-    if (window.cefQuery && tabId >= 0) {
-      window.cefQuery({ request: `clear-console:${tabId}` });
+    if (tabId >= 0) {
+      nativeRequest({
+        method: 'console.clear',
+        params: { tabId },
+      }).catch(() => {});
     }
     setEntries([]);
   };

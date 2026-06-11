@@ -71,6 +71,7 @@ set(OTF_BROWSER_SRCS
     src/main.cc
     src/otf_app.cc
     src/otf_clear_data_rpc.cc
+    src/otf_console_rpc.cc
     src/otf_devtools_bridge.cc
     src/otf_downloads_rpc.cc
     src/otf_findbar_rpc.cc
@@ -94,6 +95,7 @@ set(OTF_BROWSER_SRCS
 set(OTF_BROWSER_HEADERS
     include/otf_app.h
     include/otf_clear_data_rpc.h
+    include/otf_console_rpc.h
     include/otf_devtools_bridge.h
     include/otf_downloads_rpc.h
     include/otf_findbar_rpc.h

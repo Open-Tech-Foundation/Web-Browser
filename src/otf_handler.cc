@@ -1,6 +1,7 @@
 #include "otf_handler.h"
 #include "otf_app.h"
 #include "otf_clear_data_rpc.h"
+#include "otf_console_rpc.h"
 #include "otf_downloads_rpc.h"
 #include "otf_findbar_rpc.h"
 #include "otf_history_bookmarks_rpc.h"
@@ -2319,6 +2320,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandleFindbarRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandleConsoleRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
@@ -5468,57 +5472,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       // Persistent — don't call Success again here; entries stream in via OnConsoleMessage.
       return true;
-    } else if (msg.rfind("get-console-logs:", 0) == 0) {
-      const auto tab_id_opt = ParseIntStrict(
-          std::string_view(msg).substr(std::strlen("get-console-logs:")));
-      if (!tab_id_opt || !handler->tab_manager_) {
-        callback->Success("[]");
-        return true;
-      }
-      const int tab_id = *tab_id_opt;
-      const auto& logs = handler->tab_manager_->GetConsoleLogs(tab_id);
-      auto esc = [](const std::string& s) -> std::string {
-        std::string out;
-        out.reserve(s.size() + 4);
-        for (unsigned char c : s) {
-          if (c == '"') out += "\\\"";
-          else if (c == '\\') out += "\\\\";
-          else if (c == '\n') out += "\\n";
-          else if (c == '\r') out += "\\r";
-          else if (c == '\t') out += "\\t";
-          else out += static_cast<char>(c);
-        }
-        return out;
-      };
-      std::string json = "[";
-      bool first = true;
-      for (const auto& e : logs) {
-        if (!first) json += ",";
-        first = false;
-        json += "{\"level\":" + std::to_string(e.level) +
-                ",\"message\":\"" + esc(e.message) + "\"" +
-                ",\"source\":\"" + esc(e.source) + "\"" +
-                ",\"line\":" + std::to_string(e.line) +
-                ",\"ts\":" + std::to_string(e.timestamp_ms) + "}";
-      }
-      json += "]";
-      callback->Success(json);
-    } else if (msg.rfind("clear-console:", 0) == 0) {
-      const auto tab_id_opt = ParseIntStrict(
-          std::string_view(msg).substr(std::strlen("clear-console:")));
-      if (tab_id_opt && handler->tab_manager_) {
-        handler->tab_manager_->ClearConsoleLogs(*tab_id_opt);
-      }
-      callback->Success("");
-    } else if (msg.rfind("set-console-width:", 0) == 0) {
-      const auto w_opt = ParseIntStrict(
-          std::string_view(msg).substr(std::strlen("set-console-width:")));
-      if (w_opt) {
-        CefPostTask(TID_UI, base::BindOnce([]( int w) {
-          if (auto* app = OtfApp::GetInstance()) app->SetConsoleWidth(w);
-        }, *w_opt));
-      }
-      callback->Success("");
     } else if (msg == "start-snip") {
       OtfApp* app = OtfApp::GetInstance();
       if (!app || !handler->tab_manager_ || !handler->devtools_bridge_) {

@@ -15,12 +15,54 @@ import { connectShell, pressShortcut } from './helpers/e2eUtils.js';
 // Ctrl+Shift+J — modifiers: Ctrl(2) + Shift(4) = 6
 const openConsole = (cdp) => pressShortcut(cdp, 'J', 'KeyJ', 74, 6);
 
+const nativeRpc = (method, params = {}, id = `console-rpc-${Date.now()}`) => `
+  new Promise((resolve) => {
+    window.cefQuery({
+      request: JSON.stringify({
+        id: ${JSON.stringify(id)},
+        method: ${JSON.stringify(method)},
+        params: ${JSON.stringify(params)},
+      }),
+      onSuccess: resolve,
+      onFailure: (code, message) => resolve(JSON.stringify({
+        id: ${JSON.stringify(id)},
+        ok: false,
+        error: { code: String(code), message },
+      })),
+    });
+  })
+`;
+
 async function connectConsole(browser, deadlineMs = 15000) {
   return browser.connectToTarget(
     (t) => /browser:\/\/console/i.test(t.url || '') || /console\.html/i.test(t.url || ''),
     deadlineMs,
   );
 }
+
+test('console RPC rejects unknown schema fields',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let shellCdp = null;
+    try {
+      shellCdp = await connectShell(browser);
+      await waitFor(shellCdp, `typeof window.cefQuery === 'function'`, Boolean, 15000);
+
+      const response = JSON.parse(await shellCdp.evaluate(
+        nativeRpc('console.logs', {
+          tabId: 1,
+          extra: true,
+        }, 'console-extra-param'),
+      ));
+      assert.equal(response.id, 'console-extra-param');
+      assert.equal(response.ok, false);
+      assert.match(response.error.message, /unexpected param: extra/);
+    } finally {
+      if (shellCdp) shellCdp.close();
+      await browser.close();
+    }
+  });
 
 test('Ctrl+Shift+J toggles the console panel',
   { timeout: timeoutMs + 15000 },
