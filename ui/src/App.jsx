@@ -283,7 +283,7 @@ const App = () => {
             } else if (event.key === 'shortcut') {
               if (event.value === 'focus-bar') {
                 addressBarRef.current?.focus();
-                window.cefQuery({ request: 'focus-ui' });
+                nativeRequest({ method: 'ui.focus' }).catch(() => {});
               }
             } else {
               let val = event.value;

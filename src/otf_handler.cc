@@ -5422,11 +5422,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->FocusCurrentTabContent();
       }
       callback->Success("");
-    } else if (msg == "focus-ui") {
-      if (handler->ui_browser_) {
-        handler->ui_browser_->GetHost()->SetFocus(true);
-      }
-      callback->Success("");
     } else if (msg == "subscribe-console") {
       handler->console_subscription_ = callback;
       // Send all buffered entries for the current tab on subscribe.

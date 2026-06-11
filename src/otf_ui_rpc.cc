@@ -138,6 +138,7 @@ bool HandleUiRpc(
 
   if (request.method != "ui.appMenu.toggle" &&
       request.method != "ui.appMenu.hide" &&
+      request.method != "ui.focus" &&
       request.method != "ui.downloadsBar.toggle" &&
       request.method != "ui.downloadsBar.hide" &&
       request.method != "ui.zoomBar.toggle" &&
@@ -190,6 +191,10 @@ bool HandleUiRpc(
     }
   } else if (request.method == "ui.appMenu.hide") {
     app->HideAppMenuOverlay();
+  } else if (request.method == "ui.focus") {
+    if (handler->ui_browser_) {
+      handler->ui_browser_->GetHost()->SetFocus(true);
+    }
   } else if (request.method == "ui.downloadsBar.toggle") {
     if (app->downloads_overlay_ && app->downloads_overlay_->IsVisible()) {
       app->HideDownloadsOverlay();
