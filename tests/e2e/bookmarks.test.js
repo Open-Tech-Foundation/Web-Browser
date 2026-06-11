@@ -68,6 +68,20 @@ test('history and bookmark RPCs reject unknown schema fields',
               })),
             });
           }),
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'bookmarks-update-extra-param',
+                method: 'bookmarks.update',
+                params: { id: 1, url: 'https://example.test/', title: 'Example', extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
         ])
       `);
       const parsed = response.map((item) => JSON.parse(item));
@@ -77,6 +91,9 @@ test('history and bookmark RPCs reject unknown schema fields',
       assert.equal(parsed[1].id, 'bookmarks-extra-param');
       assert.equal(parsed[1].ok, false);
       assert.match(parsed[1].error.message, /unexpected param: extra/);
+      assert.equal(parsed[2].id, 'bookmarks-update-extra-param');
+      assert.equal(parsed[2].ok, false);
+      assert.match(parsed[2].error.message, /unexpected param: extra/);
     } finally {
       if (bookmarksCdp) bookmarksCdp.close();
       await browser.close();

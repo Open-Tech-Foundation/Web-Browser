@@ -137,24 +137,19 @@ const BookmarkBar = () => {
         }
 
         const currentUrl = activeTab.url || activeTab.schemeUrl;
-        window.cefQuery({
-          request: 'get-bookmarks',
-          onSuccess: (bmsJson) => {
-            if (!mounted) return;
-            try {
-              const bookmarks = JSON.parse(bmsJson);
-              const cleanUrl = normalizeBookmarkUrl(currentUrl);
-              const activeBm = bookmarks.find(b => normalizeBookmarkUrl(b.url) === cleanUrl);
-              if (activeBm) {
-                setBookmark(activeBm);
-                setTitle(activeBm.title);
-              }
-              setLoading(false);
-            } catch (e) { setLoading(false); }
-          },
-          onFailure: () => {
-            if (mounted) setLoading(false);
-          },
+        nativeRequest({ method: 'bookmarks.list' }).then((bookmarks) => {
+          if (!mounted) return;
+          const cleanUrl = normalizeBookmarkUrl(currentUrl);
+          const activeBm = Array.isArray(bookmarks)
+            ? bookmarks.find(b => normalizeBookmarkUrl(b.url) === cleanUrl)
+            : null;
+          if (activeBm) {
+            setBookmark(activeBm);
+            setTitle(activeBm.title);
+          }
+          setLoading(false);
+        }).catch(() => {
+          if (mounted) setLoading(false);
         });
       }).catch(() => {
         if (mounted) setLoading(false);
@@ -200,27 +195,29 @@ const BookmarkBar = () => {
 
   const handleSave = (e) => {
     e.preventDefault();
-    if (!bookmark || !window.cefQuery) return;
-    const cleanUrl = bookmark.url.length + ":" + bookmark.url;
-    const cleanTitle = title.length + ":" + title;
-    window.cefQuery({
-      request: `update-bookmark:${bookmark.id}:${cleanUrl}:${cleanTitle}`,
-      onSuccess: () => {
+    if (!bookmark) return;
+    nativeRequest({
+      method: 'bookmarks.update',
+      params: { id: bookmark.id, url: bookmark.url, title },
+    }).then(() => {
+      if (window.cefQuery) {
         window.cefQuery({ request: 'hide-bookmarkbar' });
       }
-    });
+    }).catch(() => {});
   };
 
   const handleRemove = () => {
-    if (!bookmark || !window.cefQuery) return;
+    if (!bookmark) return;
     setBookmark(null);
     setTitle('');
-    window.cefQuery({
-      request: `remove-bookmark:${bookmark.id}`,
-      onSuccess: () => {
+    nativeRequest({
+      method: 'bookmarks.remove',
+      params: { id: bookmark.id },
+    }).then(() => {
+      if (window.cefQuery) {
         window.cefQuery({ request: 'hide-bookmarkbar' });
       }
-    });
+    }).catch(() => {});
   };
 
   return (

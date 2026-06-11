@@ -410,16 +410,15 @@ const App = () => {
   };
 
   const handleToggleBookmark = () => {
-    window.cefQuery({
-      request: 'toggle-bookmark-current',
-      onSuccess: (value) => {
+    nativeRequest({ method: 'bookmarks.toggleCurrent' })
+      .then((value) => {
         if (state.activeTabId === null) return;
         dispatch({
           type: 'UPDATE_TAB',
-          payload: { id: state.activeTabId, key: 'bookmarked', value: value === 'true' }
+          payload: { id: state.activeTabId, key: 'bookmarked', value: Boolean(value) }
         });
-      },
-    });
+      })
+      .catch(() => {});
   };
 
   const handleShowCertificate = () => {

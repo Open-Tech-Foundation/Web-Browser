@@ -216,7 +216,7 @@ test('guest session is isolated and discarded when closed',
         15000,
       );
       assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-workspaces')), []);
-      assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-bookmarks')), []);
+      assert.deepEqual(await nativeRpc(browser.cdp, 'bookmarks.list'), []);
       assert.deepEqual(JSON.parse(await cefQuery(browser.cdp, 'get-downloads')), []);
 
       await navigateFromAddressBar(browser.cdp, `${server.origin}/guest-one`);
@@ -236,7 +236,7 @@ test('guest session is isolated and discarded when closed',
         firstGuestCdp.close();
       }
 
-      const historyWhileGuest = JSON.parse(await cefQuery(browser.cdp, 'get-history'));
+      const historyWhileGuest = await nativeRpc(browser.cdp, 'history.list');
       assert.equal(historyWhileGuest.some((item) => String(item.url || '').includes('/guest-one')), false);
 
       const guestTabId = Number(await nativeRpc(browser.cdp, 'tabs.active'));

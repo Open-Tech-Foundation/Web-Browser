@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "otf_app.h"
 #include "otf_handler.h"
 #include "otf_utils.h"
 
@@ -242,6 +243,40 @@ bool HandleBookmarksRpc(OtfHandler* handler,
     return true;
   }
 
+  if (request.method == "bookmarks.update") {
+    if (!HasOnlyParamKeys(request.params, {"id", "url", "title"}, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (handler->guest_session_active_) {
+      Failure(callback, request, "guest_session",
+              "This action is disabled in guest sessions");
+      return true;
+    }
+    int id = 0;
+    std::string url;
+    std::string title;
+    if (!ReadPositiveInt(request.params, "id", &id, &error) ||
+        !ReadRequiredString(request.params, "url", &url, &error) ||
+        !ReadRequiredString(request.params, "title", &title, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    url = NormalizeBookmarkUrl(url);
+    if (!handler->store_ || !IsPersistableWebUrl(url)) {
+      Failure(callback, request, "invalid_params", "Invalid bookmark payload");
+      return true;
+    }
+    handler->store_->UpdateBookmark(id, url, title);
+    if (handler->tab_manager_) {
+      for (int tab_id : handler->tab_manager_->GetAllTabIds()) {
+        handler->NotifyBookmarkStateForTab(tab_id);
+      }
+    }
+    NativeRpcSuccessString(callback, request, "ok");
+    return true;
+  }
+
   if (request.method == "bookmarks.add") {
     if (!HasOnlyParamKeys(request.params, {"url", "title", "faviconUrl"},
                           &error)) {
@@ -270,6 +305,51 @@ bool HandleBookmarksRpc(OtfHandler* handler,
     handler->store_->AddBookmark(url, title, favicon);
     handler->SendEvent(BuildBookmarkStateEvent(-1, url, true));
     NativeRpcSuccessString(callback, request, "ok");
+    return true;
+  }
+
+  if (request.method == "bookmarks.toggleCurrent") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    bool bookmarked = false;
+    OtfApp* app = OtfApp::GetInstance();
+    if (app && !handler->guest_session_active_ && handler->tab_manager_ &&
+        handler->store_) {
+      const int tab_id = app->GetCurrentTabId();
+      const std::string url =
+          NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
+      if (IsPersistableWebUrl(url) && !handler->IsGuestTab(tab_id)) {
+        if (!handler->store_->IsBookmarked(url)) {
+          const std::string title = handler->tab_manager_->GetTitle(tab_id);
+          const std::string favicon = handler->tab_manager_->GetFaviconUrl(tab_id);
+          handler->store_->AddBookmark(url, title, favicon);
+        }
+        bookmarked = true;
+        handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
+        app->ShowBookmarkOverlay();
+      }
+    }
+    NativeRpcSuccessRaw(callback, request, bookmarked ? "true" : "false");
+    return true;
+  }
+
+  if (request.method == "bookmarks.isBookmarked") {
+    if (!HasOnlyParamKeys(request.params, {"url"}, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    std::string url;
+    if (!ReadRequiredString(request.params, "url", &url, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    url = NormalizeBookmarkUrl(url);
+    const bool bookmarked =
+        !handler->guest_session_active_ && handler->store_ && !url.empty() &&
+        handler->store_->IsBookmarked(url);
+    NativeRpcSuccessRaw(callback, request, bookmarked ? "true" : "false");
     return true;
   }
 
