@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   bar: {
@@ -91,6 +92,20 @@ const FindBar = () => {
   const [activeTabId, setActiveTabId] = useState(-1);
   const debounceRef = useRef(null);
   const findSeqRef = useRef(0);
+  const searchPendingRef = useRef(false);
+  const textDirtyRef = useRef(false);
+
+  const stopFind = useCallback(() => {
+    nativeRequest({ method: 'findbar.stop' }).catch(() => {});
+  }, []);
+
+  const closeFindbar = useCallback(() => {
+    nativeRequest({ method: 'findbar.close' }).catch(() => {});
+  }, []);
+
+  const sendFind = useCallback((params) => {
+    nativeRequest({ method: 'findbar.find', params }).catch(() => {});
+  }, []);
 
   const cancelPendingFind = useCallback(() => {
     if (debounceRef.current) {
@@ -113,8 +128,11 @@ const FindBar = () => {
             setCount(ev.count ?? 0);
             setActive(ev.active ?? 0);
             setIsFinal(ev.final ?? true);
+            if (ev.final ?? true) searchPendingRef.current = false;
           } else if (ev.key === 'find-restore') {
             cancelPendingFind();
+            searchPendingRef.current = false;
+            textDirtyRef.current = false;
             setActiveTabId(ev.tabId ?? -1);
             setText(ev.text ?? '');
             setMatchCase(ev.matchCase ?? false);
@@ -131,6 +149,7 @@ const FindBar = () => {
             });
           } else if (ev.key === 'findbar-closed') {
             cancelPendingFind();
+            searchPendingRef.current = false;
             setActiveTabId(ev.tabId ?? -1);
             setCount(0);
             setActive(0);
@@ -160,35 +179,46 @@ const FindBar = () => {
       setCount(0);
       setActive(0);
       setIsFinal(true);
-      window.cefQuery({ request: 'findbar-stop:' });
+      searchPendingRef.current = false;
+      textDirtyRef.current = false;
+      stopFind();
       return;
     }
-    if (!findNext) setIsFinal(false);
+    const actualFindNext =
+      !!findNext && !searchPendingRef.current && !textDirtyRef.current;
+    if (!actualFindNext) {
+      cancelPendingFind();
+      setIsFinal(false);
+    }
+    searchPendingRef.current = true;
     const seq = ++findSeqRef.current;
-    window.cefQuery({
-      request: `findbar-find:${JSON.stringify({
+    sendFind({
         tabId: activeTabId,
         text: t,
         forward: !!fwd,
         matchCase: !!caseSensitive,
-        findNext: !!findNext,
+        findNext: actualFindNext,
         seq,
-      })}`,
     });
-  }, [activeTabId, cancelPendingFind, text]);
+    textDirtyRef.current = false;
+  }, [activeTabId, cancelPendingFind, sendFind, stopFind, text]);
 
   // Typing: debounced, always starts a NEW search (findNext = false)
   const onTyping = useCallback((val) => {
     setText(val);
+    textDirtyRef.current = true;
     cancelPendingFind();
     if (!val.trim()) {
       setCount(0);
       setActive(0);
       setIsFinal(true);
-      window.cefQuery({ request: 'findbar-stop:' });
+      searchPendingRef.current = false;
+      textDirtyRef.current = false;
+      stopFind();
       return;
     }
     setIsFinal(false);
+    searchPendingRef.current = true;
     const tabIdAtSchedule = activeTabId;
     debounceRef.current = setTimeout(() => {
       const el = inputRef.current;
@@ -197,19 +227,17 @@ const FindBar = () => {
       debounceRef.current = null;
       if (t && tabIdAtSchedule >= 0) {
         const seq = ++findSeqRef.current;
-        window.cefQuery({
-          request: `findbar-find:${JSON.stringify({
+        sendFind({
             tabId: tabIdAtSchedule,
             text: t,
             forward: true,
             matchCase: !!matchCase,
             findNext: false,
             seq,
-          })}`,
         });
       }
     }, 200);
-  }, [activeTabId, cancelPendingFind, matchCase]);
+  }, [activeTabId, cancelPendingFind, matchCase, sendFind, stopFind]);
 
   const onKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
@@ -219,32 +247,33 @@ const FindBar = () => {
     }
     if (e.key === 'Escape') {
       e.preventDefault();
-      window.cefQuery({ request: 'findbar-close:' });
+      closeFindbar();
       return;
     }
-  }, [execFind, matchCase]);
+  }, [closeFindbar, execFind, matchCase]);
 
   // Toggle case: fresh search with new case
   const onToggleCase = useCallback(() => {
     const next = !matchCase;
     setMatchCase(next);
+    textDirtyRef.current = true;
     cancelPendingFind();
     const t = (inputRef.current?.value ?? text).trim();
     if (t && activeTabId >= 0) {
       setIsFinal(false);
+      searchPendingRef.current = true;
       const seq = ++findSeqRef.current;
-      window.cefQuery({
-        request: `findbar-find:${JSON.stringify({
+      sendFind({
           tabId: activeTabId,
           text: t,
           forward: true,
           matchCase: !!next,
           findNext: false,
           seq,
-        })}`,
       });
+      textDirtyRef.current = false;
     }
-  }, [activeTabId, cancelPendingFind, matchCase, text]);
+  }, [activeTabId, cancelPendingFind, matchCase, sendFind, text]);
 
   const onPrev = useCallback(() => execFind(false, matchCase, true), [execFind, matchCase]);
   const onNext = useCallback(() => execFind(true, matchCase, true), [execFind, matchCase]);
@@ -275,7 +304,7 @@ const FindBar = () => {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <span style={S.sep} />
-        <button onClick={() => window.cefQuery({ request: 'findbar-close:' })} style={S.btn} title="Close (Escape)">
+        <button onClick={closeFindbar} style={S.btn} title="Close (Escape)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </div>

@@ -2,6 +2,7 @@
 #include "otf_app.h"
 #include "otf_clear_data_rpc.h"
 #include "otf_downloads_rpc.h"
+#include "otf_findbar_rpc.h"
 #include "otf_history_bookmarks_rpc.h"
 #include "otf_keyboard_shortcuts.h"
 #include "otf_navigation_rpc.h"
@@ -1415,43 +1416,6 @@ int FindDownloadRecordId(const std::map<int, OtfHandler::DownloadState>& downloa
   return -1;
 }
 
-struct FindbarFindRequest {
-  int tab_id = -1;
-  std::string text;
-  bool forward = true;
-  bool match_case = false;
-  bool find_next = false;
-  int seq = 0;
-};
-
-bool ParseFindbarFindRequest(const std::string& raw_json,
-                             FindbarFindRequest* request) {
-  if (!request) {
-    return false;
-  }
-
-  CefRefPtr<CefValue> root =
-      CefParseJSON(raw_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
-  if (!root || root->GetType() != VTYPE_DICTIONARY) {
-    return false;
-  }
-
-  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
-  if (!dict || !dict->HasKey("tabId") || !dict->HasKey("text") ||
-      !dict->HasKey("forward") || !dict->HasKey("matchCase") ||
-      !dict->HasKey("findNext")) {
-    return false;
-  }
-
-  request->tab_id = dict->GetInt("tabId");
-  request->text = dict->GetString("text").ToString();
-  request->forward = dict->GetBool("forward");
-  request->match_case = dict->GetBool("matchCase");
-  request->find_next = dict->GetBool("findNext");
-  if (dict->HasKey("seq")) request->seq = dict->GetInt("seq");
-  return request->tab_id >= 0;
-}
-
 struct ResetRequest {
   bool startup = true;
   bool search_engine = true;
@@ -2352,6 +2316,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         return true;
       }
       if (HandlePermissionsRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
+      if (HandleFindbarRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
@@ -5429,79 +5396,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->GetHost()->StopFinding(true);
-      callback->Success("");
-    } else if (msg.find("findbar-find:") == 0) {
-      FindbarFindRequest findbar_request;
-      if (!ParseFindbarFindRequest(msg.substr(13), &findbar_request)) {
-        callback->Success("");
-        return true;
-      }
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app || !handler->tab_manager_) { callback->Success(""); return true; }
-      int tab_id = app->GetCurrentTabId();
-      if (tab_id < 0) { callback->Success(""); return true; }
-      if (findbar_request.tab_id != tab_id) { callback->Success(""); return true; }
-
-      handler->tab_manager_->SetFindVisible(tab_id, true);
-      handler->tab_manager_->SetFindText(tab_id, findbar_request.text);
-      handler->tab_manager_->SetFindCase(tab_id, findbar_request.match_case);
-
-      auto b = handler->tab_manager_->GetBrowser(tab_id);
-      if (!b) { callback->Success(""); return true; }
-
-      if (findbar_request.text.empty()) {
-        b->GetHost()->StopFinding(true);
-        // Clear counters in UI
-        if (handler->findbar_subscription_) {
-          handler->findbar_subscription_->Success(
-              BuildFindResultEvent(0, 0, tab_id, "", true));
-        }
-      } else {
-        // Track pending so async OnFindResult can correlate and filter
-        handler->pending_find_tab_  = tab_id;
-        handler->pending_find_text_ = findbar_request.text;
-        handler->pending_find_seq_  = findbar_request.seq;
-        b->GetHost()->Find(findbar_request.text, findbar_request.forward, findbar_request.match_case, findbar_request.find_next);
-      }
-      callback->Success("");
-    } else if (msg == "findbar-stop:") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && handler->tab_manager_) {
-        int tab_id = app->GetCurrentTabId();
-        if (tab_id >= 0) {
-          handler->tab_manager_->ClearFindState(tab_id);
-          auto b = handler->tab_manager_->GetBrowser(tab_id);
-          if (b) b->GetHost()->StopFinding(true);
-        }
-      }
-      handler->pending_find_tab_ = -1;
-      handler->pending_find_text_.clear();
-      if (handler->findbar_subscription_) {
-        handler->findbar_subscription_->Success(
-            BuildFindResultEvent(0, 0, -1, "", true));
-      }
-      callback->Success("");
-    } else if (msg == "findbar-close:") {
-      OtfApp* app = OtfApp::GetInstance();
-      int tab_id = app ? app->GetCurrentTabId() : -1;
-      if (app && app->findbar_overlay_) {
-        app->findbar_overlay_->SetVisible(false);
-        if (handler->tab_manager_) {
-          handler->tab_manager_->ClearFindState(tab_id);
-          auto b = handler->tab_manager_->GetBrowser(tab_id);
-          if (b) b->GetHost()->StopFinding(true);
-        }
-        if (handler->pending_find_tab_ == tab_id) {
-          handler->pending_find_tab_ = -1;
-          handler->pending_find_text_.clear();
-        }
-        app->FocusCurrentTabContent();
-      }
-      if (handler->findbar_subscription_) {
-        handler->findbar_subscription_->Success(
-            BuildFindResultEvent(0, 0, -1, "", true));
-        handler->findbar_subscription_->Success(BuildFindbarClosedEvent(tab_id));
-      }
       callback->Success("");
     } else if (msg == "show-findbar") {
       OtfApp* app = OtfApp::GetInstance();
