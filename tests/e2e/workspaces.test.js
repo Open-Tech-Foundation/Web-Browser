@@ -109,6 +109,43 @@ async function cefQuery(cdp, request) {
   `);
 }
 
+test('workspace RPC rejects unknown schema fields',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    try {
+      await waitFor(
+        browser.cdp,
+        `typeof window.cefQuery === 'function' && document.body.innerText`,
+        (text) => /New Tab/i.test(text) || /Search/i.test(text),
+        15000,
+      );
+
+      const response = await browser.cdp.evaluate(`
+        new Promise((resolve) => {
+          window.cefQuery({
+            request: JSON.stringify({
+              id: 'workspaces-extra-param',
+              method: 'workspaces.list',
+              params: { extra: true },
+            }),
+            onSuccess: resolve,
+            onFailure: (code, message) => resolve(JSON.stringify({
+              ok: false,
+              error: { code: String(code), message },
+            })),
+          });
+        })
+      `);
+      const parsed = JSON.parse(response);
+      assert.equal(parsed.id, 'workspaces-extra-param');
+      assert.equal(parsed.ok, false);
+      assert.match(parsed.error.message, /unexpected param: extra/);
+    } finally {
+      await browser.close();
+    }
+  });
+
 test('user can create and switch workspaces from the workspace popup',
   { timeout: timeoutMs + 15000 },
   async () => {

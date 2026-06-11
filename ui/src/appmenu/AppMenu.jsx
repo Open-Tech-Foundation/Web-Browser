@@ -16,11 +16,19 @@ const AppMenu = () => {
   };
 
   React.useEffect(() => {
-    window.cefQuery?.({
-      request: 'is-guest-session',
-      onSuccess: (value) => setGuestSession(value === 'true'),
-    });
+    nativeRequest({ method: 'session.isGuest' })
+      .then((value) => setGuestSession(value === true))
+      .catch(() => {});
   }, []);
+
+  const handleGuestSession = () => {
+    nativeRequest({ method: 'session.createGuest' })
+      .then(() => {
+        setGuestSession(true);
+        window.cefQuery?.({ request: 'hide-appmenu' });
+      })
+      .catch(() => {});
+  };
 
   const handleNavigate = (url) => {
     if (window.cefQuery) {
@@ -107,7 +115,7 @@ const AppMenu = () => {
             name={guestSession ? 'Guest Active' : 'Guest Session'}
             accent="violet"
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V7l-8-4Z"/><path d="M9 12h6"/></svg>}
-            onClick={() => handleAction('create-guest-session')}
+            onClick={handleGuestSession}
           />
         </div>
 

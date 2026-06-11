@@ -139,17 +139,13 @@ const App = () => {
 
   const refreshWorkspaces = () => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: 'get-workspaces',
-      onSuccess: (json) => {
-        try {
-          const list = JSON.parse(json);
-          dispatch({ type: 'SET_WORKSPACES', payload: list });
-          const active = list.find((w) => w.active);
-          if (active) dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: active.id });
-        } catch (e) {}
-      },
-    });
+    nativeRequest({ method: 'workspaces.list' })
+      .then((list) => {
+        dispatch({ type: 'SET_WORKSPACES', payload: Array.isArray(list) ? list : [] });
+        const active = Array.isArray(list) ? list.find((w) => w.active) : null;
+        if (active) dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: active.id });
+      })
+      .catch(() => {});
   };
 
   // After a workspace switch the C++ side surfaces a new active tab; the
@@ -203,10 +199,9 @@ const App = () => {
     if (window.cefQuery) {
       refreshWorkspaces();
       refreshSplitState();
-      window.cefQuery({
-        request: 'is-guest-session',
-        onSuccess: (value) => setGuestSession(value === 'true'),
-      });
+      nativeRequest({ method: 'session.isGuest' })
+        .then((value) => setGuestSession(value === true))
+        .catch(() => {});
       // Load settings
       getNativeSettings()
         .then((settings) => {
