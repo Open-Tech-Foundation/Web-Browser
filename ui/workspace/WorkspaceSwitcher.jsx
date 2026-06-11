@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePopupRestore } from '../src/components/Popup';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const WorkspacePopup = () => {
   const [workspaces, setWorkspaces] = useState([]);
@@ -41,29 +42,24 @@ const WorkspacePopup = () => {
   }, []);
 
   const fetchWorkspaces = () => {
-    window.cefQuery?.({
-      request: 'get-workspaces',
-      onSuccess: (json) => {
-        try { setWorkspaces(JSON.parse(json)); } catch (_) {}
-      },
-    });
+    nativeRequest({ method: 'workspaces.list' })
+      .then((list) => setWorkspaces(Array.isArray(list) ? list : []))
+      .catch(() => {});
   };
 
   const submitCreate = () => {
     const name = createDraft.trim();
     if (!name) return;
     setCreateError('');
-    window.cefQuery?.({
-      request: `create-workspace:${name}`,
-      onSuccess: () => {
+    nativeRequest({ method: 'workspaces.create', params: { name } })
+      .then(() => {
         setCreating(false);
         setCreateDraft('');
         fetchWorkspaces();
-      },
-      onFailure: (_, msg) => {
-        setCreateError(msg === 'duplicate name' ? 'Name already in use' : 'Failed to create');
-      },
-    });
+      })
+      .catch((err) => {
+        setCreateError(err.message === 'duplicate name' ? 'Name already in use' : 'Failed to create');
+      });
   };
 
   const cancelCreate = () => {
@@ -76,22 +72,22 @@ const WorkspacePopup = () => {
     const name = renameDraft.trim();
     if (!name) { setRenamingId(null); setRenameDraft(''); setRenameError(''); return; }
     setRenameError('');
-    window.cefQuery?.({
-      request: `rename-workspace:${id}:${name}`,
-      onSuccess: () => {
+    nativeRequest({ method: 'workspaces.rename', params: { id, name } })
+      .then(() => {
         setRenamingId(null);
         setRenameDraft('');
         fetchWorkspaces();
-      },
-      onFailure: (_, msg) => {
-        setRenameError(msg === 'duplicate name' ? 'Name already in use' : 'Failed to rename');
-      },
-    });
+      })
+      .catch((err) => {
+        setRenameError(err.message === 'duplicate name' ? 'Name already in use' : 'Failed to rename');
+      });
   };
 
   const doDelete = (id) => {
     setConfirmDeleteId(null);
-    window.cefQuery?.({ request: `delete-workspace:${id}`, onSuccess: fetchWorkspaces });
+    nativeRequest({ method: 'workspaces.delete', params: { id } })
+      .then(fetchWorkspaces)
+      .catch(() => {});
   };
 
   return (
@@ -146,7 +142,10 @@ const WorkspacePopup = () => {
                     </div>
                   ) : (
                     <button
-                      onClick={() => window.cefQuery?.({ request: `switch-workspace:${w.id}` })}
+                      onClick={() => nativeRequest({
+                        method: 'workspaces.switch',
+                        params: { id: w.id },
+                      }).catch(() => {})}
                       className={`flex-1 py-1.5 text-left text-[12px] font-medium truncate ${
                         w.active ? 'text-brand-orange' : 'text-slate-700 dark:text-slate-200'
                       }`}
