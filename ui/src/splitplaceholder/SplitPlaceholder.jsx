@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { nativeRequest } from '../shared/nativeRequest';
 import '../styles/App.css';
 
@@ -63,13 +63,9 @@ const SplitPlaceholder = () => {
 
   useEffect(() => {
     refresh();
-    const id = window.setInterval(refresh, 1500);
     const onFocus = () => refresh();
     window.addEventListener('focus', onFocus);
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener('focus', onFocus);
-    };
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
 
   const candidates = useMemo(() => {
