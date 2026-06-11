@@ -5690,19 +5690,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         app->FocusCurrentTabContent();
       }
       callback->Success("");
-    } else if (msg.rfind("toast:", 0) == 0) {
-      // Format: toast:icon:message
-      std::string payload = msg.substr(6);
-      size_t colon_pos = payload.find(':');
-      std::string icon = "check";
-      std::string message = payload;
-      if (colon_pos != std::string::npos) {
-        icon = payload.substr(0, colon_pos);
-        message = payload.substr(colon_pos + 1);
-      }
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) app->ShowToast(icon, message);
-      callback->Success("");
     } else {
       return false;
     }

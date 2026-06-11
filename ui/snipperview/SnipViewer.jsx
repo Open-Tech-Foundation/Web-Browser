@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   root: {
@@ -290,12 +291,10 @@ const SnipViewer = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       
-      if (window.cefQuery) {
-        window.cefQuery({
-          request: 'toast:copy:Image copied',
-          onSuccess: () => {}
-        });
-      }
+      nativeRequest({
+        method: 'ui.toast.show',
+        params: { icon: 'copy', message: 'Image copied' },
+      }).catch(() => {});
     } catch (err) {
       console.error('Copy failed:', err);
     }
@@ -310,12 +309,10 @@ const SnipViewer = () => {
     a.click();
     document.body.removeChild(a);
     
-    if (window.cefQuery) {
-      window.cefQuery({
-        request: 'toast:save:Image saved',
-        onSuccess: () => {}
-      });
-    }
+    nativeRequest({
+      method: 'ui.toast.show',
+      params: { icon: 'save', message: 'Image saved' },
+    }).catch(() => {});
   };
 
   const handleReselect = () => {

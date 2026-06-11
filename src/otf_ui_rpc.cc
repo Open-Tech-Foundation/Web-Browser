@@ -49,6 +49,23 @@ bool ReadPopupName(CefRefPtr<CefDictionaryValue> params,
   return true;
 }
 
+bool ReadStringParam(CefRefPtr<CefDictionaryValue> params,
+                     const std::string& key,
+                     std::string* value,
+                     std::string* error) {
+  if (!params || !params->HasKey(key) || params->GetType(key) != VTYPE_STRING) {
+    if (error) *error = key + " must be a string";
+    return false;
+  }
+  std::string parsed = params->GetString(key).ToString();
+  if (parsed.empty()) {
+    if (error) *error = key + " must not be empty";
+    return false;
+  }
+  if (value) *value = std::move(parsed);
+  return true;
+}
+
 void Failure(CefRefPtr<Callback> callback,
              const NativeRpcRequest& request,
              const std::string& code,
@@ -127,11 +144,31 @@ bool HandleUiRpc(
       request.method != "ui.zoomBar.hide" &&
       request.method != "ui.certificate.hide" &&
       request.method != "ui.console.toggle" &&
+      request.method != "ui.toast.show" &&
       request.method != "ui.findbar.show") {
     return false;
   }
 
   std::string error;
+  if (request.method == "ui.toast.show") {
+    if (!HasOnlyParamKeys(request.params, {"icon", "message"}, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    std::string icon;
+    std::string message;
+    if (!ReadStringParam(request.params, "icon", &icon, &error) ||
+        !ReadStringParam(request.params, "message", &message, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      app->ShowToast(icon, message);
+    }
+    Success(callback, request);
+    return true;
+  }
+
   if (!RequireNoParams(request, &error)) {
     Failure(callback, request, "invalid_params", error);
     return true;

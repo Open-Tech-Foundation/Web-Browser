@@ -321,7 +321,10 @@ export default function History() {
                 className="w-full text-left px-4 py-2 text-sm text-[var(--text-main)] hover:text-white hover:bg-orange-500 flex items-center gap-3"
                 onClick={() => {
                   navigator.clipboard?.writeText(ctxMenu.url);
-                  window.cefQuery?.({ request: 'toast:copy:Link copied' });
+                  nativeRequest({
+                    method: 'ui.toast.show',
+                    params: { icon: 'copy', message: 'Link copied' },
+                  }).catch(() => {});
                   setCtxMenu(null);
                 }}
               >
