@@ -90,7 +90,7 @@ export default function Downloads() {
     // Subscribe to download updates
     window.cefQuery?.({
       request: JSON.stringify({
-        id: `downloads-subscribe-${Date.now()}`,
+        id: `downloads-rpc-subscribe-${Date.now()}`,
         method: 'downloads.subscribe',
         params: {},
       }),
@@ -134,12 +134,14 @@ export default function Downloads() {
       cancel: 'downloads.cancel',
       pause: 'downloads.pause',
       resume: 'downloads.resume',
+      open: 'downloads.open',
+      showInFolder: 'downloads.showInFolder',
+      retry: 'downloads.retry',
+      copyLink: 'downloads.copyLink',
     };
     if (methods[action]) {
       nativeRequest({ method: methods[action], params: { id } }).catch(() => {});
-      return;
     }
-    window.cefQuery?.({ request: `${action}-download:${id}` });
   };
 
   const clearFinished = () => {
@@ -292,7 +294,7 @@ export default function Downloads() {
                           )}
                           {item.canShowInFolder && (
                             <button 
-                              onClick={() => handleAction('show-download-in-folder', item.id)}
+                              onClick={() => handleAction('showInFolder', item.id)}
                               className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
                               title="Show in folder"
                             >
@@ -336,7 +338,7 @@ export default function Downloads() {
                             </button>
                           )}
                           <button 
-                            onClick={() => handleAction('copy-download-link', item.id)}
+                            onClick={() => handleAction('copyLink', item.id)}
                             className="p-2.5 rounded-xl bg-main/5 hover:bg-main/10 text-muted hover:text-main transition-all border border-main"
                             title="Copy download link"
                           >

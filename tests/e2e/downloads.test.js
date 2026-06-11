@@ -33,25 +33,44 @@ test('downloads RPC rejects unknown schema fields',
       );
 
       const response = await downloadsCdp.evaluate(`
-        new Promise((resolve) => {
-          window.cefQuery({
-            request: JSON.stringify({
-              id: 'downloads-extra-param',
-              method: 'downloads.list',
-              params: { extra: true },
-            }),
-            onSuccess: resolve,
-            onFailure: (code, message) => resolve(JSON.stringify({
-              ok: false,
-              error: { code: String(code), message },
-            })),
-          });
-        })
+        Promise.all([
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'downloads-extra-param',
+                method: 'downloads.list',
+                params: { extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'downloads-open-extra-param',
+                method: 'downloads.open',
+                params: { id: 1, extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+        ])
       `);
-      const parsed = JSON.parse(response);
-      assert.equal(parsed.id, 'downloads-extra-param');
-      assert.equal(parsed.ok, false);
-      assert.match(parsed.error.message, /unexpected param: extra/);
+      const parsed = response.map((item) => JSON.parse(item));
+      assert.equal(parsed[0].id, 'downloads-extra-param');
+      assert.equal(parsed[0].ok, false);
+      assert.match(parsed[0].error.message, /unexpected param: extra/);
+      assert.equal(parsed[1].id, 'downloads-open-extra-param');
+      assert.equal(parsed[1].ok, false);
+      assert.match(parsed[1].error.message, /unexpected param: extra/);
     } finally {
       if (downloadsCdp) downloadsCdp.close();
       await browser.close();

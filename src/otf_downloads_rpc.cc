@@ -75,6 +75,13 @@ bool HandleControl(OtfHandler* handler,
   return true;
 }
 
+bool ReadActionDownloadId(const NativeRpcRequest& request,
+                          uint32_t* download_id,
+                          std::string* error) {
+  return request.params && HasOnlyParamKeys(request.params, {"id"}, error) &&
+         ReadDownloadId(request.params, download_id, error);
+}
+
 }  // namespace
 
 bool HandleDownloadsRpc(
@@ -89,6 +96,11 @@ bool HandleDownloadsRpc(
        request.method != "downloads.cancel" &&
        request.method != "downloads.pause" &&
        request.method != "downloads.resume" &&
+       request.method != "downloads.open" &&
+       request.method != "downloads.showInFolder" &&
+       request.method != "downloads.retry" &&
+       request.method != "downloads.copyLink" &&
+       request.method != "downloads.openPage" &&
        request.method != "downloads.clearFinished")) {
     return false;
   }
@@ -133,6 +145,40 @@ bool HandleDownloadsRpc(
   }
   if (request.method == "downloads.resume") {
     return HandleControl(handler, callback, request, &CefDownloadItemCallback::Resume);
+  }
+
+  if (request.method == "downloads.openPage") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (!handler->OpenDownloadsPageFromOverlay(browser, &error)) {
+      Failure(callback, request, "failed", error);
+      return true;
+    }
+    NativeRpcSuccessString(callback, request, "ok");
+    return true;
+  }
+
+  if (request.method == "downloads.open" ||
+      request.method == "downloads.showInFolder" ||
+      request.method == "downloads.retry" ||
+      request.method == "downloads.copyLink") {
+    uint32_t download_id = 0;
+    if (!ReadActionDownloadId(request, &download_id, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    const std::string action =
+        request.method == "downloads.open" ? "open" :
+        request.method == "downloads.showInFolder" ? "showInFolder" :
+        request.method == "downloads.retry" ? "retry" : "copyLink";
+    if (!handler->ApplyDownloadAction(download_id, action, browser, &error)) {
+      Failure(callback, request, "failed", error);
+      return true;
+    }
+    NativeRpcSuccessString(callback, request, "ok");
+    return true;
   }
 
   if (!RequireNoParams(request, &error)) {

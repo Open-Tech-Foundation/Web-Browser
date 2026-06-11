@@ -2365,19 +2365,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "downloads-subscribe") {
-      if (!handler->guest_session_active_) {
-        handler->downloads_subscription_ = callback;
-      }
-      callback->Success(JsonObjectBuilder()
-                            .AddString("key", "downloads-update")
-                            .AddRaw("downloads",
-                                    handler->guest_session_active_ ? "[]"
-                                                                   : handler->GetDownloadsJson())
-                            .Build());
-      return true;
-    }
-
     if (msg == "certificate-subscribe") {
       handler->certificate_subscription_ = callback;
       OtfApp* app = OtfApp::GetInstance();
@@ -3324,11 +3311,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
                              .AddInt("id", target)
                              .Build());
       callback->Success("");
-      return true;
-    }
-
-    if (msg == "get-downloads") {
-      callback->Success(handler->guest_session_active_ ? "[]" : handler->GetDownloadsJson());
       return true;
     }
 
@@ -4689,16 +4671,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 2000);
       state->Resolve();
       return true;
-    } else if (msg == "open-downloads-page") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideDownloadsOverlay();
-        int id = app->CreateTab("browser://downloads");
-        handler->NotifyNewTab(id, handler->tab_manager_->GetId(browser));
-        app->SwitchTab(id);
-      }
-      callback->Success("");
-      return true;
     } else if (msg == "toggle-appmenu") {
       OtfApp* app = OtfApp::GetInstance();
       if (app && app->appmenu_overlay_) {
@@ -4714,159 +4686,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (app) {
         app->HideAppMenuOverlay();
       }
-      callback->Success("");
-    } else if (msg.find("cancel-download:") == 0) {
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(16));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->download_callbacks_.find(*download_id);
-      if (it != handler->download_callbacks_.end()) {
-        it->second->Cancel();
-      }
-      callback->Success("");
-    } else if (msg.find("pause-download:") == 0) {
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(15));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->download_callbacks_.find(*download_id);
-      if (it != handler->download_callbacks_.end()) {
-        it->second->Pause();
-      }
-      callback->Success("");
-    } else if (msg.find("resume-download:") == 0) {
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(16));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->download_callbacks_.find(*download_id);
-      if (it != handler->download_callbacks_.end()) {
-        it->second->Resume();
-      }
-      callback->Success("");
-    } else if (msg.find("open-download:") == 0) {
-      if (handler->guest_session_active_) {
-        callback->Success("");
-        return true;
-      }
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(14));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->downloads_.find(*download_id);
-      if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
-        std::string path = it->second.full_path;
-        if (otf::IsSupportedImageUrl(path)) {
-          OtfApp* app = OtfApp::GetInstance();
-          if (app) {
-            const std::string name = SanitizeFilename(
-                DownloadDisplayName(it->second.suggested_name,
-                                    it->second.full_path, it->second.url));
-            const std::string public_url =
-                "browser://image-preview/download/" +
-                std::to_string(*download_id) + "/" + name;
-            int new_id = app->CreateTab(public_url);
-            handler->SetImagePreviewLocalFileForTab(new_id, public_url, path);
-            if (handler->tab_manager_) {
-              handler->tab_manager_->SetUrl(new_id, public_url);
-              handler->tab_manager_->SetTitle(new_id, name);
-              handler->tab_manager_->SetSchemeUrl(new_id, "browser://imagepreview");
-              handler->tab_manager_->SetImagePreviewMode(
-                  new_id, ImagePreviewMode::kDedicated);
-            }
-            handler->NotifyNewTab(new_id, -1);
-            app->SwitchTab(new_id);
-            CefPostTask(TID_UI, new DeferredImagePreviewPushTask(new_id));
-            CefPostDelayedTask(TID_UI, new DeferredImagePreviewPushTask(new_id), 100);
-            CefPostDelayedTask(TID_UI, new DeferredImagePreviewPushTask(new_id), 300);
-          }
-        } else if (otf::IsSupportedDocumentUrl(path)) {
-          OtfApp* app = OtfApp::GetInstance();
-          if (app) {
-            const std::string name = SanitizeFilename(
-                DownloadDisplayName(it->second.suggested_name,
-                                    it->second.full_path, it->second.url));
-            const std::string content_token =
-                "download/" + std::to_string(*download_id) + "/" + name;
-            const std::string content_url =
-                "browser://doc-preview/content/" + content_token;
-            const std::string public_url =
-                "browser://doc-preview/download/" +
-                std::to_string(*download_id) + "/" + name;
-            const std::string mime_type = otf::GuessDocumentMimeType(path);
-            otf::RegisterDocContent(content_token, path);
-            int new_id = app->CreateTab(public_url);
-            handler->SetDocPreviewLocalFileForTab(new_id, public_url, path);
-            handler->SetDocPreviewContentUrlForTab(new_id, content_url);
-            if (handler->tab_manager_) {
-              handler->tab_manager_->SetUrl(new_id, public_url);
-              handler->tab_manager_->SetTitle(new_id, name);
-              handler->tab_manager_->SetSchemeUrl(new_id, "browser://docpreview");
-              handler->tab_manager_->SetDocPreviewMode(
-                  new_id, DocPreviewMode::kDedicated);
-            }
-            handler->NotifyNewTab(new_id, -1);
-            app->SwitchTab(new_id);
-          }
-        } else {
-          OpenPathWithSystemApp(path);
-        }
-      }
-      callback->Success("");
-    } else if (msg.find("show-download-in-folder:") == 0) {
-      if (handler->guest_session_active_) {
-        callback->Success("");
-        return true;
-      }
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(24));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->downloads_.find(*download_id);
-      if (it != handler->downloads_.end() && !it->second.full_path.empty()) {
-        RevealPathInFolder(it->second.full_path);
-      }
-      callback->Success("");
-    } else if (msg.find("retry-download:") == 0) {
-      if (handler->guest_session_active_) {
-        callback->Success("");
-        return true;
-      }
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(15));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->downloads_.find(*download_id);
-      if (it != handler->downloads_.end()) {
-        const std::string retry_url = it->second.original_url.empty()
-                                         ? it->second.url
-                                         : it->second.original_url;
-        if (!retry_url.empty() && browser) {
-          browser->GetHost()->StartDownload(retry_url);
-        }
-      }
-      callback->Success("");
-    } else if (msg.find("copy-download-link:") == 0) {
-      const auto download_id = ParseUint32Strict(std::string_view(msg).substr(19));
-      if (!download_id) { callback->Failure(1, "invalid id"); return true; }
-      auto it = handler->downloads_.find(*download_id);
-      if (it != handler->downloads_.end()) {
-        const std::string link = it->second.original_url.empty()
-                                    ? it->second.url
-                                    : it->second.original_url;
-        WriteToClipboard(link);
-        if (OtfApp* app = OtfApp::GetInstance()) {
-          app->ShowToast("copy", "Download link copied");
-        }
-      }
-      callback->Success("");
-    } else if (msg == "clear-finished-downloads") {
-      if (handler->guest_session_active_) {
-        callback->Success("");
-        return true;
-      }
-      for (auto it = handler->downloads_.begin(); it != handler->downloads_.end();) {
-        if (it->second.is_complete || it->second.is_canceled || it->second.is_interrupted) {
-          handler->download_callbacks_.erase(it->first);
-          it = handler->downloads_.erase(it);
-        } else {
-          ++it;
-        }
-      }
-      if (handler->store_) {
-        handler->store_->DeleteFinishedDownloads();
-      }
-      handler->NotifyDownloadsChanged();
-      handler->NotifyDownloadBadge();
       callback->Success("");
     } else if (msg.find("find:") == 0) {
       // find:<tab_id>:<text>
@@ -5660,6 +5479,125 @@ bool OtfHandler::CanDownload(CefRefPtr<CefBrowser> browser,
 
 std::string OtfHandler::GetDownloadsJson() const {
   return BuildDownloadsJson(downloads_);
+}
+
+bool OtfHandler::OpenDownloadsPageFromOverlay(CefRefPtr<CefBrowser> browser,
+                                              std::string* error) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) {
+    if (error) *error = "App not ready";
+    return false;
+  }
+  app->HideDownloadsOverlay();
+  const int parent_id = tab_manager_ && browser ? tab_manager_->GetId(browser) : -1;
+  const int id = app->CreateTab("browser://downloads");
+  NotifyNewTab(id, parent_id);
+  app->SwitchTab(id);
+  return true;
+}
+
+bool OtfHandler::ApplyDownloadAction(uint32_t download_id,
+                                     const std::string& action,
+                                     CefRefPtr<CefBrowser> browser,
+                                     std::string* error) {
+  if (guest_session_active_) return true;
+  auto it = downloads_.find(download_id);
+  if (it == downloads_.end()) return true;
+
+  if (action == "open") {
+    if (it->second.full_path.empty()) return true;
+    const std::string path = it->second.full_path;
+    if (otf::IsSupportedImageUrl(path)) {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app) {
+        if (error) *error = "App not ready";
+        return false;
+      }
+      const std::string name = SanitizeFilename(
+          DownloadDisplayName(it->second.suggested_name, it->second.full_path,
+                              it->second.url));
+      const std::string public_url =
+          "browser://image-preview/download/" + std::to_string(download_id) +
+          "/" + name;
+      const int new_id = app->CreateTab(public_url);
+      SetImagePreviewLocalFileForTab(new_id, public_url, path);
+      if (tab_manager_) {
+        tab_manager_->SetUrl(new_id, public_url);
+        tab_manager_->SetTitle(new_id, name);
+        tab_manager_->SetSchemeUrl(new_id, "browser://imagepreview");
+        tab_manager_->SetImagePreviewMode(new_id, ImagePreviewMode::kDedicated);
+      }
+      NotifyNewTab(new_id, -1);
+      app->SwitchTab(new_id);
+      CefPostTask(TID_UI, new DeferredImagePreviewPushTask(new_id));
+      CefPostDelayedTask(TID_UI, new DeferredImagePreviewPushTask(new_id), 100);
+      CefPostDelayedTask(TID_UI, new DeferredImagePreviewPushTask(new_id), 300);
+      return true;
+    }
+    if (otf::IsSupportedDocumentUrl(path)) {
+      OtfApp* app = OtfApp::GetInstance();
+      if (!app) {
+        if (error) *error = "App not ready";
+        return false;
+      }
+      const std::string name = SanitizeFilename(
+          DownloadDisplayName(it->second.suggested_name, it->second.full_path,
+                              it->second.url));
+      const std::string content_token =
+          "download/" + std::to_string(download_id) + "/" + name;
+      const std::string content_url =
+          "browser://doc-preview/content/" + content_token;
+      const std::string public_url =
+          "browser://doc-preview/download/" + std::to_string(download_id) +
+          "/" + name;
+      otf::RegisterDocContent(content_token, path);
+      const int new_id = app->CreateTab(public_url);
+      SetDocPreviewLocalFileForTab(new_id, public_url, path);
+      SetDocPreviewContentUrlForTab(new_id, content_url);
+      if (tab_manager_) {
+        tab_manager_->SetUrl(new_id, public_url);
+        tab_manager_->SetTitle(new_id, name);
+        tab_manager_->SetSchemeUrl(new_id, "browser://docpreview");
+        tab_manager_->SetDocPreviewMode(new_id, DocPreviewMode::kDedicated);
+      }
+      NotifyNewTab(new_id, -1);
+      app->SwitchTab(new_id);
+      return true;
+    }
+    OpenPathWithSystemApp(path);
+    return true;
+  }
+
+  if (action == "showInFolder") {
+    if (!it->second.full_path.empty()) {
+      RevealPathInFolder(it->second.full_path);
+    }
+    return true;
+  }
+
+  if (action == "retry") {
+    const std::string retry_url = it->second.original_url.empty()
+                                      ? it->second.url
+                                      : it->second.original_url;
+    if (!retry_url.empty() && browser) {
+      browser->GetHost()->StartDownload(retry_url);
+    }
+    return true;
+  }
+
+  if (action == "copyLink") {
+    const std::string link = it->second.original_url.empty()
+                                 ? it->second.url
+                                 : it->second.original_url;
+    WriteToClipboard(link);
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      app->ShowToast("copy", "Download link copied");
+    }
+    return true;
+  }
+
+  if (error) *error = "Unknown download action";
+  return false;
 }
 
 std::string OtfHandler::BuildTabsJson() const {

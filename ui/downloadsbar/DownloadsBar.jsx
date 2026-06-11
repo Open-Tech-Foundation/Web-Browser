@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   wrapper: {
@@ -200,19 +201,21 @@ const DownloadsBar = () => {
       setDownloads(Array.isArray(payload) ? payload : []);
     };
 
-    window.cefQuery({
-      request: 'get-downloads',
-      onSuccess: (json) => {
-        try { sync(JSON.parse(json)); } catch (_) {}
-      },
-    });
+    nativeRequest({ method: 'downloads.list' })
+      .then(sync)
+      .catch(() => {});
 
     const sub = window.cefQuery({
-      request: 'downloads-subscribe',
+      request: JSON.stringify({
+        id: `downloadsbar-subscribe-${Date.now()}`,
+        method: 'downloads.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (json) => {
         try {
-          const ev = JSON.parse(json);
+          const parsed = JSON.parse(json);
+          const ev = parsed && parsed.ok === true ? parsed.result : parsed;
           if (ev.key === 'downloads-update') {
             sync(ev.downloads);
           }
@@ -252,7 +255,10 @@ const DownloadsBar = () => {
 
   const latestDownloads = useMemo(() => sortedDownloads.slice(0, 10), [sortedDownloads]);
 
-  const run = (request) => window.cefQuery?.({ request });
+  const hide = () => window.cefQuery?.({ request: 'hide-downloadsbar' });
+  const runDownloadAction = (method, id) => {
+    nativeRequest({ method, params: { id } }).catch(() => {});
+  };
 
   return (
     <div style={S.wrapper}>
@@ -260,7 +266,7 @@ const DownloadsBar = () => {
         <div style={S.header}>
           <div style={{ fontSize: 13, fontWeight: 800 }}>Downloads</div>
           <button
-            onClick={() => run('hide-downloadsbar')}
+            onClick={hide}
             onMouseEnter={() => setCloseHovered(true)}
             onMouseLeave={() => setCloseHovered(false)}
             style={{
@@ -300,28 +306,28 @@ const DownloadsBar = () => {
                 </div>
               )}
               <div style={S.actions}>
-                {item.canCancel && <button style={S.button} onClick={() => run(`cancel-download:${item.id}`)}>Cancel</button>}
-                {item.canPause && <button style={S.button} onClick={() => run(`pause-download:${item.id}`)}>Pause</button>}
-                {item.canResume && <button style={S.button} onClick={() => run(`resume-download:${item.id}`)}>Resume</button>}
-                {item.canRetry && <button style={S.button} onClick={() => run(`retry-download:${item.id}`)}>Retry</button>}
+                {item.canCancel && <button style={S.button} onClick={() => runDownloadAction('downloads.cancel', item.id)}>Cancel</button>}
+                {item.canPause && <button style={S.button} onClick={() => runDownloadAction('downloads.pause', item.id)}>Pause</button>}
+                {item.canResume && <button style={S.button} onClick={() => runDownloadAction('downloads.resume', item.id)}>Resume</button>}
+                {item.canRetry && <button style={S.button} onClick={() => runDownloadAction('downloads.retry', item.id)}>Retry</button>}
                 {item.canOpen && (
                   <button
                     style={S.button}
-                    onClick={() => run(`open-download:${item.id}`)}
+                    onClick={() => runDownloadAction('downloads.open', item.id)}
                     title={getOpenButtonTitle(item)}
                   >
                     Open
                   </button>
                 )}
-                {item.canShowInFolder && <button style={S.button} onClick={() => run(`show-download-in-folder:${item.id}`)}>Show in Folder</button>}
-                <button style={S.button} onClick={() => run(`copy-download-link:${item.id}`)}>Copy Link</button>
+                {item.canShowInFolder && <button style={S.button} onClick={() => runDownloadAction('downloads.showInFolder', item.id)}>Show in Folder</button>}
+                <button style={S.button} onClick={() => runDownloadAction('downloads.copyLink', item.id)}>Copy Link</button>
               </div>
             </div>
           ))}
         </div>
         <div style={S.footer}>
-          <button style={S.button} onClick={() => run('clear-finished-downloads')}>Clear Finished</button>
-          <button style={S.button} onClick={() => run('open-downloads-page')}>Show All Downloads</button>
+          <button style={S.button} onClick={() => nativeRequest({ method: 'downloads.clearFinished' }).catch(() => {})}>Clear Finished</button>
+          <button style={S.button} onClick={() => nativeRequest({ method: 'downloads.openPage' }).catch(() => {})}>Show All Downloads</button>
         </div>
       </div>
     </div>
