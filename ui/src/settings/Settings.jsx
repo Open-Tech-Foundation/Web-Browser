@@ -397,13 +397,11 @@ const Settings = () => {
     }
 
     setRestartBusy(true);
-    window.cefQuery({
-      request: 'restart-browser',
-      onFailure: (code, msg) => {
+    nativeRequest({ method: 'settings.restart' })
+      .catch((err) => {
         setRestartBusy(false);
-        setResetStatus(`Restart failed: ${msg || code}`);
-      }
-    });
+        setResetStatus(`Restart failed: ${err?.message || 'Unknown error'}`);
+      });
   };
 
   const openInternalPage = (url) => {
@@ -1014,7 +1012,7 @@ const Settings = () => {
                         <button
                           onClick={() => {
                             if (window.cefQuery) {
-                              window.cefQuery({ request: 'restart-browser' });
+                              nativeRequest({ method: 'settings.restart' }).catch(() => {});
                             }
                           }}
                           className="mt-3 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10 cursor-pointer"

@@ -959,6 +959,20 @@ bool HandleSettingsRpc(
     return ResetBrowserData(handler, browser, callback, request);
   }
 
+  if (request.method == "settings.restart") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (!handler->RestartBrowser()) {
+      Failure(callback, request, "restart_failed", "Unable to restart browser");
+      return true;
+    }
+    NativeRpcSuccessString(callback, request, "ok");
+    handler->CloseAllBrowsers(false);
+    return true;
+  }
+
   if (request.method != "settings.set") {
     return false;
   }

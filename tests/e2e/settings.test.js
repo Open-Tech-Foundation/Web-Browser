@@ -355,3 +355,49 @@ test('settings site usage RPC rejects unknown schema fields',
       await browser.close();
     }
   });
+
+test('settings restart RPC rejects unknown schema fields',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let settingsCdp = null;
+    try {
+      await navigateFromAddressBar(browser.cdp, 'browser://settings');
+      settingsCdp = await browser.connectToTarget((target) =>
+        /settings/i.test(target.title || '') ||
+        /settings\.html/i.test(target.url || ''),
+        15000,
+      );
+
+      await waitFor(
+        settingsCdp,
+        `typeof window.cefQuery === 'function' && document.body.innerText`,
+        (text) => /Settings/i.test(text) && /Search Engine/i.test(text),
+        15000,
+      );
+
+      const response = await settingsCdp.evaluate(`
+        new Promise((resolve) => {
+          window.cefQuery({
+            request: JSON.stringify({
+              id: 'settings-restart-extra-param',
+              method: 'settings.restart',
+              params: { extra: true },
+            }),
+            onSuccess: resolve,
+            onFailure: (code, message) => resolve(JSON.stringify({
+              ok: false,
+              error: { code: String(code), message },
+            })),
+          });
+        })
+      `);
+      const parsed = JSON.parse(response);
+      assert.equal(parsed.id, 'settings-restart-extra-param');
+      assert.equal(parsed.ok, false);
+      assert.match(parsed.error.message, /unexpected param: extra/);
+    } finally {
+      if (settingsCdp) settingsCdp.close();
+      await browser.close();
+    }
+  });

@@ -2708,16 +2708,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "restart-browser") {
-      if (!RestartBrowserProcess()) {
-        callback->Failure(1, "Unable to restart browser");
-        return true;
-      }
-      callback->Success("");
-      handler->CloseAllBrowsers(false);
-      return true;
-    }
-
     if (msg.rfind("show-popup:", 0) == 0) {
       const std::string name = msg.substr(11);
       OtfApp* app = OtfApp::GetInstance();
@@ -3429,6 +3419,10 @@ std::string OtfHandler::GetCertificateJsonForTab(int tab_id) {
   CefRefPtr<CefBrowser> tab_browser =
       tab_manager_ ? tab_manager_->GetBrowser(tab_id) : nullptr;
   return BuildCurrentCertificateJson(tab_browser, this, tab_id, nullptr, nullptr);
+}
+
+bool OtfHandler::RestartBrowser() {
+  return RestartBrowserProcess();
 }
 
 OtfHandler::OtfHandler(bool use_alloy_style)
