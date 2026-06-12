@@ -89,6 +89,46 @@ test('ui RPC accepts structured toast show request',
     }
   });
 
+test('ui QR RPC rejects unknown schema fields',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let shellCdp = null;
+    try {
+      shellCdp = await connectShell(browser);
+      await waitFor(
+        shellCdp,
+        `typeof window.cefQuery === 'function' && document.body.innerText`,
+        (text) => /New Tab/i.test(text) || /Search/i.test(text),
+        15000,
+      );
+
+      const response = await shellCdp.evaluate(`
+        new Promise((resolve) => {
+          window.cefQuery({
+            request: JSON.stringify({
+              id: 'ui-qr-extra-param',
+              method: 'ui.qr.show',
+              params: { url: 'https://example.test/', extra: true },
+            }),
+            onSuccess: resolve,
+            onFailure: (code, message) => resolve(JSON.stringify({
+              ok: false,
+              error: { code: String(code), message },
+            })),
+          });
+        })
+      `);
+      const parsed = JSON.parse(response);
+      assert.equal(parsed.id, 'ui-qr-extra-param');
+      assert.equal(parsed.ok, false);
+      assert.match(parsed.error.message, /unexpected param: extra/);
+    } finally {
+      if (shellCdp) shellCdp.close();
+      await browser.close();
+    }
+  });
+
 test('app menu opens browser pages and closes after selection',
   { timeout: timeoutMs + 15000 },
   async () => {

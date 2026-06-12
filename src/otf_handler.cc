@@ -2779,20 +2779,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       callback->Success("");
       return true;
-    } else if (msg.rfind("show-qr:", 0) == 0) {
-      const std::string raw_url = msg.substr(8);
-      handler->pending_qr_url_ = otf::StripTrackingParamsFromUrl(raw_url);
-      OtfApp* app = OtfApp::GetInstance();
-      otf::PopupOverlay* popup = app ? app->GetPopup("qr") : nullptr;
-      if (popup) {
-        std::string* pending = &handler->pending_qr_url_;
-        popup->SetRestoreProducer([pending]() {
-          return JsonObjectBuilder().AddString("url", *pending).Build();
-        });
-        popup->Show();
-      }
-      callback->Success("");
-      return true;
     } else if (msg.rfind("open-site-data-page:", 0) == 0) {
       const std::string origin = ParseSiteDataOrigin(msg.substr(20));
       if (origin.empty()) {

@@ -169,6 +169,7 @@ bool HandleUiRpc(
       request.method != "ui.console.show" &&
       request.method != "ui.console.hide" &&
       request.method != "ui.toast.show" &&
+      request.method != "ui.qr.show" &&
       request.method != "ui.findbar.show") {
     return false;
   }
@@ -188,6 +189,31 @@ bool HandleUiRpc(
     }
     if (OtfApp* app = OtfApp::GetInstance()) {
       app->ShowToast(icon, message);
+    }
+    Success(callback, request);
+    return true;
+  }
+
+  if (request.method == "ui.qr.show") {
+    if (!HasOnlyParamKeys(request.params, {"url"}, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    std::string url;
+    if (!ReadStringParam(request.params, "url", &url, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    handler->pending_qr_url_ = otf::StripTrackingParamsFromUrl(url);
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      otf::PopupOverlay* popup = app->GetPopup("qr");
+      if (popup) {
+        std::string* pending = &handler->pending_qr_url_;
+        popup->SetRestoreProducer([pending]() {
+          return JsonObjectBuilder().AddString("url", *pending).Build();
+        });
+        popup->Show();
+      }
     }
     Success(callback, request);
     return true;

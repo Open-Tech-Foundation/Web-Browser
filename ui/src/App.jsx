@@ -445,7 +445,7 @@ const App = () => {
   const handleShowQr = () => {
     const raw = currentActiveTab?.url || '';
     if (!raw || raw.startsWith('browser://')) return;
-    window.cefQuery({ request: `show-qr:${raw}` });
+    nativeRequest({ method: 'ui.qr.show', params: { url: raw } }).catch(() => {});
   };
 
   // Send the current tab's origin so the overlay knows which site to act
