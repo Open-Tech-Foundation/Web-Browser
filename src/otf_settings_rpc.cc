@@ -4,6 +4,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <map>
+#include <memory>
 
 #include "include/base/cef_callback.h"
 #include "include/cef_cookie.h"
@@ -11,6 +13,7 @@
 #include "include/cef_request_context.h"
 #include "include/cef_version.h"
 #include "include/cef_values.h"
+#include "include/wrapper/cef_closure_task.h"
 #include "otf_handler.h"
 #include "otf_utils.h"
 
@@ -674,6 +677,200 @@ bool ResetBrowserData(OtfHandler* handler,
   return true;
 }
 
+uint64_t ReadUsageBytes(CefRefPtr<CefValue> usage_value) {
+  if (!usage_value) return 0;
+  if (usage_value->GetType() == VTYPE_DOUBLE) {
+    const double d = usage_value->GetDouble();
+    return d > 0 ? static_cast<uint64_t>(d) : 0;
+  }
+  if (usage_value->GetType() == VTYPE_INT) {
+    const int v = usage_value->GetInt();
+    return v > 0 ? static_cast<uint64_t>(v) : 0;
+  }
+  return 0;
+}
+
+void QuerySiteUsageOverCdp(OtfHandler* handler,
+                           CefRefPtr<CefBrowser> ui_browser,
+                           CefRefPtr<Callback> callback,
+                           const NativeRpcRequest& request,
+                           std::vector<std::string> extra_origins,
+                           std::map<std::string, uint64_t> cookie_sizes,
+                           std::map<std::string, uint64_t> cookie_counts) {
+  struct Aggregation {
+    CefRefPtr<Callback> callback;
+    NativeRpcRequest request;
+    std::vector<std::string> extra_origins;
+    std::map<std::string, uint64_t> cookie_sizes;
+    std::map<std::string, uint64_t> cookie_counts;
+    std::map<std::string, uint64_t> local_storage;
+    std::map<std::string, uint64_t> indexed_db;
+    std::map<std::string, uint64_t> cache_storage;
+    int pending = 0;
+    bool resolved = false;
+
+    void Resolve() {
+      if (resolved) return;
+      resolved = true;
+      NativeRpcSuccessRaw(callback, request,
+                          otf::BuildSiteUsageJson(
+                              extra_origins, cookie_sizes, cookie_counts,
+                              local_storage, indexed_db, cache_storage));
+    }
+  };
+
+  std::set<std::string> origins(extra_origins.begin(), extra_origins.end());
+  for (const auto& [origin, size] : cookie_sizes) {
+    (void)size;
+    origins.insert(origin);
+  }
+
+  auto agg = std::make_shared<Aggregation>();
+  agg->callback = callback;
+  agg->request = request;
+  agg->extra_origins = std::move(extra_origins);
+  agg->cookie_sizes = std::move(cookie_sizes);
+  agg->cookie_counts = std::move(cookie_counts);
+
+  if (!handler || !handler->devtools_bridge_ || !ui_browser ||
+      origins.empty()) {
+    agg->Resolve();
+    return;
+  }
+  handler->devtools_bridge_->Attach(ui_browser);
+
+  for (const auto& origin : origins) {
+    CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+    params->SetString("origin", origin);
+    const int message_id = handler->devtools_bridge_->Execute(
+        "Storage.getUsageAndQuota", params,
+        [agg, origin](bool ok, const std::string& result_json) {
+          --agg->pending;
+          if (ok) {
+            CefRefPtr<CefValue> parsed =
+                CefParseJSON(result_json, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+            CefRefPtr<CefDictionaryValue> dict =
+                (parsed && parsed->GetType() == VTYPE_DICTIONARY)
+                    ? parsed->GetDictionary()
+                    : nullptr;
+            CefRefPtr<CefListValue> breakdown =
+                (dict && dict->HasKey("usageBreakdown"))
+                    ? dict->GetList("usageBreakdown")
+                    : nullptr;
+            if (breakdown) {
+              for (size_t i = 0; i < breakdown->GetSize(); ++i) {
+                CefRefPtr<CefDictionaryValue> entry =
+                    breakdown->GetDictionary(i);
+                if (!entry) continue;
+                const std::string type =
+                    entry->GetString("storageType").ToString();
+                const uint64_t usage = ReadUsageBytes(entry->GetValue("usage"));
+                if (usage == 0) continue;
+                if (type == "indexeddb") {
+                  agg->indexed_db[origin] += usage;
+                } else if (type == "cache_storage") {
+                  agg->cache_storage[origin] += usage;
+                } else if (type == "local_storage") {
+                  agg->local_storage[origin] += usage;
+                }
+              }
+            }
+          }
+          if (agg->pending == 0) agg->Resolve();
+        });
+    if (message_id != 0) ++agg->pending;
+  }
+
+  if (agg->pending == 0) {
+    agg->Resolve();
+    return;
+  }
+
+  CefPostDelayedTask(
+      TID_UI,
+      base::BindOnce([](std::shared_ptr<Aggregation> a) { a->Resolve(); },
+                     agg),
+      5000);
+}
+
+bool GetSiteUsageList(OtfHandler* handler,
+                      CefRefPtr<CefBrowser> browser,
+                      CefRefPtr<Callback> callback,
+                      const NativeRpcRequest& request) {
+  std::string error;
+  if (!RequireNoParams(request, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+
+  std::vector<std::string> history_origins;
+  if (handler->store_) {
+    history_origins = handler->store_->GetDistinctOrigins();
+  }
+
+  CefRefPtr<CefCookieManager> mgr = CefCookieManager::GetGlobalManager(nullptr);
+  if (!mgr) {
+    QuerySiteUsageOverCdp(handler, browser, callback, request,
+                          std::move(history_origins), {}, {});
+    return true;
+  }
+
+  class CookieSizeVisitor : public CefCookieVisitor {
+   public:
+    CookieSizeVisitor(OtfHandler* handler,
+                      CefRefPtr<CefBrowser> ui_browser,
+                      CefRefPtr<Callback> callback,
+                      NativeRpcRequest request,
+                      std::vector<std::string> extra)
+        : handler_(handler),
+          ui_browser_(ui_browser),
+          callback_(callback),
+          request_(std::move(request)),
+          extra_origins_(std::move(extra)) {}
+
+    ~CookieSizeVisitor() override {
+      QuerySiteUsageOverCdp(handler_, ui_browser_, callback_, request_,
+                            std::move(extra_origins_),
+                            std::move(cookie_sizes_),
+                            std::move(cookie_counts_));
+    }
+
+    bool Visit(const CefCookie& cookie,
+               int count,
+               int total,
+               bool& delete_cookie) override {
+      delete_cookie = false;
+      std::string domain = CefString(&cookie.domain).ToString();
+      if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
+      if (domain.empty()) return true;
+      const std::string origin =
+          cookie.secure ? "https://" + domain : "http://" + domain;
+      const uint64_t size = CefString(&cookie.name).length() +
+                            CefString(&cookie.value).length() +
+                            CefString(&cookie.domain).length() +
+                            CefString(&cookie.path).length() + 50;
+      cookie_sizes_[origin] += size;
+      cookie_counts_[origin] += 1;
+      return true;
+    }
+
+   private:
+    OtfHandler* handler_;
+    CefRefPtr<CefBrowser> ui_browser_;
+    CefRefPtr<Callback> callback_;
+    NativeRpcRequest request_;
+    std::vector<std::string> extra_origins_;
+    std::map<std::string, uint64_t> cookie_sizes_;
+    std::map<std::string, uint64_t> cookie_counts_;
+
+    IMPLEMENT_REFCOUNTING(CookieSizeVisitor);
+  };
+
+  mgr->VisitAllCookies(new CookieSizeVisitor(
+      handler, browser, callback, request, std::move(history_origins)));
+  return true;
+}
+
 }  // namespace
 
 bool HandleSettingsRpc(
@@ -721,6 +918,10 @@ bool HandleSettingsRpc(
     }
     SuccessRaw(callback, request, otf::BuildStorageTotalsJson());
     return true;
+  }
+
+  if (request.method == "settings.siteUsageList") {
+    return GetSiteUsageList(handler, browser, callback, request);
   }
 
   if (request.method == "settings.selectFolder") {

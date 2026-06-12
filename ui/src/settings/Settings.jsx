@@ -267,14 +267,9 @@ const Settings = () => {
       nativeRequest({ method: 'settings.storagePaths' })
         .then((paths) => setStoragePaths(paths))
         .catch(() => {});
-      window.cefQuery({
-        request: 'get-site-usage-list',
-        onSuccess: (response) => {
-          try {
-            setSiteUsage(JSON.parse(response));
-          } catch (_) {}
-        }
-      });
+      nativeRequest({ method: 'settings.siteUsageList' })
+        .then((usage) => setSiteUsage(usage))
+        .catch(() => {});
       nativeRequest({ method: 'settings.storageTotals' })
         .then((totals) => setStorageTotals(totals))
         .catch(() => {});
