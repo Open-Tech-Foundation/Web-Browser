@@ -25,26 +25,19 @@ const CertificateViewer = () => {
     setError(null);
     setCertData(null);
 
-    window.cefQuery({
-      request: `get-certificate-by-tab-id:${nextTabId}`,
-      onSuccess: (response) => {
-        try {
-          const data = JSON.parse(response);
-          if (data.ok) {
-            setCertData(data);
-          } else {
-            setError(data.reason || 'Failed to load certificate');
-          }
-        } catch (e) {
-          setError('Failed to parse certificate data');
+    nativeRequest({ method: 'ui.certificate.get', params: { tabId: nextTabId } })
+      .then((data) => {
+        if (data.ok) {
+          setCertData(data);
+        } else {
+          setError(data.reason || 'Failed to load certificate');
         }
         setLoading(false);
-      },
-      onFailure: (code, msg) => {
-        setError(msg || 'Failed to fetch certificate');
+      })
+      .catch((err) => {
+        setError(err?.message || 'Failed to fetch certificate');
         setLoading(false);
-      }
-    });
+      });
   }, []);
 
   const [appearanceMode, setAppearanceMode] = useState('auto');

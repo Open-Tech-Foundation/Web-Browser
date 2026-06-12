@@ -2462,31 +2462,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "get-current-certificate") {
-      OtfApp* app = OtfApp::GetInstance();
-      const int tab_id = app ? app->GetCurrentTabId() : -1;
-      CefRefPtr<CefBrowser> tab_browser =
-          handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id) : nullptr;
-      callback->Success(
-          BuildCurrentCertificateJson(tab_browser, handler, tab_id, nullptr, nullptr));
-      return true;
-    }
-
-    if (msg.find("get-certificate-by-tab-id:") == 0) {
-      const std::string tab_id_str = msg.substr(26);
-      char* parse_end = nullptr;
-      errno = 0;
-      long parsed_tab_id = std::strtol(tab_id_str.c_str(), &parse_end, 10);
-      int tab_id = (errno == 0 && parse_end != tab_id_str.c_str() && *parse_end == '\0')
-                       ? static_cast<int>(parsed_tab_id)
-                       : -1;
-      CefRefPtr<CefBrowser> tab_browser =
-          handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id) : nullptr;
-      callback->Success(
-          BuildCurrentCertificateJson(tab_browser, handler, tab_id, nullptr, nullptr));
-      return true;
-    }
-
     if (msg == "get-tracked-cookies") {
       // Inspect the active tab's cookie store — its request context is
       // workspace-specific. Without a live tab there is no browsing context
@@ -3462,6 +3437,12 @@ bool ParseSplitViewStateJson(const std::string& json,
 }
 
 }  // namespace
+
+std::string OtfHandler::GetCertificateJsonForTab(int tab_id) {
+  CefRefPtr<CefBrowser> tab_browser =
+      tab_manager_ ? tab_manager_->GetBrowser(tab_id) : nullptr;
+  return BuildCurrentCertificateJson(tab_browser, this, tab_id, nullptr, nullptr);
+}
 
 OtfHandler::OtfHandler(bool use_alloy_style)
     : use_alloy_style_(use_alloy_style), is_closing_(false) {

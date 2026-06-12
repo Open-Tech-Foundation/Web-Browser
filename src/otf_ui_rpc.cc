@@ -66,6 +66,23 @@ bool ReadStringParam(CefRefPtr<CefDictionaryValue> params,
   return true;
 }
 
+bool ReadIntParam(CefRefPtr<CefDictionaryValue> params,
+                  const std::string& key,
+                  int* value,
+                  std::string* error) {
+  if (!params || !params->HasKey(key) || params->GetType(key) != VTYPE_INT) {
+    if (error) *error = key + " must be an integer";
+    return false;
+  }
+  const int parsed = params->GetInt(key);
+  if (parsed < 0) {
+    if (error) *error = key + " must be non-negative";
+    return false;
+  }
+  if (value) *value = parsed;
+  return true;
+}
+
 void Failure(CefRefPtr<Callback> callback,
              const NativeRpcRequest& request,
              const std::string& code,
@@ -147,6 +164,7 @@ bool HandleUiRpc(
       request.method != "ui.bookmarkBar.hide" &&
       request.method != "ui.certificate.toggle" &&
       request.method != "ui.certificate.hide" &&
+      request.method != "ui.certificate.get" &&
       request.method != "ui.console.toggle" &&
       request.method != "ui.console.show" &&
       request.method != "ui.console.hide" &&
@@ -172,6 +190,21 @@ bool HandleUiRpc(
       app->ShowToast(icon, message);
     }
     Success(callback, request);
+    return true;
+  }
+
+  if (request.method == "ui.certificate.get") {
+    if (!HasOnlyParamKeys(request.params, {"tabId"}, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    int tab_id = -1;
+    if (!ReadIntParam(request.params, "tabId", &tab_id, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    NativeRpcSuccessRaw(callback, request,
+                        handler->GetCertificateJsonForTab(tab_id));
     return true;
   }
 
