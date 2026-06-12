@@ -8,6 +8,7 @@
 #include "otf_utils.h"
 
 #include "include/cef_task_manager.h"
+#include "include/views/cef_browser_view.h"
 
 namespace otf {
 namespace {
@@ -99,10 +100,10 @@ bool HandleTabsRpc(
     CefRefPtr<CefBrowser> browser,
     CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback,
     const NativeRpcRequest& request) {
-  (void)browser;
   if (!handler ||
       (request.method != "tabs.list" &&
        request.method != "tabs.active" &&
+       request.method != "tabs.currentContext" &&
        request.method != "tabs.splitState" &&
        request.method != "tabs.close" &&
        request.method != "tabs.switch" &&
@@ -143,6 +144,23 @@ bool HandleTabsRpc(
     OtfApp* app = OtfApp::GetInstance();
     NativeRpcSuccessRaw(callback, request,
                         std::to_string(app ? app->GetCurrentTabId() : -1));
+    return true;
+  }
+
+  if (request.method == "tabs.currentContext") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+    const int tab_id = view ? view->GetID() : 0;
+    const bool is_private = handler->tab_manager_ &&
+                            handler->tab_manager_->IsPrivate(tab_id);
+    NativeRpcSuccessRaw(callback, request,
+                        JsonObjectBuilder()
+                            .AddInt("tabId", tab_id)
+                            .AddBool("isPrivate", is_private)
+                            .Build());
     return true;
   }
 

@@ -233,10 +233,9 @@ const Settings = () => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: 'get-my-tab-id',
-        onSuccess: (id) => setTabId(parseInt(id))
-      });
+      nativeRequest({ method: 'tabs.currentContext' })
+        .then((context) => setTabId(context.tabId))
+        .catch(() => {});
     }
   }, []);
 

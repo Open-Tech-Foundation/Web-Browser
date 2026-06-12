@@ -86,7 +86,6 @@
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
 #include "include/cef_command_ids.h"
-#include "include/cef_task_manager.h"
 #include "include/cef_urlrequest.h"
 
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -1741,54 +1740,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
                        "Unknown native RPC method");
-      return true;
-    }
-
-    if (msg == "get-my-tab-id") {
-      CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-      callback->Success(view ? std::to_string(view->GetID()) : "0");
-      return true;
-    }
-
-    if (msg.rfind("get-tab-memory:", 0) == 0) {
-      const auto id_opt = ParseIntStrict(
-          std::string_view(msg).substr(std::strlen("get-tab-memory:")));
-      if (!id_opt) {
-        callback->Failure(1, "invalid tab id");
-        return true;
-      }
-      int tab_id = *id_opt;
-      CefRefPtr<CefBrowser> tab_browser;
-      if (handler && handler->tab_manager_) {
-        tab_browser = handler->tab_manager_->GetBrowser(tab_id);
-      }
-      int64_t memory_bytes = -1;
-      if (tab_browser) {
-        auto tm = CefTaskManager::GetTaskManager();
-        if (tm) {
-          int64_t task_id = tm->GetTaskIdForBrowserId(tab_browser->GetIdentifier());
-          if (task_id >= 0) {
-            CefTaskInfo info;
-            if (tm->GetTaskInfo(task_id, info) && info.memory >= 0) {
-              memory_bytes = info.memory;
-            }
-          }
-        }
-      }
-      std::string json = JsonObjectBuilder()
-                             .AddRaw("tabId", std::to_string(tab_id))
-                             .AddRaw("memoryBytes", std::to_string(memory_bytes))
-                             .Build();
-      callback->Success(json);
-      return true;
-    }
-
-    if (msg == "get-tab-private") {
-      CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-      int tab_id = view ? view->GetID() : 0;
-      bool is_private = handler && handler->tab_manager_ &&
-                        handler->tab_manager_->IsPrivate(tab_id);
-      callback->Success(is_private ? "true" : "false");
       return true;
     }
 

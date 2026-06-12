@@ -211,15 +211,12 @@ test('tabs.memory returns non-negative memory bytes for the active tab',
       shellCdp = await connectShell(browser);
       await waitFor(shellCdp, `typeof window.cefQuery === 'function'`, Boolean, 15000);
 
-      const tabIdResp = await shellCdp.evaluate(`
-        new Promise((resolve) => {
-          window.cefQuery({
-            request: 'get-my-tab-id',
-            onSuccess: resolve,
-          });
-        })
-      `);
-      const tabId = parseInt(tabIdResp);
+      const tabContext = JSON.parse(await shellCdp.evaluate(
+        nativeRpc('tabs.currentContext', {}, 'tabs-current-context'),
+      ));
+      assert.equal(tabContext.id, 'tabs-current-context');
+      assert.equal(tabContext.ok, true);
+      const tabId = tabContext.result.tabId;
 
       const response = JSON.parse(await shellCdp.evaluate(
         nativeRpc('tabs.memory', { tabId }, 'tabs-memory-active'),
@@ -247,6 +244,27 @@ test('tabs.memory rejects unknown params',
         nativeRpc('tabs.memory', { tabId: 0, extra: true }, 'tabs-memory-extra'),
       ));
       assert.equal(response.id, 'tabs-memory-extra');
+      assert.equal(response.ok, false);
+      assert.match(response.error.message, /unexpected param: extra/);
+    } finally {
+      if (shellCdp) shellCdp.close();
+      await browser.close();
+    }
+  });
+
+test('tabs.currentContext rejects unknown params',
+  { timeout: timeoutMs + 10000 },
+  async () => {
+    const browser = await launchDevBrowser();
+    let shellCdp = null;
+    try {
+      shellCdp = await connectShell(browser);
+      await waitFor(shellCdp, `typeof window.cefQuery === 'function'`, Boolean, 15000);
+
+      const response = JSON.parse(await shellCdp.evaluate(
+        nativeRpc('tabs.currentContext', { extra: true }, 'tabs-current-context-extra'),
+      ));
+      assert.equal(response.id, 'tabs-current-context-extra');
       assert.equal(response.ok, false);
       assert.match(response.error.message, /unexpected param: extra/);
     } finally {

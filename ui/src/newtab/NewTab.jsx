@@ -63,14 +63,12 @@ const NewTab = () => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: 'get-my-tab-id',
-        onSuccess: (id) => setTabId(parseInt(id))
-      });
-      window.cefQuery({
-        request: 'get-tab-private',
-        onSuccess: (res) => setIsPrivate(res === 'true')
-      });
+      nativeRequest({ method: 'tabs.currentContext' })
+        .then((context) => {
+          setTabId(context.tabId);
+          setIsPrivate(context.isPrivate === true);
+        })
+        .catch(() => {});
       nativeRequest({ method: 'session.isGuest' })
         .then((value) => setIsGuest(value === true))
         .catch(() => {});
