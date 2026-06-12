@@ -73,14 +73,12 @@ const ZoomBar = () => {
 
   useEffect(() => {
     const onBlur = () => {
-      if (window.cefQuery) {
-        window.cefQuery({ request: 'hide-zoombar' });
-      }
+      nativeRequest({ method: 'ui.zoomBar.hide' }).catch(() => {});
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && window.cefQuery) {
+      if (event.key === 'Escape') {
         event.preventDefault();
-        window.cefQuery({ request: 'hide-zoombar' });
+        nativeRequest({ method: 'ui.zoomBar.hide' }).catch(() => {});
       }
     };
 
@@ -117,7 +115,7 @@ const ZoomBar = () => {
         <button style={S.button} onClick={() => act('zoom-in')} title="Zoom in">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         </button>
-        <button style={S.button} onClick={() => { if (window.cefQuery) window.cefQuery({ request: 'toggle-fullscreen' }); }} title="Fullscreen">
+        <button style={S.button} onClick={() => nativeRequest({ method: 'ui.fullscreen.toggle' }).catch(() => {})} title="Fullscreen">
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/></svg>
         </button>
       </div>

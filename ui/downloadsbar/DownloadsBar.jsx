@@ -224,15 +224,13 @@ const DownloadsBar = () => {
     });
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && window.cefQuery) {
+      if (event.key === 'Escape') {
         event.preventDefault();
-        window.cefQuery({ request: 'hide-downloadsbar' });
+        nativeRequest({ method: 'ui.downloadsBar.hide' }).catch(() => {});
       }
     };
     const onBlur = () => {
-      if (window.cefQuery) {
-        window.cefQuery({ request: 'hide-downloadsbar' });
-      }
+      nativeRequest({ method: 'ui.downloadsBar.hide' }).catch(() => {});
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('blur', onBlur);
@@ -255,7 +253,7 @@ const DownloadsBar = () => {
 
   const latestDownloads = useMemo(() => sortedDownloads.slice(0, 10), [sortedDownloads]);
 
-  const hide = () => window.cefQuery?.({ request: 'hide-downloadsbar' });
+  const hide = () => nativeRequest({ method: 'ui.downloadsBar.hide' }).catch(() => {});
   const runDownloadAction = (method, id) => {
     nativeRequest({ method, params: { id } }).catch(() => {});
   };

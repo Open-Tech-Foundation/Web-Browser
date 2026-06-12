@@ -439,9 +439,7 @@ const App = () => {
   };
 
   const handleShowCertificate = () => {
-    window.cefQuery({
-      request: 'toggle-certificate'
-    });
+    nativeRequest({ method: 'ui.certificate.toggle' }).catch(() => {});
   };
 
   const handleShowQr = () => {

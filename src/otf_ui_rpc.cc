@@ -143,6 +143,9 @@ bool HandleUiRpc(
       request.method != "ui.downloadsBar.hide" &&
       request.method != "ui.zoomBar.toggle" &&
       request.method != "ui.zoomBar.hide" &&
+      request.method != "ui.fullscreen.toggle" &&
+      request.method != "ui.bookmarkBar.hide" &&
+      request.method != "ui.certificate.toggle" &&
       request.method != "ui.certificate.hide" &&
       request.method != "ui.console.toggle" &&
       request.method != "ui.console.show" &&
@@ -211,6 +214,16 @@ bool HandleUiRpc(
     }
   } else if (request.method == "ui.zoomBar.hide") {
     app->HideZoomBarOverlay();
+  } else if (request.method == "ui.fullscreen.toggle") {
+    app->ToggleFullscreen();
+  } else if (request.method == "ui.bookmarkBar.hide") {
+    app->HideBookmarkOverlay();
+  } else if (request.method == "ui.certificate.toggle") {
+    if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
+      app->HideCertificateOverlay();
+    } else {
+      app->ShowCertificateOverlay();
+    }
   } else if (request.method == "ui.certificate.hide") {
     app->HideCertificateOverlay();
   } else if (request.method == "ui.console.toggle") {

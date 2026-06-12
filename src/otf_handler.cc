@@ -2901,15 +2901,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "hide-bookmarkbar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideBookmarkOverlay();
-      }
-      callback->Success("");
-      return true;
-    }
-
     if (msg == "get-settings") {
       callback->Success(handler->guest_session_active_ ? "{}" : otf::LoadSettingsJson());
       return true;
@@ -3576,61 +3567,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "toggle-zoombar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && app->zoombar_overlay_) {
-        if (app->zoombar_overlay_->IsVisible()) {
-          app->HideZoomBarOverlay();
-        } else {
-          app->ShowZoomBarOverlay();
-        }
-      }
-      callback->Success("");
-    } else if (msg == "hide-zoombar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideZoomBarOverlay();
-      }
-      callback->Success("");
-    } else if (msg == "toggle-fullscreen") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->ToggleFullscreen();
-      }
-      callback->Success("");
-    } else if (msg == "toggle-downloadsbar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && app->downloads_overlay_) {
-        if (app->downloads_overlay_->IsVisible()) {
-          app->HideDownloadsOverlay();
-        } else {
-          app->ShowDownloadsOverlay();
-        }
-      }
-      callback->Success("");
-    } else if (msg == "hide-downloadsbar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideDownloadsOverlay();
-      }
-      callback->Success("");
-    } else if (msg == "toggle-certificate") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
-          app->HideCertificateOverlay();
-        } else {
-          app->ShowCertificateOverlay();
-        }
-      }
-      callback->Success("");
-    } else if (msg == "hide-certificate") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideCertificateOverlay();
-      }
-      callback->Success("");
-    } else if (msg.rfind("show-popup:", 0) == 0) {
+    if (msg.rfind("show-popup:", 0) == 0) {
       const std::string name = msg.substr(11);
       OtfApp* app = OtfApp::GetInstance();
       otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;

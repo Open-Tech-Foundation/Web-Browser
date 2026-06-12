@@ -172,15 +172,13 @@ const BookmarkBar = () => {
     });
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && window.cefQuery) {
+      if (event.key === 'Escape') {
         event.preventDefault();
-        window.cefQuery({ request: 'hide-bookmarkbar' });
+        nativeRequest({ method: 'ui.bookmarkBar.hide' }).catch(() => {});
       }
     };
     const onBlur = () => {
-      if (window.cefQuery) {
-        window.cefQuery({ request: 'hide-bookmarkbar' });
-      }
+      nativeRequest({ method: 'ui.bookmarkBar.hide' }).catch(() => {});
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('blur', onBlur);
@@ -200,9 +198,7 @@ const BookmarkBar = () => {
       method: 'bookmarks.update',
       params: { id: bookmark.id, url: bookmark.url, title },
     }).then(() => {
-      if (window.cefQuery) {
-        window.cefQuery({ request: 'hide-bookmarkbar' });
-      }
+      nativeRequest({ method: 'ui.bookmarkBar.hide' }).catch(() => {});
     }).catch(() => {});
   };
 
@@ -214,9 +210,7 @@ const BookmarkBar = () => {
       method: 'bookmarks.remove',
       params: { id: bookmark.id },
     }).then(() => {
-      if (window.cefQuery) {
-        window.cefQuery({ request: 'hide-bookmarkbar' });
-      }
+      nativeRequest({ method: 'ui.bookmarkBar.hide' }).catch(() => {});
     }).catch(() => {});
   };
 
