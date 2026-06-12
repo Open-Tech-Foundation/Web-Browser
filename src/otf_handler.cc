@@ -6,6 +6,7 @@
 #include "otf_downloads_rpc.h"
 #include "otf_findbar_rpc.h"
 #include "otf_history_bookmarks_rpc.h"
+#include "otf_image_preview_rpc.h"
 #include "otf_keyboard_shortcuts.h"
 #include "otf_navigation_rpc.h"
 #include "otf_native_rpc.h"
@@ -300,22 +301,6 @@ int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
     return tab_manager->GetId(browser);
   }
   return -1;
-}
-
-int ResolvePreviewTabId(CefRefPtr<CefBrowser> browser,
-                        TabManager* tab_manager,
-                        int explicit_tab_id) {
-  if (explicit_tab_id >= 0) {
-    return explicit_tab_id;
-  }
-  int tab_id = ResolveRealTabIdForBrowser(browser, tab_manager);
-  if (tab_id == -1) {
-    OtfApp* app = OtfApp::GetInstance();
-    if (app) {
-      tab_id = app->GetCurrentTabId();
-    }
-  }
-  return tab_id;
 }
 
 class DeferredImagePreviewPushTask : public CefTask {
@@ -1357,43 +1342,6 @@ std::string BuildCurrentCertificateJson(CefRefPtr<CefBrowser> browser,
       .Build();
 }
 
-class OtfSizeRequestClient : public CefURLRequestClient {
- public:
-  OtfSizeRequestClient(CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback)
-      : callback_(callback) {}
-
-  void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
-    if (request->GetRequestStatus() == UR_SUCCESS) {
-      CefRefPtr<CefResponse> response = request->GetResponse();
-      if (response) {
-        std::string len_str = response->GetHeaderByName("Content-Length").ToString();
-        if (!len_str.empty()) {
-          callback_->Success(len_str);
-          return;
-        }
-      }
-    }
-    callback_->Failure(0, "Could not fetch size");
-  }
-
-  void OnUploadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
-  void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
-  void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t data_length) override {}
-  bool GetAuthCredentials(bool isProxy,
-                          const CefString& host,
-                          int port,
-                          const CefString& realm,
-                          const CefString& scheme,
-                          CefRefPtr<CefAuthCallback> callback) override {
-    return false;
-  }
-
- private:
-  CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback_;
-
-  IMPLEMENT_REFCOUNTING(OtfSizeRequestClient);
-};
-
 class OtfTiffDecodeClient : public CefURLRequestClient {
  public:
   OtfTiffDecodeClient(const std::string& source_url,
@@ -1694,6 +1642,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (HandleDownloadsRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
+      if (HandleImagePreviewRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
       if (HandleDocPreviewRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
@@ -1776,101 +1727,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg.rfind("image-preview-meta:", 0) == 0) {
-      const std::string prefix = "image-preview-meta:";
-      int explicit_tab_id = -1;
-      int width = 0;
-      int height = 0;
-      const size_t second_colon = msg.find(':', prefix.size());
-      if (second_colon != std::string::npos) {
-        const size_t third_colon = msg.find(':', second_colon + 1);
-        if (third_colon != std::string::npos) {
-          const auto tab_opt = ParseIntStrict(
-              std::string_view(msg).substr(prefix.size(), second_colon - prefix.size()));
-          const auto width_opt = ParseIntStrict(
-              std::string_view(msg).substr(second_colon + 1,
-                                           third_colon - second_colon - 1));
-          const auto height_opt =
-              ParseIntStrict(std::string_view(msg).substr(third_colon + 1));
-          if (tab_opt && *tab_opt >= 0) {
-            explicit_tab_id = *tab_opt;
-          }
-          if (width_opt && height_opt && *width_opt >= 0 && *height_opt >= 0) {
-            width = *width_opt;
-            height = *height_opt;
-          }
-        } else {
-          const auto width_opt = ParseIntStrict(
-              std::string_view(msg).substr(prefix.size(), second_colon - prefix.size()));
-          const auto height_opt = ParseIntStrict(
-              std::string_view(msg).substr(second_colon + 1));
-          if (width_opt && height_opt && *width_opt >= 0 && *height_opt >= 0) {
-            width = *width_opt;
-            height = *height_opt;
-          }
-        }
-      }
-      int tab_id = ResolvePreviewTabId(
-          browser, handler ? handler->tab_manager_ : nullptr, explicit_tab_id);
-      if (handler && handler->tab_manager_ && tab_id != -1) {
-        handler->tab_manager_->SetImagePreviewDimensions(tab_id, width, height);
-        std::string event = handler->BuildImagePreviewLoadEvent(tab_id, false);
-        callback->Success(event.empty() ? "{}" : event);
-      } else {
-        callback->Success("{}");
-      }
-      return true;
-    }
-
-    if (msg.rfind("image-preview-info-visible:", 0) == 0) {
-      const std::string prefix = "image-preview-info-visible:";
-      int explicit_tab_id = -1;
-      std::string_view visible_payload = std::string_view(msg).substr(prefix.size());
-      const size_t colon = msg.find(':', prefix.size());
-      if (colon != std::string::npos) {
-        const auto tab_opt = ParseIntStrict(
-            std::string_view(msg).substr(prefix.size(), colon - prefix.size()));
-        if (tab_opt && *tab_opt >= 0) {
-          explicit_tab_id = *tab_opt;
-          visible_payload = std::string_view(msg).substr(colon + 1);
-        }
-      }
-      const auto visible_opt = ParseIntStrict(visible_payload);
-      const bool visible = visible_opt ? (*visible_opt != 0) : true;
-      int tab_id = ResolvePreviewTabId(
-          browser, handler ? handler->tab_manager_ : nullptr, explicit_tab_id);
-      if (handler && handler->tab_manager_ && tab_id != -1) {
-        handler->tab_manager_->SetImagePreviewInfoVisible(tab_id, visible);
-        std::string event = handler->BuildImagePreviewLoadEvent(tab_id, false);
-        callback->Success(event.empty() ? "{}" : event);
-      } else {
-        callback->Success("{}");
-      }
-      return true;
-    }
-
-    if (msg == "image-preview-refresh" ||
-        msg.rfind("image-preview-refresh:", 0) == 0) {
-      // One-shot fetch of the current preview state. Used by the renderer
-      // when document.visibilityState flips back to "visible" so the JSX
-      // can recover even if CEF cancelled the persistent subscription
-      // (or the renderer was reloaded) while the tab was hidden.
-      int explicit_tab_id = -1;
-      if (msg.rfind("image-preview-refresh:", 0) == 0) {
-        const auto tab_opt = ParseIntStrict(
-            std::string_view(msg).substr(std::strlen("image-preview-refresh:")));
-        if (tab_opt && *tab_opt >= 0) {
-          explicit_tab_id = *tab_opt;
-        }
-      }
-      int tab_id = ResolvePreviewTabId(
-          browser, handler ? handler->tab_manager_ : nullptr, explicit_tab_id);
-      std::string event = (handler && tab_id != -1)
-                              ? handler->BuildImagePreviewLoadEvent(tab_id, false)
-                              : std::string();
-      callback->Success(event.empty() ? "{}" : event);
-      return true;
-    }
 
     if (msg == "doc-preview-subscribe") {
       OtfApp* app = OtfApp::GetInstance();
@@ -1889,187 +1745,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "hide-imagepreview" || msg.rfind("hide-imagepreview:", 0) == 0) {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideImagePreviewOverlay();
-        int tab_id = -1;
-        if (msg.rfind("hide-imagepreview:", 0) == 0) {
-          const auto tab_id_opt =
-              ParseIntStrict(std::string_view(msg).substr(std::strlen("hide-imagepreview:")));
-          if (tab_id_opt) {
-            tab_id = *tab_id_opt;
-          }
-        }
-        if (tab_id == -1) {
-          tab_id = app->GetCurrentTabId();
-        }
-        if (handler) {
-          handler->ClearInlineImagePreviewForTab(tab_id);
-        }
-      }
-      callback->Success("");
-      return true;
-    }
-
-    if (msg == "close-imagepreview" || msg.rfind("close-imagepreview:", 0) == 0) {
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app || !handler) {
-        callback->Success("");
-        return true;
-      }
-      int tab_id = -1;
-      if (msg.rfind("close-imagepreview:", 0) == 0) {
-        const auto tab_id_opt =
-            ParseIntStrict(std::string_view(msg).substr(std::strlen("close-imagepreview:")));
-        if (tab_id_opt) {
-          tab_id = *tab_id_opt;
-        }
-      }
-      if (tab_id == -1) {
-        tab_id = ResolveRealTabIdForBrowser(browser, handler->tab_manager_);
-      }
-      if (tab_id == -1 && app) {
-        tab_id = app->GetCurrentTabId();
-      }
-      const bool is_dedicated_preview_tab =
-          handler->tab_manager_ &&
-          tab_id != -1 &&
-          handler->tab_manager_->GetImagePreviewMode(tab_id) ==
-              ImagePreviewMode::kDedicated;
-      if (is_dedicated_preview_tab) {
-        handler->CloseTabAndNotify(tab_id);
-      } else {
-        handler->ClearInlineImagePreviewForTab(tab_id);
-        app->HideImagePreviewOverlay();
-      }
-      callback->Success("");
-      return true;
-    }
-
-    if (msg.rfind("download-image:", 0) == 0) {
-      std::string download_url = msg.substr(15);
-      int explicit_tab_id = -1;
-      const size_t tab_colon = msg.find(':', 15);
-      if (tab_colon != std::string::npos) {
-        const auto tab_opt =
-            ParseIntStrict(std::string_view(msg).substr(15, tab_colon - 15));
-        if (tab_opt && *tab_opt >= 0) {
-          explicit_tab_id = *tab_opt;
-          download_url = msg.substr(tab_colon + 1);
-        }
-      }
-      int tab_id = -1;
-      std::string local_path;
-      if (download_url.rfind("browser://image-preview/", 0) == 0 || download_url.empty()) {
-        if (handler && handler->tab_manager_) {
-          tab_id = ResolvePreviewTabId(browser, handler->tab_manager_, explicit_tab_id);
-          std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
-          if (!mapped_url.empty()) {
-            download_url = mapped_url;
-          }
-          local_path = handler->GetImagePreviewLocalFileForTab(tab_id);
-        }
-      }
-      if (!local_path.empty()) {
-        std::error_code ec;
-        const std::filesystem::path source_path(local_path);
-        const std::string suggested_name =
-            source_path.filename().empty()
-                ? "download.tiff"
-                : SanitizeFilename(source_path.filename().string());
-        const std::string target_path = otf::BuildDownloadPath(suggested_name);
-        std::filesystem::copy_file(local_path, target_path,
-                                   std::filesystem::copy_options::none, ec);
-        if (ec) {
-          callback->Failure(0, "Could not save TIFF file");
-          return true;
-        }
-        if (handler->store_) {
-          const auto file_size = std::filesystem::file_size(local_path, ec);
-          const int download_id = handler->store_->CreateDownload(
-              download_url, local_path, target_path, suggested_name,
-              "image/tiff", "completed");
-          if (download_id > 0) {
-            PersistedDownload download;
-            download.id = download_id;
-            download.url = download_url;
-            download.original_url = local_path;
-            download.target_path = target_path;
-            download.filename = suggested_name;
-            download.total_bytes = ec ? 0 : static_cast<int64_t>(file_size);
-            download.received_bytes = ec ? 0 : static_cast<int64_t>(file_size);
-            download.status = "completed";
-            download.mime_type = "image/tiff";
-            handler->store_->UpdateDownload(download);
-            handler->NotifyDownloadsChanged();
-            handler->NotifyDownloadBadge();
-          }
-        }
-        callback->Success("");
-        return true;
-      }
-      if (download_url.rfind("file://", 0) == 0) {
-        callback->Failure(1, "file scheme is disabled");
-        return true;
-      }
-      browser->GetHost()->StartDownload(download_url);
-      callback->Success("");
-      return true;
-    }
-
-    if (msg.rfind("get-image-size:", 0) == 0) {
-      std::string img_url = msg.substr(15);
-      int explicit_tab_id = -1;
-      const size_t tab_colon = msg.find(':', 15);
-      if (tab_colon != std::string::npos) {
-        const auto tab_opt =
-            ParseIntStrict(std::string_view(msg).substr(15, tab_colon - 15));
-        if (tab_opt && *tab_opt >= 0) {
-          explicit_tab_id = *tab_opt;
-          img_url = msg.substr(tab_colon + 1);
-        }
-      }
-      if (img_url.rfind("browser://image-preview/", 0) == 0 || img_url.empty()) {
-        if (handler && handler->tab_manager_) {
-          int tab_id = ResolvePreviewTabId(browser, handler->tab_manager_, explicit_tab_id);
-          std::string mapped_url = handler->GetImagePreviewUrlForTab(tab_id);
-          if (!mapped_url.empty()) {
-            img_url = mapped_url;
-          }
-          const std::string local_path =
-              handler->GetImagePreviewLocalFileForTab(tab_id);
-          if (!local_path.empty()) {
-            std::error_code ec;
-            const auto size = std::filesystem::file_size(local_path, ec);
-            if (!ec) {
-              callback->Success(std::to_string(size));
-            } else {
-              callback->Failure(0, "Could not read downloaded file size");
-            }
-            return true;
-          }
-        }
-      }
-
-      if (img_url.rfind("file://", 0) == 0) {
-        callback->Failure(1, "file scheme is disabled");
-        return true;
-      }
-      if (img_url.rfind("http://", 0) == 0 || img_url.rfind("https://", 0) == 0) {
-        CefRefPtr<CefRequestContext> request_context =
-            browser ? browser->GetHost()->GetRequestContext()
-                    : CefRequestContext::GetGlobalContext();
-        CefRefPtr<CefRequest> head_request = CefRequest::Create();
-        head_request->SetURL(img_url);
-        head_request->SetMethod("HEAD");
-        CefRefPtr<OtfSizeRequestClient> client = new OtfSizeRequestClient(callback);
-        CefURLRequest::Create(head_request, client, request_context);
-        return true;
-      }
-      callback->Failure(0, "Unsupported scheme");
-      return true;
-    }
 
     if (msg.rfind("preview-image:", 0) == 0 ||
         msg.rfind("preview-image-thumb:", 0) == 0 ||
@@ -2311,25 +1986,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg.find("find:") == 0) {
-      // find:<tab_id>:<text>
-      size_t c1 = msg.find(':', 5);
-      if (c1 == std::string::npos) {
-        callback->Failure(1, "invalid id"); return true;
-      }
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(5, c1 - 5));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      std::string text = msg.substr(c1 + 1);
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
-      if (b) b->GetHost()->Find(text, true, false, false);  // findNext=false: initial search
-      callback->Success("");
-    } else if (msg.find("stop-find:") == 0) {
-      const auto tab_id_opt = ParseIntStrict(std::string_view(msg).substr(10));
-      if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
-      CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
-      if (b) b->GetHost()->StopFinding(true);
-      callback->Success("");
-    } else if (msg == "subscribe-console") {
+    if (msg == "subscribe-console") {
       handler->console_subscription_ = callback;
       // Send all buffered entries for the current tab on subscribe.
       OtfApp* app = OtfApp::GetInstance();
@@ -2361,36 +2018,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         }
       }
       // Persistent — don't call Success again here; entries stream in via OnConsoleMessage.
-      return true;
-    } else if (msg.rfind("capture-viewport:", 0) == 0) {
-      const auto tab_id_opt = ParseIntStrict(
-          std::string_view(msg).substr(std::strlen("capture-viewport:")));
-      if (!tab_id_opt || !handler->tab_manager_) {
-        callback->Failure(1, "invalid tab id");
-        return true;
-      }
-      int tab_id = *tab_id_opt;
-      CefRefPtr<CefBrowser> target = handler->tab_manager_->GetBrowser(tab_id);
-      if (!target) {
-        callback->Failure(1, "no browser for tab");
-        return true;
-      }
-      if (!handler->devtools_bridge_) {
-        callback->Failure(1, "devtools bridge not attached");
-        return true;
-      }
-      handler->devtools_bridge_->Attach(target);
-      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
-      params->SetString("format", "png");
-      handler->devtools_bridge_->Execute(
-          "Page.captureScreenshot", params,
-          [callback](bool ok, const std::string& result_json) {
-            if (!ok) {
-              callback->Failure(1, result_json);
-              return;
-            }
-            callback->Success(result_json);
-          });
       return true;
     } else {
       return false;

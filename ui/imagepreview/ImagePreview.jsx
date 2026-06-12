@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const ImagePreview = () => {
   const [url, setUrl] = useState('');
@@ -35,9 +36,9 @@ const ImagePreview = () => {
   const scaleRef = useRef(1);
   const posRef = useRef({ x: 0, y: 0 });
 
-  const withPreviewTabId = (command, value = '') => {
+  const withPreviewTabParams = (params = {}) => {
     const tabId = previewTabIdRef.current;
-    return tabId >= 0 ? `${command}:${tabId}:${value}` : `${command}:${value}`;
+    return tabId >= 0 ? { tabId, ...params } : params;
   };
 
   const applyLoadedImageMeta = (ev) => {
@@ -182,24 +183,19 @@ const ImagePreview = () => {
     const refresh = () => {
       if (hasSnapshotRef.current) return;
       if (!window.cefQuery) return;
-      const tabId = previewTabIdRef.current;
-      window.cefQuery({
-        request: tabId >= 0 ? `image-preview-refresh:${tabId}` : 'image-preview-refresh',
-        onSuccess: (json) => {
-          try {
-            const ev = JSON.parse(json);
-            if (ev && ev.key === 'load-image') {
-              applyLoadImage(ev);
-              if (!ev.displayUrl && !ev.error) scheduleRetry();
-            } else {
-              scheduleRetry();
-            }
-          } catch (_) {
+      nativeRequest({
+        method: 'imagePreview.refresh',
+        params: withPreviewTabParams(),
+      })
+        .then((ev) => {
+          if (ev && ev.key === 'load-image') {
+            applyLoadImage(ev);
+            if (!ev.displayUrl && !ev.error) scheduleRetry();
+          } else {
             scheduleRetry();
           }
-        },
-        onFailure: scheduleRetry,
-      });
+        })
+        .catch(scheduleRetry);
     };
     const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
     document.addEventListener('visibilitychange', onVis);
@@ -208,10 +204,10 @@ const ImagePreview = () => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape' && window.cefQuery) {
         event.preventDefault();
-        const request = previewTabIdRef.current >= 0
-          ? `close-imagepreview:${previewTabIdRef.current}`
-          : 'close-imagepreview';
-        window.cefQuery({ request });
+        nativeRequest({
+          method: 'imagePreview.close',
+          params: withPreviewTabParams(),
+        }).catch(() => {});
         return;
       }
       if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomIn(); }
@@ -306,13 +302,15 @@ const ImagePreview = () => {
     };
 
     if (window.cefQuery) {
-      window.cefQuery({
-        request: withPreviewTabId('get-image-size', url),
-        onSuccess: (sizeStr) => {
+      nativeRequest({
+        method: 'imagePreview.getSize',
+        params: withPreviewTabParams({ url }),
+      })
+        .then((sizeValue) => {
           if (hasBackendInfoRef.current) {
             return;
           }
-          const bytes = parseInt(sizeStr, 10);
+          const bytes = parseInt(String(sizeValue), 10);
           if (isNaN(bytes) || bytes <= 0) {
             fallbackJsFetch(url);
           } else {
@@ -320,11 +318,10 @@ const ImagePreview = () => {
               : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB`
               : `${(bytes / (1024 * 1024)).toFixed(1)} MB`);
           }
-        },
-        onFailure: () => {
+        })
+        .catch(() => {
           fallbackJsFetch(url);
-        }
-      });
+        });
     } else {
       fallbackJsFetch(url);
     }
@@ -448,10 +445,10 @@ const ImagePreview = () => {
     decodeNonceRef.current = 0;
     previewTabIdRef.current = -1;
     if (window.cefQuery) {
-      const request = sourceTabId >= 0
-        ? `close-imagepreview:${sourceTabId}`
-        : 'close-imagepreview';
-      window.cefQuery({ request });
+      nativeRequest({
+        method: 'imagePreview.close',
+        params: sourceTabId >= 0 ? { tabId: sourceTabId } : {},
+      }).catch(() => {});
     }
   };
 
@@ -545,19 +542,16 @@ const ImagePreview = () => {
     if (!window.cefQuery) return;
     const width = e.target.naturalWidth || 0;
     const height = e.target.naturalHeight || 0;
-    window.cefQuery({
-      request: previewTabIdRef.current >= 0
-        ? `image-preview-meta:${previewTabIdRef.current}:${width}:${height}`
-        : `image-preview-meta:${width}:${height}`,
-      onSuccess: (json) => {
-        try {
-          const ev = JSON.parse(json);
-          if (ev && ev.key === 'load-image') {
-            applyLoadedImageMeta(ev);
-          }
-        } catch (_) {}
-      },
-    });
+    nativeRequest({
+      method: 'imagePreview.setMeta',
+      params: withPreviewTabParams({ width, height }),
+    })
+      .then((ev) => {
+        if (ev && ev.key === 'load-image') {
+          applyLoadedImageMeta(ev);
+        }
+      })
+      .catch(() => {});
   };
 
   const handleDoubleClick = () => {
@@ -579,24 +573,24 @@ const ImagePreview = () => {
 
   const setInfoVisible = (visible) => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: previewTabIdRef.current >= 0
-        ? `image-preview-info-visible:${previewTabIdRef.current}:${visible ? 1 : 0}`
-        : `image-preview-info-visible:${visible ? 1 : 0}`,
-      onSuccess: (json) => {
-        try {
-          const ev = JSON.parse(json);
-          if (ev && ev.key === 'load-image') {
-            applyLoadedImageMeta(ev);
-          }
-        } catch (_) {}
-      },
-    });
+    nativeRequest({
+      method: 'imagePreview.setInfoVisible',
+      params: withPreviewTabParams({ visible }),
+    })
+      .then((ev) => {
+        if (ev && ev.key === 'load-image') {
+          applyLoadedImageMeta(ev);
+        }
+      })
+      .catch(() => {});
   };
 
   const handleSave = () => {
     if (window.cefQuery) {
-      window.cefQuery({ request: withPreviewTabId('download-image', url) });
+      nativeRequest({
+        method: 'imagePreview.download',
+        params: withPreviewTabParams({ url }),
+      }).catch(() => {});
       showToast("Starting image download...");
     }
   };
