@@ -3129,22 +3129,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       CefPostDelayedTask(TID_UI, new FallbackTask(visitor), 2000);
       state->Resolve();
       return true;
-    } else if (msg == "toggle-appmenu") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && app->appmenu_overlay_) {
-        if (app->appmenu_overlay_->IsVisible()) {
-          app->HideAppMenuOverlay();
-        } else {
-          app->ShowAppMenuOverlay();
-        }
-      }
-      callback->Success("");
-    } else if (msg == "hide-appmenu") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideAppMenuOverlay();
-      }
-      callback->Success("");
     } else if (msg.find("find:") == 0) {
       // find:<tab_id>:<text>
       size_t c1 = msg.find(':', 5);
@@ -3162,27 +3146,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (!tab_id_opt) { callback->Failure(1, "invalid id"); return true; }
       CefRefPtr<CefBrowser> b = handler->tab_manager_->GetBrowser(*tab_id_opt);
       if (b) b->GetHost()->StopFinding(true);
-      callback->Success("");
-    } else if (msg == "show-findbar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && handler->tab_manager_) {
-        int tab_id = app->GetCurrentTabId();
-        if (tab_id >= 0) {
-          handler->tab_manager_->SetFindVisible(tab_id, true);
-          app->RestoreFindSessionForTab(tab_id, true);
-        }
-      }
-      callback->Success("");
-    } else if (msg == "hide-findbar") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app && app->findbar_overlay_) {
-        app->findbar_overlay_->SetVisible(false);
-        if (handler->tab_manager_) {
-          auto b = handler->tab_manager_->GetBrowser(app->GetCurrentTabId());
-          if (b) b->GetHost()->StopFinding(true);
-        }
-        app->FocusCurrentTabContent();
-      }
       callback->Success("");
     } else if (msg == "subscribe-console") {
       handler->console_subscription_ = callback;
