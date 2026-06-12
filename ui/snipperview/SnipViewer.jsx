@@ -205,7 +205,7 @@ const SnipViewer = () => {
           setSelection(null);
           setCroppedDataUrl(null);
         } else if (window.cefQuery) {
-          window.cefQuery({ request: 'hide-snip-preview' });
+          nativeRequest({ method: 'ui.snipPreview.hide' }).catch(() => {});
         }
       }
     };
@@ -353,7 +353,7 @@ const SnipViewer = () => {
 
   const handleClose = () => {
     if (window.cefQuery) {
-      window.cefQuery({ request: 'hide-snip-preview' });
+      nativeRequest({ method: 'ui.snipPreview.hide' }).catch(() => {});
     }
   };
 

@@ -3247,13 +3247,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
             callback->Success(result_json);
           });
       return true;
-    } else if (msg == "hide-snip-preview") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideSnipPreviewOverlay();
-        app->FocusCurrentTabContent();
-      }
-      callback->Success("");
     } else {
       return false;
     }
