@@ -2514,42 +2514,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg.rfind("show-popup:", 0) == 0) {
-      const std::string name = msg.substr(11);
-      OtfApp* app = OtfApp::GetInstance();
-      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
-      if (popup) {
-        if (name == "blockedpopup") {
-          int* pid = &handler->popup_ask_pending_id_;
-          std::string* purl = &handler->popup_ask_pending_url_;
-          std::string* porigin = &handler->popup_ask_pending_origin_;
-          popup->SetRestoreProducer([pid, purl, porigin]() {
-            return JsonObjectBuilder()
-                .AddInt("id", *pid)
-                .AddString("url", *purl)
-                .AddString("origin", *porigin)
-                .Build();
-          });
-        }
-        popup->Show();
-      }
-      callback->Success(popup ? "ok" : "no-such-popup");
-      return true;
-    } else if (msg.rfind("hide-popup:", 0) == 0) {
-      const std::string name = msg.substr(11);
-      OtfApp* app = OtfApp::GetInstance();
-      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
-      if (popup) popup->Hide();
-      callback->Success(popup ? "ok" : "no-such-popup");
-      return true;
-    } else if (msg.rfind("toggle-popup:", 0) == 0) {
-      const std::string name = msg.substr(13);
-      OtfApp* app = OtfApp::GetInstance();
-      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
-      if (popup) popup->Toggle();
-      callback->Success(popup ? "ok" : "no-such-popup");
-      return true;
-    } else if (msg.rfind("show-clear-site-data:", 0) == 0) {
+    if (msg.rfind("show-clear-site-data:", 0) == 0) {
       const std::string origin = ParseSiteDataOrigin(msg.substr(21));
       if (origin.empty()) {
         callback->Failure(1, "invalid site origin");
