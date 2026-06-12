@@ -146,8 +146,8 @@ async function waitForActiveTab(cdp, tabId, deadlineMs = 15000) {
 }
 
 async function openUrlInNewTab(cdp, url) {
-  const id = Number(await cefQuery(cdp, `new-tab:${url}`));
-  assert.ok(Number.isInteger(id) && id >= 0, `new-tab returned invalid id: ${id}`);
+  const id = Number(await nativeRpc(cdp, 'navigation.newTab', { url }));
+  assert.ok(Number.isInteger(id) && id >= 0, `navigation.newTab returned invalid id: ${id}`);
   await waitForTabs(cdp, (tabs) => tabs.some((tab) => tab.id === id && (tab.url || '').includes(url)), 20000);
   return id;
 }

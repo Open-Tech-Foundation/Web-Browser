@@ -37,7 +37,13 @@ test('web content cannot open a privileged browser tab through cefQuery',
               <script>
                 document.getElementById('attempt-privileged-action').addEventListener('click', () => {
                   document.getElementById('status').textContent = 'attempted';
-                  window.cefQuery?.({ request: 'new-tab:browser://settings' });
+                  window.cefQuery?.({
+                    request: JSON.stringify({
+                      id: 'hostile-new-tab',
+                      method: 'navigation.newTab',
+                      params: { url: 'browser://settings' },
+                    }),
+                  });
                 });
               </script>
             </main>

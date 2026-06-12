@@ -456,7 +456,28 @@ test('browser-created internal tabs are not persisted as dev-ui urls',
     try {
       browser = await launchDevBrowser({ profileRoot, preserveProfile: true, settings });
       await browser.cdp.evaluate(`
-        window.cefQuery({ request: 'new-tab:browser://settings' });
+        new Promise((resolve, reject) => {
+          window.cefQuery({
+            request: JSON.stringify({
+              id: 'session-restore-settings-tab',
+              method: 'navigation.newTab',
+              params: { url: 'browser://settings' },
+            }),
+            onSuccess: (json) => {
+              try {
+                const envelope = JSON.parse(json);
+                if (!envelope?.ok) {
+                  reject(new Error(envelope?.error?.message || 'navigation.newTab failed'));
+                  return;
+                }
+                resolve(envelope.result);
+              } catch (err) {
+                reject(err);
+              }
+            },
+            onFailure: (_code, message) => reject(new Error(message || 'cefQuery failed')),
+          });
+        })
       `);
       await waitFor(
         browser.cdp,

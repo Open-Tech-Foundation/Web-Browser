@@ -25,25 +25,61 @@ test('navigation RPC rejects unknown schema fields',
       );
 
       const response = await browser.cdp.evaluate(`
-        new Promise((resolve) => {
-          window.cefQuery({
-            request: JSON.stringify({
-              id: 'navigation-extra-param',
-              method: 'navigation.newTab',
-              params: { url: 'browser://newtab', extra: true },
-            }),
-            onSuccess: resolve,
-            onFailure: (code, message) => resolve(JSON.stringify({
-              ok: false,
-              error: { code: String(code), message },
-            })),
-          });
-        })
+        Promise.all([
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'navigation-extra-param',
+                method: 'navigation.newTab',
+                params: { url: 'browser://newtab', extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'navigation-resolve-extra-param',
+                method: 'navigation.resolveInput',
+                params: { input: 'example.com', extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+          new Promise((resolve) => {
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'navigation-private-extra-param',
+                method: 'navigation.newPrivateTab',
+                params: { url: 'browser://newtab', extra: true },
+              }),
+              onSuccess: resolve,
+              onFailure: (code, message) => resolve(JSON.stringify({
+                ok: false,
+                error: { code: String(code), message },
+              })),
+            });
+          }),
+        ])
       `);
-      const parsed = JSON.parse(response);
-      assert.equal(parsed.id, 'navigation-extra-param');
-      assert.equal(parsed.ok, false);
-      assert.match(parsed.error.message, /unexpected param: extra/);
+      const parsed = response.map((item) => JSON.parse(item));
+      assert.equal(parsed[0].id, 'navigation-extra-param');
+      assert.equal(parsed[0].ok, false);
+      assert.match(parsed[0].error.message, /unexpected param: extra/);
+      assert.equal(parsed[1].id, 'navigation-resolve-extra-param');
+      assert.equal(parsed[1].ok, false);
+      assert.match(parsed[1].error.message, /unexpected param: extra/);
+      assert.equal(parsed[2].id, 'navigation-private-extra-param');
+      assert.equal(parsed[2].ok, false);
+      assert.match(parsed[2].error.message, /unexpected param: extra/);
     } finally {
       await browser.close();
     }

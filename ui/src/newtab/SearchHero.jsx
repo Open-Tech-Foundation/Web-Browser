@@ -120,11 +120,12 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
     const navigateTo = (url) => {
       nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
     };
-    window.cefQuery({
-      request: `resolve-input-url:${input.length}:${input}`,
-      onSuccess: navigateTo,
-      onFailure: () => navigateTo(resolveUrl(input, engine, customEngines))
-    });
+    nativeRequest({
+      method: 'navigation.resolveInput',
+      params: { input },
+    })
+      .then(navigateTo)
+      .catch(() => navigateTo(resolveUrl(input, engine, customEngines)));
   }, [engine, customEngines, isGuest]);
 
   const handleKeyDown = (e) => {

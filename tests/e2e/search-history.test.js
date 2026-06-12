@@ -58,7 +58,15 @@ test('search history saves and shows as suggestions on new tab',
       await shellCdp.evaluate(`
         new Promise((resolve) => {
           if (window.cefQuery) {
-            window.cefQuery({ request: 'navigate:1:${newtabUrl}', onSuccess: resolve, onFailure: resolve });
+            window.cefQuery({
+              request: JSON.stringify({
+                id: 'search-history-newtab',
+                method: 'navigation.tab',
+                params: { tabId: 1, url: '${newtabUrl}' },
+              }),
+              onSuccess: resolve,
+              onFailure: resolve,
+            });
           } else { resolve(); }
         })
       `);

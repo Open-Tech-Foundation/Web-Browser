@@ -362,11 +362,12 @@ const App = () => {
         }
       };
 
-      window.cefQuery({
-        request: `resolve-input-url:${input.length}:${input}`,
-        onSuccess: navigateTo,
-        onFailure: () => navigateTo(resolveUrl(input, searchEngine, customEngines))
-      });
+      nativeRequest({
+        method: 'navigation.resolveInput',
+        params: { input },
+      })
+        .then(navigateTo)
+        .catch(() => navigateTo(resolveUrl(input, searchEngine, customEngines)));
     }
   };
 

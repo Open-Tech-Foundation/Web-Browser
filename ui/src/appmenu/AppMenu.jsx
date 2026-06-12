@@ -8,6 +8,7 @@ const AppMenu = () => {
     const rpcMethods = {
       'toggle-console': 'ui.console.toggle',
       'show-findbar': 'ui.findbar.show',
+      newPrivateTab: 'navigation.newPrivateTab',
     };
     if (rpcMethods[request]) {
       nativeRequest({ method: rpcMethods[request] })
@@ -120,7 +121,7 @@ const AppMenu = () => {
           <AppMenuItem
             name="Private Tab"
             icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 13h20"/><path d="M5 13l1.5-5.5A2 2 0 0 1 8.4 6h7.2a2 2 0 0 1 1.9 1.5L19 13"/><circle cx="7" cy="16" r="2.5"/><circle cx="17" cy="16" r="2.5"/><path d="M9.5 16h5"/></svg>}
-            onClick={() => handleAction('new-private-tab:')}
+            onClick={() => handleAction('newPrivateTab')}
           />
           <AppMenuItem
             name={guestSession ? 'Guest Active' : 'Guest Session'}
