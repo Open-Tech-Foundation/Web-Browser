@@ -8,6 +8,7 @@ const AppMenu = () => {
     const rpcMethods = {
       'toggle-console': 'ui.console.toggle',
       'show-findbar': 'ui.findbar.show',
+      'start-snip': 'ui.snip.start',
       newPrivateTab: 'navigation.newPrivateTab',
     };
     if (rpcMethods[request]) {

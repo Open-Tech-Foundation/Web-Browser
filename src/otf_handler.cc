@@ -3217,34 +3217,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       }
       // Persistent — don't call Success again here; entries stream in via OnConsoleMessage.
       return true;
-    } else if (msg == "start-snip") {
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app || !handler->tab_manager_ || !handler->devtools_bridge_) {
-        callback->Failure(1, "not ready");
-        return true;
-      }
-      int cur = app->GetCurrentTabId();
-      CefRefPtr<CefBrowser> target = handler->tab_manager_->GetBrowser(cur);
-      if (!target) {
-        callback->Failure(1, "no active tab");
-        return true;
-      }
-      handler->devtools_bridge_->Attach(target);
-      CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
-      params->SetString("format", "png");
-      handler->devtools_bridge_->Execute(
-          "Page.captureScreenshot", params,
-          [handler](bool ok, const std::string& result_json) {
-            if (!ok) return;
-            OtfApp* app = OtfApp::GetInstance();
-            if (!app || !handler->snip_preview_browser_) return;
-            app->HideAppMenuOverlay();
-            app->ShowSnipPreviewOverlay();
-            const std::string js = "window.__otfSetSnipImage(" + result_json + ");";
-            handler->snip_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
-          });
-      callback->Success("");
-      return true;
     } else if (msg.rfind("capture-viewport:", 0) == 0) {
       const auto tab_id_opt = ParseIntStrict(
           std::string_view(msg).substr(std::strlen("capture-viewport:")));
@@ -3363,6 +3335,37 @@ std::string OtfHandler::GetCertificateJsonForTab(int tab_id) {
 
 bool OtfHandler::RestartBrowser() {
   return RestartBrowserProcess();
+}
+
+bool OtfHandler::StartSnipCapture(bool hide_app_menu, std::string* error) {
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app || !tab_manager_ || !devtools_bridge_) {
+    if (error) *error = "not ready";
+    return false;
+  }
+  const int current_tab_id = app->GetCurrentTabId();
+  CefRefPtr<CefBrowser> target = tab_manager_->GetBrowser(current_tab_id);
+  if (!target) {
+    if (error) *error = "no active tab";
+    return false;
+  }
+
+  devtools_bridge_->Attach(target);
+  CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+  params->SetString("format", "png");
+  devtools_bridge_->Execute(
+      "Page.captureScreenshot", params,
+      [hide_app_menu](bool ok, const std::string& result_json) {
+        if (!ok) return;
+        OtfApp* app = OtfApp::GetInstance();
+        OtfHandler* handler = OtfHandler::GetInstance();
+        if (!app || !handler || !handler->snip_preview_browser_) return;
+        if (hide_app_menu) app->HideAppMenuOverlay();
+        app->ShowSnipPreviewOverlay();
+        const std::string js = "window.__otfSetSnipImage(" + result_json + ");";
+        handler->snip_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
+      });
+  return true;
 }
 
 OtfHandler::OtfHandler(bool use_alloy_style)

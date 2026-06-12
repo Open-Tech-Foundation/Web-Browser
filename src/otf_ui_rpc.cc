@@ -195,6 +195,7 @@ bool HandleUiRpc(
       request.method != "ui.console.hide" &&
       request.method != "ui.toast.show" &&
       request.method != "ui.qr.show" &&
+      request.method != "ui.snip.start" &&
       request.method != "ui.findbar.show") {
     return false;
   }
@@ -316,6 +317,11 @@ bool HandleUiRpc(
     app->ShowConsoleOverlay();
   } else if (request.method == "ui.console.hide") {
     app->HideConsoleOverlay();
+  } else if (request.method == "ui.snip.start") {
+    if (!handler->StartSnipCapture(true, &error)) {
+      Failure(callback, request, "failed", error);
+      return true;
+    }
   } else if (handler->tab_manager_) {
     const int tab_id = app->GetCurrentTabId();
     if (tab_id >= 0) {

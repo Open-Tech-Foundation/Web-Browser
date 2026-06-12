@@ -267,6 +267,7 @@ class OtfHandler : public CefClient,
   bool ClearSplitViewState(int workspace_id);
   std::string GetCertificateJsonForTab(int tab_id);
   bool RestartBrowser();
+  bool StartSnipCapture(bool hide_app_menu, std::string* error);
 
   TabManager* tab_manager_;
   CefRefPtr<CefBrowser> ui_browser_;
