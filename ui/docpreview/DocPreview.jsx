@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import TextViewer from './TextViewer';
 import CsvViewer from './CsvViewer';
 import MarkdownViewer from './MarkdownViewer';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const formatBytes = (bytes) => {
   if (bytes < 0) return '';
@@ -59,16 +60,19 @@ const DocPreview = () => {
     const sourceTabId = previewTabIdRef.current;
     resetPreviewState();
     if (window.cefQuery) {
-      const request = sourceTabId >= 0
-        ? `close-docpreview:${sourceTabId}`
-        : 'close-docpreview';
-      window.cefQuery({ request });
+      nativeRequest({
+        method: 'docPreview.close',
+        params: sourceTabId >= 0 ? { tabId: sourceTabId } : {},
+      }).catch(() => {});
     }
   };
 
   const handleDownload = () => {
     if (window.cefQuery) {
-      window.cefQuery({ request: 'download-doc:' + url });
+      nativeRequest({
+        method: 'docPreview.download',
+        params: { url },
+      }).catch(() => {});
       setToast('Saving document...');
       setTimeout(() => setToast(''), 2000);
     }
@@ -151,23 +155,16 @@ const DocPreview = () => {
     const refresh = () => {
       if (hasSnapshotRef.current) return;
       if (!window.cefQuery) return;
-      window.cefQuery({
-        request: 'doc-preview-refresh',
-        onSuccess: (json) => {
-          try {
-            const ev = JSON.parse(json);
-            if (ev && ev.key === 'load-doc') {
-              applyLoadDoc(ev);
-              if (!ev.displayUrl && !ev.contentUrl && !ev.error && ev.url) {
-                scheduleRetry();
-              }
+      nativeRequest({ method: 'docPreview.refresh' })
+        .then((ev) => {
+          if (ev && ev.key === 'load-doc') {
+            applyLoadDoc(ev);
+            if (!ev.displayUrl && !ev.contentUrl && !ev.error && ev.url) {
+              scheduleRetry();
             }
-          } catch (_) {
-            scheduleRetry();
           }
-        },
-        onFailure: scheduleRetry,
-      });
+        })
+        .catch(scheduleRetry);
     };
     const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
     document.addEventListener('visibilitychange', onVis);

@@ -2,6 +2,7 @@
 #include "otf_app.h"
 #include "otf_clear_data_rpc.h"
 #include "otf_console_rpc.h"
+#include "otf_doc_preview_rpc.h"
 #include "otf_downloads_rpc.h"
 #include "otf_findbar_rpc.h"
 #include "otf_history_bookmarks_rpc.h"
@@ -1707,6 +1708,9 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (HandleDownloadsRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
+      if (HandleDocPreviewRpc(handler, browser, callback, rpc_request)) {
+        return true;
+      }
       if (HandleWorkspacesRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
@@ -1896,193 +1900,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         std::string event = handler->BuildDocPreviewLoadEvent(tab_id);
         callback->Success(event.empty() ? "{}" : event);
       }
-      return true;
-    }
-
-    if (msg == "doc-preview-refresh") {
-      OtfApp* app = OtfApp::GetInstance();
-      int tab_id = ResolveRealTabIdForBrowser(browser, handler ? handler->tab_manager_ : nullptr);
-      if (tab_id == -1 && app) {
-        tab_id = app->GetCurrentTabId();
-      }
-      std::string event = (handler && tab_id != -1)
-                              ? handler->BuildDocPreviewLoadEvent(tab_id)
-                              : std::string();
-      callback->Success(event.empty() ? "{}" : event);
-      return true;
-    }
-
-    if (msg == "hide-docpreview" || msg.rfind("hide-docpreview:", 0) == 0) {
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        app->HideDocPreviewOverlay();
-        int tab_id = -1;
-        if (msg.rfind("hide-docpreview:", 0) == 0) {
-          const auto tab_id_opt =
-              ParseIntStrict(std::string_view(msg).substr(std::strlen("hide-docpreview:")));
-          if (tab_id_opt) {
-            tab_id = *tab_id_opt;
-          }
-        }
-        if (tab_id == -1) {
-          tab_id = app->GetCurrentTabId();
-        }
-        if (handler) {
-          handler->ClearDocPreviewStateForTab(tab_id);
-        }
-      }
-      callback->Success("");
-      return true;
-    }
-
-    if (msg == "close-docpreview" || msg.rfind("close-docpreview:", 0) == 0) {
-      OtfApp* app = OtfApp::GetInstance();
-      if (!app || !handler) {
-        callback->Success("");
-        return true;
-      }
-      int tab_id = -1;
-      if (msg.rfind("close-docpreview:", 0) == 0) {
-        const auto tab_id_opt =
-            ParseIntStrict(std::string_view(msg).substr(std::strlen("close-docpreview:")));
-        if (tab_id_opt) {
-          tab_id = *tab_id_opt;
-        }
-      }
-      if (tab_id == -1) {
-        tab_id = ResolveRealTabIdForBrowser(browser, handler->tab_manager_);
-      }
-      if (tab_id == -1 && app) {
-        tab_id = app->GetCurrentTabId();
-      }
-      const bool is_dedicated_preview_tab =
-          handler->tab_manager_ &&
-          tab_id != -1 &&
-          handler->tab_manager_->GetDocPreviewMode(tab_id) ==
-              DocPreviewMode::kDedicated;
-      if (is_dedicated_preview_tab) {
-        handler->CloseTabAndNotify(tab_id);
-      } else {
-        handler->ClearDocPreviewStateForTab(tab_id);
-        app->HideDocPreviewOverlay();
-      }
-      callback->Success("");
-      return true;
-    }
-
-    if (msg.rfind("download-doc:", 0) == 0) {
-      std::string download_url = msg.substr(13);
-      int tab_id = -1;
-      std::string local_path;
-      std::string mime_type;
-      if (download_url.rfind("browser://doc-preview/", 0) == 0 || download_url.empty()) {
-        if (handler && handler->tab_manager_) {
-          tab_id = handler->tab_manager_->GetId(browser);
-          std::string mapped_url = handler->GetDocPreviewUrlForTab(tab_id);
-          if (!mapped_url.empty()) {
-            download_url = mapped_url;
-          }
-          local_path = handler->GetDocPreviewLocalFileForTab(tab_id);
-          if (!local_path.empty()) {
-            mime_type = otf::GuessDocumentMimeType(local_path);
-          }
-        }
-      }
-      if (!local_path.empty()) {
-        std::error_code ec;
-        const std::filesystem::path source_path(local_path);
-        const std::string suggested_name =
-            source_path.filename().empty()
-                ? "download.txt"
-                : SanitizeFilename(source_path.filename().string());
-        const std::string target_path = otf::BuildDownloadPath(suggested_name);
-        std::filesystem::copy_file(local_path, target_path,
-                                   std::filesystem::copy_options::none, ec);
-        if (ec) {
-          callback->Failure(0, "Could not save document file");
-          return true;
-        }
-        if (handler->store_) {
-          const auto file_size = std::filesystem::file_size(local_path, ec);
-          const int download_id = handler->store_->CreateDownload(
-              download_url, local_path, target_path, suggested_name,
-              mime_type.empty() ? "application/octet-stream" : mime_type,
-              "completed");
-          if (download_id > 0) {
-            PersistedDownload download;
-            download.id = download_id;
-            download.url = download_url;
-            download.original_url = local_path;
-            download.target_path = target_path;
-            download.filename = suggested_name;
-            download.total_bytes = ec ? 0 : static_cast<int64_t>(file_size);
-            download.received_bytes = ec ? 0 : static_cast<int64_t>(file_size);
-            download.status = "completed";
-            download.mime_type = mime_type.empty() ? "application/octet-stream" : mime_type;
-            handler->store_->UpdateDownload(download);
-            handler->NotifyDownloadsChanged();
-            handler->NotifyDownloadBadge();
-          }
-        }
-        callback->Success("");
-        return true;
-      }
-      // Fetched doc held in memory: write the bytes we already have to the
-      // download target instead of re-fetching from the network.
-      if (handler) {
-        const std::string content_url =
-            handler->GetDocPreviewContentUrlForTab(tab_id);
-        static const std::string kContentPrefix =
-            "browser://doc-preview/content/";
-        if (content_url.rfind(kContentPrefix, 0) == 0) {
-          const std::string token = content_url.substr(kContentPrefix.size());
-          std::vector<uint8_t> bytes;
-          std::string mem_mime;
-          if (otf::GetDocContentBytes(token, &bytes, &mem_mime)) {
-            const std::string raw_name =
-                token.substr(token.find_last_of('/') + 1);
-            const std::string suggested_name =
-                SanitizeFilename(raw_name.empty() ? "download.txt" : raw_name);
-            const std::string target_path =
-                otf::BuildDownloadPath(suggested_name);
-            if (!otf::WriteFileBinary(target_path, bytes.data(),
-                                      bytes.size())) {
-              callback->Failure(0, "Could not save document file");
-              return true;
-            }
-            const std::string save_mime =
-                mem_mime.empty() ? "application/octet-stream" : mem_mime;
-            if (handler->store_) {
-              const int download_id = handler->store_->CreateDownload(
-                  download_url, target_path, target_path, suggested_name,
-                  save_mime, "completed");
-              if (download_id > 0) {
-                PersistedDownload download;
-                download.id = download_id;
-                download.url = download_url;
-                download.original_url = target_path;
-                download.target_path = target_path;
-                download.filename = suggested_name;
-                download.total_bytes = static_cast<int64_t>(bytes.size());
-                download.received_bytes = static_cast<int64_t>(bytes.size());
-                download.status = "completed";
-                download.mime_type = save_mime;
-                handler->store_->UpdateDownload(download);
-                handler->NotifyDownloadsChanged();
-                handler->NotifyDownloadBadge();
-              }
-            }
-            callback->Success("");
-            return true;
-          }
-        }
-      }
-      if (download_url.rfind("file://", 0) == 0) {
-        callback->Failure(1, "file scheme is disabled");
-        return true;
-      }
-      browser->GetHost()->StartDownload(download_url);
-      callback->Success("");
       return true;
     }
 
