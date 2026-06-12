@@ -66,7 +66,7 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false }) =
   );
 };
 
-// Subscribes to the `popup-restore:<name>` channel and calls onRestore with
+// Subscribes to the popup restore channel and calls onRestore with
 // the parsed JSON payload every time C++ pushes a restore event (which it
 // does on every Show()). Use this to reset transient state — selections,
 // busy spinners, success badges — so a reopened popup starts fresh.
@@ -74,7 +74,11 @@ export const usePopupRestore = (name, onRestore) => {
   useEffect(() => {
     if (!window.cefQuery) return;
     window.cefQuery({
-      request: `popup-restore:${name}`,
+      request: JSON.stringify({
+        id: `popup-restore-${name}`,
+        method: 'ui.popup.restoreSubscribe',
+        params: { name },
+      }),
       persistent: true,
       onSuccess: (response) => {
         try {

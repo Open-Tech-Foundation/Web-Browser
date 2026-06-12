@@ -137,6 +137,28 @@ bool HandlePopupAction(OtfHandler* handler,
   return true;
 }
 
+bool HandlePopupRestoreSubscribe(CefRefPtr<Callback> callback,
+                                 const NativeRpcRequest& request) {
+  std::string error;
+  if (!HasOnlyParamKeys(request.params, {"name"}, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  std::string name;
+  if (!ReadPopupName(request.params, &name, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  OtfApp* app = OtfApp::GetInstance();
+  otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
+  if (!popup) {
+    Failure(callback, request, "not_found", "Popup not found");
+    return true;
+  }
+  popup->SetRestoreSubscriber(callback);
+  return true;
+}
+
 }  // namespace
 
 bool HandleUiRpc(
@@ -151,6 +173,9 @@ bool HandleUiRpc(
       request.method == "ui.popup.hide" ||
       request.method == "ui.popup.toggle") {
     return HandlePopupAction(handler, callback, request);
+  }
+  if (request.method == "ui.popup.restoreSubscribe") {
+    return HandlePopupRestoreSubscribe(callback, request);
   }
 
   if (request.method != "ui.appMenu.toggle" &&

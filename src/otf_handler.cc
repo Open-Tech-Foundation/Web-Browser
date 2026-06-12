@@ -2732,12 +2732,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       if (popup) popup->Toggle();
       callback->Success(popup ? "ok" : "no-such-popup");
       return true;
-    } else if (msg.rfind("popup-restore:", 0) == 0) {
-      const std::string name = msg.substr(14);
-      OtfApp* app = OtfApp::GetInstance();
-      otf::PopupOverlay* popup = app ? app->GetPopup(name) : nullptr;
-      if (popup) popup->SetRestoreSubscriber(callback);
-      return true;
     } else if (msg.rfind("show-clear-site-data:", 0) == 0) {
       const std::string origin = ParseSiteDataOrigin(msg.substr(21));
       if (origin.empty()) {
