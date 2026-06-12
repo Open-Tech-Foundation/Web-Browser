@@ -69,22 +69,31 @@ export async function setSitePermissionFromUi(browser, origin, permission, setti
       15000,
     );
 
-    // Drive the permission through the page's own setPermission codepath via
-    // cefQuery. This is the same back-end call the cycle button triggers, but
-    // skips the UI click cycle which is fragile when the table is below the
-    // viewport or React hasn't finished hydrating. End result: the same DB
-    // row is written and the same handler runs.
+    // Drive the permission through the strict site-data RPC. This is the same
+    // back-end method the cycle button triggers, but skips the UI click cycle
+    // which is fragile when the table is below the viewport or React hasn't
+    // finished hydrating.
     const result = await siteDataCdp.evaluate(`
       new Promise((resolve) => {
         if (!window.cefQuery) { resolve({ ok: false, error: 'no cefQuery' }); return; }
         window.cefQuery({
-          request: 'set-permission-for-site:' + ${JSON.stringify(origin)} + ':' + ${JSON.stringify(permission)} + ':' + ${JSON.stringify(setting)},
-          onSuccess: () => resolve({ ok: true }),
+          request: JSON.stringify({
+            id: 'e2e-set-site-permission',
+            method: 'siteData.setPermission',
+            params: {
+              origin: ${JSON.stringify(origin)},
+              permission: ${JSON.stringify(permission)},
+              setting: ${JSON.stringify(setting)},
+            },
+          }),
+          onSuccess: (response) => {
+            try { resolve(JSON.parse(response)); } catch (_) { resolve({ ok: false, error: 'bad json' }); }
+          },
           onFailure: (code, msg) => resolve({ ok: false, error: msg || ('code ' + code) }),
         });
       })
     `);
-    assert.ok(result?.ok, `set-permission-for-site failed: ${result?.error || 'unknown'}`);
+    assert.ok(result?.ok, `siteData.setPermission failed: ${result?.error?.message || result?.error || 'unknown'}`);
 
     // Verify the change by reading back via cefQuery — avoids depending on
     // the React UI reflecting the new value before we return.
@@ -92,8 +101,17 @@ export async function setSitePermissionFromUi(browser, origin, permission, setti
       new Promise((resolve) => {
         if (!window.cefQuery) { resolve({}); return; }
         window.cefQuery({
-          request: 'get-permissions-for-site:' + ${JSON.stringify(origin)},
-          onSuccess: (json) => { try { resolve(JSON.parse(json)); } catch (_) { resolve({}); } },
+          request: JSON.stringify({
+            id: 'e2e-get-site-permissions',
+            method: 'siteData.getPermissions',
+            params: { origin: ${JSON.stringify(origin)} },
+          }),
+          onSuccess: (json) => {
+            try {
+              const parsed = JSON.parse(json);
+              resolve(parsed?.ok ? parsed.result : {});
+            } catch (_) { resolve({}); }
+          },
           onFailure: () => resolve({}),
         });
       })

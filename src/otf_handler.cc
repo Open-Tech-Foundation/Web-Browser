@@ -221,17 +221,6 @@ std::string ParseSiteDataOrigin(const std::string& raw) {
   return extracted;
 }
 
-bool IsValidSitePermissionSetting(const std::string& permission,
-                                  const std::string& setting) {
-  if (permission == "popup" || permission == "downloads") {
-    return setting == "ask" || setting == "allow" || setting == "block";
-  }
-  if (permission == "images" || permission == "javascript") {
-    return setting == "allow" || setting == "block";
-  }
-  return false;
-}
-
 using ::otf::ParseIntStrict;
 using ::otf::ParseUint32Strict;
 using ::otf::ParseUint64Strict;
@@ -3013,49 +3002,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         json += "]";
         callback->Success(json);
       }
-      return true;
-    } else if (msg.rfind("get-permissions-for-site:", 0) == 0) {
-      const std::string origin = ParseSiteDataOrigin(msg.substr(25));
-      if (origin.empty()) {
-        callback->Failure(1, "invalid site origin");
-        return true;
-      }
-      if (handler->store_ && !handler->guest_session_active_) {
-        std::string json = handler->store_->GetSitePermissionsJson(origin);
-        callback->Success(json);
-      } else {
-        callback->Success("{}");
-      }
-      return true;
-    } else if (msg.rfind("set-permission-for-site:", 0) == 0) {
-      if (handler->guest_session_active_) {
-        callback->Failure(1, "Site permissions are disabled in guest sessions");
-        return true;
-      }
-      const std::string payload = msg.substr(24);
-      size_t last_colon = payload.rfind(':');
-      if (last_colon != std::string::npos && last_colon > 0) {
-        size_t sec_colon = payload.rfind(':', last_colon - 1);
-        if (sec_colon != std::string::npos) {
-          std::string origin = ParseSiteDataOrigin(payload.substr(0, sec_colon));
-          std::string permission = payload.substr(sec_colon + 1, last_colon - sec_colon - 1);
-          std::string setting = payload.substr(last_colon + 1);
-          if (origin.empty() ||
-              !IsValidSitePermissionSetting(permission, setting)) {
-            callback->Failure(1, "invalid permission setting");
-            return true;
-          }
-
-          if (handler->store_ &&
-              !handler->store_->SetSitePermission(origin, permission, setting)) {
-            callback->Failure(1, "Failed to save site permission");
-            return true;
-          }
-          callback->Success("ok");
-          return true;
-        }
-      }
-      callback->Failure(1, "invalid payload");
       return true;
     } else if (msg.rfind("clear-all-for-site:", 0) == 0) {
       if (handler->guest_session_active_) {
