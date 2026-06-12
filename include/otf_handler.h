@@ -291,7 +291,7 @@ class OtfHandler : public CefClient,
   CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> console_subscription_;
   // The cleardata popup ships its origin to the renderer via a restore
   // producer attached to the PopupOverlay. The producer reads this field,
-  // which is set by the show-clear-site-data:<origin> handler.
+  // which is set by the strict siteData.showClearPopup RPC.
   std::string pending_cleardata_origin_;
   std::string pending_qr_url_;
   // Pending popup data for the blockedpopup overlay restore producer.

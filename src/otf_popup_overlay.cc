@@ -147,6 +147,10 @@ void PopupOverlay::PublishRestore(const std::string& json_payload) {
 void PopupOverlay::SetRestoreSubscriber(
     CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> cb) {
   restore_subscriber_ = cb;
+  if (restore_subscriber_ && IsVisible()) {
+    std::string payload = restore_producer_ ? restore_producer_() : "{}";
+    PublishRestore(payload);
+  }
 }
 
 void PopupOverlay::SetRestoreProducer(RestorePayload producer) {

@@ -2474,8 +2474,8 @@ void OtfApp::OnContextInitialized() {
   // entry: name + browser view id + size. The popup's content URL is
   // derived from the name (browser://<name> in prod, dev server in dev).
   // RestoreProducer fields are wired by OtfHandler when it has the
-  // payload to ship — e.g. show-clear-site-data:<origin> stores the
-  // origin in handler state, and cleardata's producer reads it back.
+  // payload to ship. For cleardata, siteData.showClearPopup stores the
+  // origin in handler state, and the producer reads it back.
   popups_["cleardata"] = std::make_unique<PopupOverlay>(
       "cleardata", kClearSiteDataBrowserViewId, /*width=*/340, /*height=*/460);
   popups_["workspace"] = std::make_unique<PopupOverlay>(
