@@ -377,31 +377,24 @@ const Settings = () => {
     setResetBusy(true);
     setResetStatus('');
     setRestartBusy(false);
-    window.cefQuery({
-      request: `reset-browser-data:${JSON.stringify(resetItems)}`,
-      onSuccess: (response) => {
+    nativeRequest({ method: 'settings.resetBrowserData', params: resetItems })
+      .then(() => {
         try {
-          try {
-            localStorage.removeItem('otf_last_engine');
-          } catch (storageError) { }
-          setSelectedEngine('');
-          setSearchEngine('');
-          setStartupBehavior('newtab');
-          setStartupUrls([]);
-          setNewUrl('');
-          setStartupUrlError('');
-          JSON.parse(response);
-          setResetStatus('Reset complete.');
-        } catch (e) {
-          setResetStatus('Reset complete.');
-        }
+          localStorage.removeItem('otf_last_engine');
+        } catch (storageError) { }
+        setSelectedEngine('');
+        setSearchEngine('');
+        setStartupBehavior('newtab');
+        setStartupUrls([]);
+        setNewUrl('');
+        setStartupUrlError('');
+        setResetStatus('Reset complete.');
         setResetBusy(false);
-      },
-      onFailure: (code, msg) => {
+      })
+      .catch((err) => {
         setResetBusy(false);
-        setResetStatus(`Reset failed: ${msg || code}`);
-      }
-    });
+        setResetStatus(`Reset failed: ${err?.message || 'Unknown error'}`);
+      });
   };
 
   const handleRestart = () => {
