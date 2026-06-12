@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 const ROW_HEIGHT = 44;
 const HEADER_HEIGHT = 48;
@@ -111,15 +112,9 @@ function CsvViewer({ content, fileName }) {
 
   useEffect(() => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: 'get-settings',
-      onSuccess: (response) => {
-        try {
-          const settings = JSON.parse(response);
-          setAppearanceMode(settings.appearanceMode || 'auto');
-        } catch { /* ignore */ }
-      },
-    });
+    nativeRequest({ method: 'settings.get' })
+      .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
+      .catch(() => {});
   }, []);
 
   // Parse CSV

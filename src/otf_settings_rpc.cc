@@ -2,10 +2,18 @@
 
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "include/cef_parser.h"
+#include "include/cef_version.h"
+#include "include/cef_values.h"
 #include "otf_handler.h"
 #include "otf_utils.h"
+
+#ifndef OTF_VERSION
+#define OTF_VERSION "0.0.0-unknown"
+#endif
 
 namespace otf {
 namespace {
@@ -135,6 +143,62 @@ bool RequireNoParams(const NativeRpcRequest& request, std::string* error) {
   return request.params && HasOnlyParamKeys(request.params, {}, error);
 }
 
+std::string BuildVersionInfoJson() {
+  const std::string chromium = std::to_string(CHROME_VERSION_MAJOR) + "." +
+                               std::to_string(CHROME_VERSION_MINOR) + "." +
+                               std::to_string(CHROME_VERSION_BUILD) + "." +
+                               std::to_string(CHROME_VERSION_PATCH);
+  return JsonObjectBuilder()
+      .AddString("browser", OTF_VERSION)
+      .AddString("chromium", chromium)
+      .AddString("cef", CEF_VERSION)
+      .Build();
+}
+
+std::string BuildStoragePathsJson() {
+  JsonObjectBuilder b;
+  b.AddString("activeDataDir", otf::PathToUtf8(otf::GetActiveDataDir()));
+  b.AddString("activeCacheDir", otf::PathToUtf8(otf::GetActiveCacheDir()));
+  b.AddString("activeDownloadsDir",
+              otf::PathToUtf8(otf::GetActiveDownloadsDir()));
+
+  const auto configured_cache = otf::GetConfiguredCacheDir();
+  const auto configured_downloads = otf::GetConfiguredDownloadsDir();
+  if (!configured_cache.empty()) {
+    b.AddString("configuredCacheDir", otf::PathToUtf8(configured_cache));
+  }
+  if (!configured_downloads.empty()) {
+    b.AddString("configuredDownloadsDir",
+                otf::PathToUtf8(configured_downloads));
+  }
+
+  const std::string pending_raw = otf::LoadPendingPathsJson();
+  if (pending_raw != "{}") {
+    CefRefPtr<CefValue> pending_parsed =
+        CefParseJSON(pending_raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+    if (pending_parsed && pending_parsed->GetType() == VTYPE_DICTIONARY) {
+      CefRefPtr<CefDictionaryValue> pdict = pending_parsed->GetDictionary();
+      if (pdict->HasKey("cacheDir")) {
+        b.AddString("pendingCacheDir", pdict->GetString("cacheDir").ToString());
+      }
+      if (pdict->HasKey("downloadDir")) {
+        b.AddString("pendingDownloadsDir",
+                    pdict->GetString("downloadDir").ToString());
+      }
+    }
+  }
+
+  b.AddString("defaultCacheDir", otf::PathToUtf8(otf::GetAppCacheDir()));
+  b.AddString("defaultDownloadsDir", otf::PathToUtf8(otf::GetDownloadsDir()));
+
+  const auto active_cache = otf::GetActiveCacheDir();
+  const auto active_downloads = otf::GetActiveDownloadsDir();
+  b.AddRaw("cacheSize", std::to_string(otf::GetDirectorySize(active_cache)));
+  b.AddRaw("downloadsSize",
+           std::to_string(otf::GetDirectorySize(active_downloads)));
+  return b.Build();
+}
+
 std::string ParamsToJson(CefRefPtr<CefDictionaryValue> params) {
   CefRefPtr<CefValue> root = CefValue::Create();
   root->SetDictionary(params->Copy(false));
@@ -154,6 +218,115 @@ void Failure(CefRefPtr<Callback> callback,
   NativeRpcFailure(callback, request, code, message);
 }
 
+class RpcFolderPickerCallback : public CefRunFileDialogCallback {
+ public:
+  RpcFolderPickerCallback(CefRefPtr<Callback> callback,
+                          NativeRpcRequest request)
+      : callback_(callback), request_(std::move(request)) {}
+
+  void OnFileDialogDismissed(
+      const std::vector<CefString>& file_paths) override {
+    if (!file_paths.empty()) {
+      NativeRpcSuccessString(callback_, request_, file_paths[0].ToString());
+      return;
+    }
+    NativeRpcSuccessString(callback_, request_, "cancelled");
+  }
+
+ private:
+  CefRefPtr<Callback> callback_;
+  NativeRpcRequest request_;
+  IMPLEMENT_REFCOUNTING(RpcFolderPickerCallback);
+};
+
+bool SaveStoragePath(OtfHandler* handler,
+                     CefRefPtr<Callback> callback,
+                     const NativeRpcRequest& request) {
+  std::string error;
+  if (!request.params ||
+      !HasOnlyParamKeys(request.params, {"purpose", "path"}, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  if (request.params->GetType("purpose") != VTYPE_STRING ||
+      request.params->GetType("path") != VTYPE_STRING) {
+    Failure(callback, request, "invalid_params",
+            "purpose and path must be strings");
+    return true;
+  }
+
+  const std::string purpose = request.params->GetString("purpose").ToString();
+  const std::string path = request.params->GetString("path").ToString();
+  if ((purpose != "cache" && purpose != "downloads") || path.empty()) {
+    Failure(callback, request, "invalid_params",
+            "purpose must be cache or downloads and path must be non-empty");
+    return true;
+  }
+
+  error = otf::ValidateStoragePath(path, purpose);
+  if (!error.empty()) {
+    Failure(callback, request, "invalid_storage_path", error);
+    return true;
+  }
+
+  std::string settings_raw = otf::LoadSettingsJson();
+  CefRefPtr<CefValue> settings_root =
+      CefParseJSON(settings_raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!settings_root || settings_root->GetType() != VTYPE_DICTIONARY) {
+    Failure(callback, request, "settings_unavailable",
+            "Failed to read settings");
+    return true;
+  }
+
+  CefRefPtr<CefDictionaryValue> settings_dict = settings_root->GetDictionary();
+  const std::string key = (purpose == "cache") ? "cacheDir" : "downloadDir";
+  settings_dict->SetString(key, path);
+
+  CefRefPtr<CefValue> out_root = CefValue::Create();
+  out_root->SetDictionary(settings_dict);
+  CefString out_json = CefWriteJSON(out_root, JSON_WRITER_DEFAULT);
+  if (out_json.empty()) {
+    Failure(callback, request, "settings_serialize_failed",
+            "Failed to serialize settings");
+    return true;
+  }
+
+  std::string normalized;
+  if (!otf::NormalizeSettingsJson(out_json.ToString(), &normalized) ||
+      !otf::SaveSettingsJson(normalized, nullptr)) {
+    Failure(callback, request, "settings_save_failed",
+            "Failed to save settings");
+    return true;
+  }
+
+  std::string pending = otf::LoadPendingPathsJson();
+  if (pending == "{}") {
+    pending = "{\"" + key + "\":\"" + otf::JsonEscape(path) + "\"}";
+  } else {
+    CefRefPtr<CefValue> pending_root =
+        CefParseJSON(pending, JSON_PARSER_ALLOW_TRAILING_COMMAS);
+    if (pending_root && pending_root->GetType() == VTYPE_DICTIONARY) {
+      CefRefPtr<CefDictionaryValue> pending_dict =
+          pending_root->GetDictionary();
+      pending_dict->SetString(key, path);
+      CefRefPtr<CefValue> pending_out = CefValue::Create();
+      pending_out->SetDictionary(pending_dict);
+      CefString pending_json = CefWriteJSON(pending_out, JSON_WRITER_DEFAULT);
+      if (!pending_json.empty()) {
+        pending = pending_json.ToString();
+      }
+    }
+  }
+  otf::SavePendingPathsJson(pending);
+
+  handler->SendEvent(JsonObjectBuilder()
+                         .AddString("key", "settings-changed")
+                         .AddRaw("settings", normalized)
+                         .Build());
+  SuccessRaw(callback, request, normalized);
+  return true;
+}
+
 }  // namespace
 
 bool HandleSettingsRpc(
@@ -161,9 +334,7 @@ bool HandleSettingsRpc(
     CefRefPtr<CefBrowser> browser,
     CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback,
     const NativeRpcRequest& request) {
-  (void)browser;
-  if (!handler ||
-      (request.method != "settings.get" && request.method != "settings.set")) {
+  if (!handler || request.method.rfind("settings.", 0) != 0) {
     return false;
   }
 
@@ -176,6 +347,63 @@ bool HandleSettingsRpc(
     SuccessRaw(callback, request,
                handler->guest_session_active_ ? "{}" : otf::LoadSettingsJson());
     return true;
+  }
+
+  if (request.method == "settings.versionInfo") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    SuccessRaw(callback, request, BuildVersionInfoJson());
+    return true;
+  }
+
+  if (request.method == "settings.storagePaths") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    SuccessRaw(callback, request, BuildStoragePathsJson());
+    return true;
+  }
+
+  if (request.method == "settings.storageTotals") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    SuccessRaw(callback, request, otf::BuildStorageTotalsJson());
+    return true;
+  }
+
+  if (request.method == "settings.selectFolder") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (!browser) {
+      Failure(callback, request, "browser_unavailable",
+              "No browser available for folder selection");
+      return true;
+    }
+    browser->GetHost()->RunFileDialog(
+        FILE_DIALOG_OPEN_FOLDER, "Select Directory", "",
+        std::vector<CefString>(),
+        new RpcFolderPickerCallback(callback, request));
+    return true;
+  }
+
+  if (request.method == "settings.setStoragePath") {
+    if (handler->guest_session_active_) {
+      Failure(callback, request, "guest_session",
+              "Storage paths cannot be changed in guest sessions");
+      return true;
+    }
+    return SaveStoragePath(handler, callback, request);
+  }
+
+  if (request.method != "settings.set") {
+    return false;
   }
 
   if (handler->guest_session_active_) {

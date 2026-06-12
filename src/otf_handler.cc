@@ -2170,18 +2170,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "get-version-info") {
-      const std::string chromium = std::to_string(CHROME_VERSION_MAJOR) + "." +
-                                   std::to_string(CHROME_VERSION_MINOR) + "." +
-                                   std::to_string(CHROME_VERSION_BUILD) + "." +
-                                   std::to_string(CHROME_VERSION_PATCH);
-      std::string json = std::string("{\"browser\":\"") + OTF_VERSION +
-                         "\",\"chromium\":\"" + chromium +
-                         "\",\"cef\":\"" + CEF_VERSION + "\"}";
-      callback->Success(json);
-      return true;
-    }
-
     if (msg == "subscribe-events") {
       handler->subscription_callback_ = callback;
       return true;
@@ -2901,11 +2889,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    if (msg == "get-settings") {
-      callback->Success(handler->guest_session_active_ ? "{}" : otf::LoadSettingsJson());
-      return true;
-    }
-
     if (msg == "get-current-certificate") {
       OtfApp* app = OtfApp::GetInstance();
       const int tab_id = app ? app->GetCurrentTabId() : -1;
@@ -2928,24 +2911,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
           handler->tab_manager_ ? handler->tab_manager_->GetBrowser(tab_id) : nullptr;
       callback->Success(
           BuildCurrentCertificateJson(tab_browser, handler, tab_id, nullptr, nullptr));
-      return true;
-    }
-
-    if (msg.find("set-settings:") == 0) {
-      if (handler->guest_session_active_) {
-        callback->Failure(1, "Settings are disabled in guest sessions");
-        return true;
-      }
-      std::string normalized_json;
-      if (otf::SaveSettingsJson(msg.substr(13), &normalized_json)) {
-        callback->Success("");
-        handler->SendEvent(JsonObjectBuilder()
-                               .AddString("key", "settings-changed")
-                               .AddRaw("settings", normalized_json)
-                               .Build());
-      } else {
-        callback->Failure(1, "Invalid settings payload");
-      }
       return true;
     }
 
@@ -3088,162 +3053,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
       return true;
     }
 
-    // --- Folder picker ---
-    if (msg == "select-folder") {
-      class FolderPickerCallback : public CefRunFileDialogCallback {
-       public:
-        explicit FolderPickerCallback(CefRefPtr<Callback> cb)
-            : callback_(cb) {}
-        void OnFileDialogDismissed(
-            const std::vector<CefString>& file_paths) override {
-          if (!file_paths.empty()) {
-            callback_->Success(file_paths[0].ToString());
-          } else {
-            callback_->Failure(1, "cancelled");
-          }
-        }
-       private:
-        CefRefPtr<Callback> callback_;
-        IMPLEMENT_REFCOUNTING(FolderPickerCallback);
-      };
-      browser->GetHost()->RunFileDialog(
-          FILE_DIALOG_OPEN_FOLDER, "Select Directory", "",
-          std::vector<CefString>(),
-          new FolderPickerCallback(callback));
-      return true;
-    }
-
-    // --- Storage paths ---
-    if (msg == "get-storage-paths") {
-      JsonObjectBuilder b;
-      // Active (runtime) paths
-      b.AddString("activeDataDir",
-                   otf::PathToUtf8(otf::GetActiveDataDir()));
-      b.AddString("activeCacheDir",
-                   otf::PathToUtf8(otf::GetActiveCacheDir()));
-      b.AddString("activeDownloadsDir",
-                   otf::PathToUtf8(otf::GetActiveDownloadsDir()));
-      // Configured (settings.json) paths
-      const auto configured_cache = otf::GetConfiguredCacheDir();
-      const auto configured_downloads = otf::GetConfiguredDownloadsDir();
-      if (!configured_cache.empty()) {
-        b.AddString("configuredCacheDir",
-                     otf::PathToUtf8(configured_cache));
-      }
-      if (!configured_downloads.empty()) {
-        b.AddString("configuredDownloadsDir",
-                     otf::PathToUtf8(configured_downloads));
-      }
-      // Pending changes (restart required)
-      const std::string pending_raw = otf::LoadPendingPathsJson();
-      if (pending_raw != "{}") {
-        CefRefPtr<CefValue> pending_parsed = CefParseJSON(pending_raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
-        if (pending_parsed && pending_parsed->GetType() == VTYPE_DICTIONARY) {
-          CefRefPtr<CefDictionaryValue> pdict = pending_parsed->GetDictionary();
-          if (pdict->HasKey("cacheDir"))
-            b.AddString("pendingCacheDir", pdict->GetString("cacheDir").ToString());
-          if (pdict->HasKey("downloadDir"))
-            b.AddString("pendingDownloadsDir", pdict->GetString("downloadDir").ToString());
-        }
-      }
-      // Default (fallback) paths
-      b.AddString("defaultCacheDir",
-                   otf::PathToUtf8(otf::GetAppCacheDir()));
-      b.AddString("defaultDownloadsDir",
-                   otf::PathToUtf8(otf::GetDownloadsDir()));
-      // Folder sizes in bytes
-      const auto active_cache = otf::GetActiveCacheDir();
-      const auto active_downloads = otf::GetActiveDownloadsDir();
-      b.AddRaw("cacheSize", std::to_string(otf::GetDirectorySize(active_cache)));
-      b.AddRaw("downloadsSize", std::to_string(otf::GetDirectorySize(active_downloads)));
-      callback->Success(b.Build());
-      return true;
-    }
-
-    if (msg.rfind("set-storage-path:", 0) == 0) {
-      if (handler->guest_session_active_) {
-        callback->Failure(1, "Storage paths cannot be changed in guest sessions");
-        return true;
-      }
-      const std::string payload = msg.substr(17);
-      CefRefPtr<CefValue> parsed = CefParseJSON(payload, JSON_PARSER_ALLOW_TRAILING_COMMAS);
-      std::string purpose, path;
-      if (parsed && parsed->GetType() == VTYPE_DICTIONARY) {
-        CefRefPtr<CefDictionaryValue> d = parsed->GetDictionary();
-        if (d->HasKey("purpose")) purpose = d->GetString("purpose").ToString();
-        if (d->HasKey("path")) path = d->GetString("path").ToString();
-      }
-      if (purpose.empty() || path.empty()) {
-        callback->Failure(1, "Invalid payload format");
-        return true;
-      }
-
-      // Validate
-      std::string error = otf::ValidateStoragePath(path, purpose);
-      if (!error.empty()) {
-        callback->Failure(1, error);
-        return true;
-      }
-
-      // Save to settings.json via CefParseJSON manipulation
-      std::string settings_raw = otf::LoadSettingsJson();
-      CefRefPtr<CefValue> settings_root =
-          CefParseJSON(settings_raw, JSON_PARSER_ALLOW_TRAILING_COMMAS);
-      if (!settings_root || settings_root->GetType() != VTYPE_DICTIONARY) {
-        callback->Failure(1, "Failed to read settings");
-        return true;
-      }
-      CefRefPtr<CefDictionaryValue> settings_dict = settings_root->GetDictionary();
-      const std::string key = (purpose == "cache") ? "cacheDir" : "downloadDir";
-      settings_dict->SetString(key, path);
-
-      CefRefPtr<CefValue> out_root = CefValue::Create();
-      out_root->SetDictionary(settings_dict);
-      CefString out_json = CefWriteJSON(out_root, JSON_WRITER_DEFAULT);
-      if (out_json.empty()) {
-        callback->Failure(1, "Failed to serialize settings");
-        return true;
-      }
-      std::string normalized;
-      if (!otf::NormalizeSettingsJson(out_json.ToString(), &normalized)) {
-        callback->Failure(1, "Failed to normalize settings");
-        return true;
-      }
-      if (!otf::SaveSettingsJson(normalized, nullptr)) {
-        callback->Failure(1, "Failed to save settings");
-        return true;
-      }
-
-      // Write pending_paths.json
-      std::string pending = otf::LoadPendingPathsJson();
-      if (pending == "{}") {
-        pending = "{\"" + key + "\":\"" + otf::JsonEscape(path) + "\"}";
-      } else {
-        // Update existing pending JSON
-        CefRefPtr<CefValue> pending_root =
-            CefParseJSON(pending, JSON_PARSER_ALLOW_TRAILING_COMMAS);
-        if (pending_root && pending_root->GetType() == VTYPE_DICTIONARY) {
-          CefRefPtr<CefDictionaryValue> pending_dict = pending_root->GetDictionary();
-          pending_dict->SetString(key, path);
-          CefRefPtr<CefValue> pending_out = CefValue::Create();
-          pending_out->SetDictionary(pending_dict);
-          CefString pending_json = CefWriteJSON(pending_out, JSON_WRITER_DEFAULT);
-          if (!pending_json.empty()) {
-            pending = pending_json.ToString();
-          }
-        }
-      }
-      otf::SavePendingPathsJson(pending);
-
-      // Notify settings changed
-      handler->SendEvent(JsonObjectBuilder()
-                             .AddString("key", "settings-changed")
-                             .AddRaw("settings", normalized)
-                             .Build());
-      callback->Success("");
-      return true;
-    }
-
     // --- Clear browsing data ---
     if (msg == "get-site-usage-list") {
       std::vector<std::string> history_origins;
@@ -3304,11 +3113,6 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         QuerySiteUsageOverCdp(handler, browser, callback,
                               std::move(history_origins), {}, {});
       }
-      return true;
-    }
-
-    if (msg == "get-storage-totals") {
-      callback->Success(otf::BuildStorageTotalsJson());
       return true;
     }
 

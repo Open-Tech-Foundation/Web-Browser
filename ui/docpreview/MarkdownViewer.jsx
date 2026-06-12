@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
+import { nativeRequest } from '../src/shared/nativeRequest';
 
 marked.setOptions({
   breaks: true,
@@ -24,15 +25,9 @@ const MarkdownViewer = ({ content }) => {
 
   useEffect(() => {
     if (!window.cefQuery) return;
-    window.cefQuery({
-      request: 'get-settings',
-      onSuccess: (response) => {
-        try {
-          const settings = JSON.parse(response);
-          applyTheme(settings.appearanceMode || 'auto');
-        } catch { /* ignore */ }
-      },
-    });
+    nativeRequest({ method: 'settings.get' })
+      .then((settings) => applyTheme(settings.appearanceMode || 'auto'))
+      .catch(() => {});
   }, []);
 
   const html = useMemo(() => {

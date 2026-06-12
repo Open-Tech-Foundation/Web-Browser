@@ -242,12 +242,9 @@ const Settings = () => {
 
   useEffect(() => {
     if (window.cefQuery) {
-      window.cefQuery({
-        request: 'get-version-info',
-        onSuccess: (response) => {
-          try { setVersionInfo(JSON.parse(response)); } catch (_) {}
-        }
-      });
+      nativeRequest({ method: 'settings.versionInfo' })
+        .then((info) => setVersionInfo(info))
+        .catch(() => {});
     }
   }, []);
 
@@ -267,14 +264,9 @@ const Settings = () => {
           setAppearanceMode(settings.appearanceMode || 'auto');
         })
         .catch((e) => console.error('Failed to load settings:', e));
-      window.cefQuery({
-        request: 'get-storage-paths',
-        onSuccess: (response) => {
-          try {
-            setStoragePaths(JSON.parse(response));
-          } catch (_) {}
-        }
-      });
+      nativeRequest({ method: 'settings.storagePaths' })
+        .then((paths) => setStoragePaths(paths))
+        .catch(() => {});
       window.cefQuery({
         request: 'get-site-usage-list',
         onSuccess: (response) => {
@@ -283,14 +275,9 @@ const Settings = () => {
           } catch (_) {}
         }
       });
-      window.cefQuery({
-        request: 'get-storage-totals',
-        onSuccess: (response) => {
-          try {
-            setStorageTotals(JSON.parse(response));
-          } catch (_) {}
-        }
-      });
+      nativeRequest({ method: 'settings.storageTotals' })
+        .then((totals) => setStorageTotals(totals))
+        .catch(() => {});
     }
   }, []);
 
@@ -963,32 +950,30 @@ const Settings = () => {
                                 onClick={() => {
                                   setRowErrors(prev => ({ ...prev, [key]: '' }));
                                   setStorageSuccess('');
-                                  window.cefQuery({
-                                    request: 'select-folder',
-                                    onSuccess: (selected) => {
-                                      if (selected && selected !== 'cancelled') {
-                                        window.cefQuery({
-                                          request: `set-storage-path:${JSON.stringify({ path: selected, purpose: key === 'cacheDir' ? 'cache' : 'downloads' })}`,
-                                          onSuccess: () => {
-                                            setRowErrors(prev => ({ ...prev, [key]: '' }));
-                                            setStorageSuccess(`${label} location changed successfully. Changes will apply after restart.`);
-                                            window.cefQuery({
-                                              request: 'get-storage-paths',
-                                              onSuccess: (r) => {
-                                                try { setStoragePaths(JSON.parse(r)); } catch (_) {}
-                                              }
-                                            });
-                                          },
-                                          onFailure: (code, msg) => {
-                                            const errMsg = msg || 'Failed to change path.';
-                                            setRowErrors(prev => ({ ...prev, [key]: errMsg }));
-                                            setTimeout(() => setRowErrors(prev => ({ ...prev, [key]: '' })), 6000);
-                                          }
-                                        });
-                                      }
-                                    },
-                                    onFailure: () => {}
-                                  });
+                                  nativeRequest({ method: 'settings.selectFolder' })
+                                    .then((selected) => {
+                                      if (!selected || selected === 'cancelled') return null;
+                                      return nativeRequest({
+                                        method: 'settings.setStoragePath',
+                                        params: {
+                                          path: selected,
+                                          purpose: key === 'cacheDir' ? 'cache' : 'downloads',
+                                        },
+                                      });
+                                    })
+                                    .then((saved) => {
+                                      if (!saved) return;
+                                      setRowErrors(prev => ({ ...prev, [key]: '' }));
+                                      setStorageSuccess(`${label} location changed successfully. Changes will apply after restart.`);
+                                      nativeRequest({ method: 'settings.storagePaths' })
+                                        .then((paths) => setStoragePaths(paths))
+                                        .catch(() => {});
+                                    })
+                                    .catch((err) => {
+                                      const errMsg = err?.message || 'Failed to change path.';
+                                      setRowErrors(prev => ({ ...prev, [key]: errMsg }));
+                                      setTimeout(() => setRowErrors(prev => ({ ...prev, [key]: '' })), 6000);
+                                    });
                                 }}
                                 className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-orange-500/10 cursor-pointer"
                               >
