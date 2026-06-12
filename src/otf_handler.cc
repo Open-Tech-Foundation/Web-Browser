@@ -199,6 +199,7 @@ const int MENU_ID_TAB_UNPIN = 10012;
 const int MENU_ID_PREVIEW_DOC = 10013;
 const int MENU_ID_PASTE_GO = 10014;
 const int MENU_ID_TAB_ADD_TO_SPLIT = 10015;
+const int MENU_ID_RELOAD = 10016;
 constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
     IDC_VIEW_SOURCE,
     IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
@@ -5511,6 +5512,12 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   if (is_editable) {
     model->AddItem(MENU_ID_PASTE_GO, "Paste and Go");
   }
+
+  if (params->GetLinkUrl().empty() && search_text.empty() &&
+      !params->HasImageContents() && !is_editable) {
+    model->AddItem(MENU_ID_RELOAD, "Reload");
+  }
+
   if (ui_browser_ && browser->IsSame(ui_browser_) && !is_editable &&
       params->GetLinkUrl().empty() && search_text.empty() &&
       !(params->HasImageContents() && !params->GetSourceUrl().empty())) {
@@ -5796,6 +5803,11 @@ bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
     if (OtfApp* app = OtfApp::GetInstance()) {
       app->ShowToast("copy", "Email copied");
     }
+    return true;
+  }
+
+  if (command_id == MENU_ID_RELOAD) {
+    browser->Reload();
     return true;
   }
 
