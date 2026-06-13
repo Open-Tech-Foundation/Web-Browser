@@ -47,6 +47,10 @@ bool ReadTabIdParams(CefRefPtr<CefDictionaryValue> params,
          ReadIntParam(params, "tabId", tab_id, error);
 }
 
+bool RequireNoParams(const NativeRpcRequest& request, std::string* error) {
+  return request.params && HasOnlyParamKeys(request.params, {}, error);
+}
+
 std::string ConsoleLogsJson(const std::deque<ConsoleEntry>& logs) {
   std::string json = "[";
   bool first = true;
@@ -86,12 +90,40 @@ bool HandleConsoleRpc(
   (void)browser;
   if (!handler ||
       (request.method != "console.logs" &&
+       request.method != "console.subscribe" &&
        request.method != "console.clear" &&
        request.method != "console.setWidth")) {
     return false;
   }
 
   std::string error;
+  if (request.method == "console.subscribe") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    handler->console_subscription_ = callback;
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      if (handler->tab_manager_) {
+        const int tab_id = app->GetCurrentTabId();
+        const auto& logs = handler->tab_manager_->GetConsoleLogs(tab_id);
+        for (const auto& entry : logs) {
+          callback->Success(JsonObjectBuilder()
+                                .AddString("key", "console-entry")
+                                .AddInt("tabId", tab_id)
+                                .AddInt("level", entry.level)
+                                .AddString("message", entry.message)
+                                .AddString("source", entry.source)
+                                .AddInt("line", entry.line)
+                                .AddRaw("ts",
+                                        std::to_string(entry.timestamp_ms))
+                                .Build());
+        }
+      }
+    }
+    return true;
+  }
+
   if (request.method == "console.logs") {
     int tab_id = -1;
     if (!ReadTabIdParams(request.params, &tab_id, &error)) {

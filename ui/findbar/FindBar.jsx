@@ -118,7 +118,11 @@ const FindBar = () => {
   useEffect(() => {
     if (!window.cefQuery) return;
     const sub = window.cefQuery({
-      request: 'findbar-subscribe',
+      request: JSON.stringify({
+        id: `findbar-subscription-${Date.now()}`,
+        method: 'findbar.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (json) => {
         try {

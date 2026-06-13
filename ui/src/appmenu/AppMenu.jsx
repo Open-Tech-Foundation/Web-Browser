@@ -15,16 +15,6 @@ const AppMenu = () => {
       nativeRequest({ method: rpcMethods[request] })
         .then(hideAppMenu)
         .catch(() => {});
-      return;
-    }
-    if (window.cefQuery) {
-      window.cefQuery({
-        request,
-        onSuccess: () => {
-          // Hide menu after action
-          hideAppMenu();
-        }
-      });
     }
   };
 

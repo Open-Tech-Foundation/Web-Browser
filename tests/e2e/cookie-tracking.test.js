@@ -57,8 +57,21 @@ test('native cookie tracking observes server, HttpOnly, and JavaScript cookie wr
         browser.cdp,
         `new Promise((resolve) => {
           window.cefQuery({
-            request: 'get-tracked-cookies',
-            onSuccess: (response) => resolve({ ok: true, response }),
+            request: JSON.stringify({
+              id: 'e2e-cookie-tracking-list',
+              method: 'cookieTracking.list',
+              params: {},
+            }),
+            onSuccess: (response) => {
+              try {
+                const parsed = JSON.parse(response);
+                resolve(parsed?.ok
+                  ? { ok: true, response: JSON.stringify(parsed.result) }
+                  : { ok: false, error: parsed?.error?.message || 'rpc failed' });
+              } catch (_) {
+                resolve({ ok: false, error: 'bad json' });
+              }
+            },
             onFailure: (code, message) => resolve({ ok: false, error: message || String(code) }),
           });
         })`,

@@ -142,12 +142,22 @@ bool HandleFindbarRpc(
   (void)browser;
   if (!handler ||
       (request.method != "findbar.find" &&
+       request.method != "findbar.subscribe" &&
        request.method != "findbar.stop" &&
        request.method != "findbar.close")) {
     return false;
   }
 
   std::string error;
+  if (request.method == "findbar.subscribe") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    handler->findbar_subscription_ = callback;
+    return true;
+  }
+
   if (request.method == "findbar.find") {
     FindbarFindRequest findbar_request;
     if (!ReadFindParams(request.params, &findbar_request, &error)) {

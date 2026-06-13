@@ -15,6 +15,7 @@
 #include "include/wrapper/cef_message_router.h"
 #include "otf_browser_shell.h"
 #include "otf_devtools_bridge.h"
+#include "otf_native_rpc.h"
 #include "otf_store.h"
 
 namespace otf {
@@ -345,6 +346,15 @@ class OtfHandler : public CefClient,
                                           uint64_t decode_nonce,
                                           int received_bytes,
                                           int total_bytes);
+  bool HandleImagePreviewDecodeRequest(
+      CefRefPtr<CefBrowser> browser,
+      CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback,
+      const NativeRpcRequest& request,
+      bool thumbnail_request,
+      uint64_t decode_nonce,
+      int page_index,
+      int explicit_tab_id,
+      const std::string& source_url);
   void SetImagePreviewPageForTab(int tab_id, int page);
   int GetImagePreviewPageForTab(int tab_id) const;
   void SetImagePreviewPageCountForTab(int tab_id, int count);

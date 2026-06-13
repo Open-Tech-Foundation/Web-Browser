@@ -342,57 +342,56 @@ const ImagePreview = () => {
     let toastTimer = null;
     setIsDecoding(true);
     setDownloadProgress(isRemote ? { percent: 0, receivedBytes: 0, totalBytes: -1 } : null);
-    const tabIdPrefix = previewTabIdRef.current >= 0 ? `:${previewTabIdRef.current}` : '';
-    window.cefQuery({
-      request: `preview-image:${decodeNonce}:${currentPage}${tabIdPrefix}:${url}`,
-      onSuccess: (json) => {
+    nativeRequest({
+      method: 'imagePreview.decode',
+      params: withPreviewTabParams({
+        url,
+        page: currentPage,
+        decodeNonce: String(decodeNonce),
+      }),
+    })
+      .then((res) => {
         if (cancelled) return;
-        try {
-          const res = JSON.parse(json);
-          if (res && res.stale) {
-            setIsDecoding(false);
-            return;
-          }
-          if (res && res.error) {
-            setDisplayUrl('');
-            setPreviewError(res.error);
-            setToast(res.error);
-            toastTimer = setTimeout(() => setToast(''), 3000);
-            setIsDecoding(false);
-            return;
-          }
-          const newPage = typeof res.currentPage === 'number' ? res.currentPage : currentPage;
-          displayedPageRef.current = newPage;
-          hasSnapshotRef.current = true;
-          setDownloadProgress(null);
-          setDisplayUrl(res.displayUrl);
-          setPreviewError('');
-          setToast('');
-          if (typeof res.fileSizeBytes === 'number' && res.fileSizeBytes >= 0) {
-            hasBackendInfoRef.current = true;
-            setFileSize(formatBytes(res.fileSizeBytes));
-          }
-          if (typeof res.format === 'string' && res.format) {
-            setFormatLabel(res.format);
-          }
-          setPageCount(res.pageCount || 1);
-          setCurrentPage(newPage);
+        if (res && res.stale) {
           setIsDecoding(false);
-        } catch (e) {
-          console.error("Failed to parse TIFF response:", e);
-          setIsDecoding(false);
+          return;
         }
-      },
-      onFailure: (_, msg) => {
+        if (res && res.error) {
+          setDisplayUrl('');
+          setPreviewError(res.error);
+          setToast(res.error);
+          toastTimer = setTimeout(() => setToast(''), 3000);
+          setIsDecoding(false);
+          return;
+        }
+        const newPage = typeof res.currentPage === 'number' ? res.currentPage : currentPage;
+        displayedPageRef.current = newPage;
+        hasSnapshotRef.current = true;
+        setDownloadProgress(null);
+        setDisplayUrl(res.displayUrl);
+        setPreviewError('');
+        setToast('');
+        if (typeof res.fileSizeBytes === 'number' && res.fileSizeBytes >= 0) {
+          hasBackendInfoRef.current = true;
+          setFileSize(formatBytes(res.fileSizeBytes));
+        }
+        if (typeof res.format === 'string' && res.format) {
+          setFormatLabel(res.format);
+        }
+        setPageCount(res.pageCount || 1);
+        setCurrentPage(newPage);
+        setIsDecoding(false);
+      })
+      .catch((err) => {
         if (cancelled) return;
-        console.error("Image preview fetch failed:", msg);
+        const message = err?.message || "Failed to render image";
+        console.error("Image preview fetch failed:", message);
         setDisplayUrl('');
         setDownloadProgress(null);
-        setToast(msg || "Failed to render image");
+        setToast(message);
         toastTimer = setTimeout(() => setToast(''), 3000);
         setIsDecoding(false);
-      }
-    });
+      });
     return () => {
       cancelled = true;
       if (toastTimer) clearTimeout(toastTimer);
@@ -409,22 +408,23 @@ const ImagePreview = () => {
     let cancelled = false;
     const nonces = [];
     const results = new Array(pageCount).fill(null);
-    const tabIdPrefix = previewTabIdRef.current >= 0 ? `:${previewTabIdRef.current}` : '';
     for (let p = 0; p < pageCount; p++) {
       const nonce = Date.now() + p;
       nonces.push(nonce);
-      window.cefQuery({
-        request: `preview-image-thumb:${nonce}:${p}${tabIdPrefix}:${url}`,
-        onSuccess: (json) => {
+      nativeRequest({
+        method: 'imagePreview.thumbnail',
+        params: withPreviewTabParams({
+          url,
+          page: p,
+          decodeNonce: String(nonce),
+        }),
+      })
+        .then((res) => {
           if (cancelled) return;
-          try {
-            const res = JSON.parse(json);
-            if (res && res.displayUrl) results[p] = res.displayUrl;
-          } catch (_) {}
+          if (res && res.displayUrl) results[p] = res.displayUrl;
           if (results.every(r => r !== null)) setThumbnails([...results]);
-        },
-        onFailure: () => {},
-      });
+        })
+        .catch(() => {});
     }
     return () => { cancelled = true; };
   }, [url, pageCount, isTiffPreview]);

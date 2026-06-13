@@ -617,7 +617,11 @@ export default function ConsolePanel() {
     if (!window.cefQuery) return;
 
     window.cefQuery({
-      request: 'subscribe-console',
+      request: JSON.stringify({
+        id: `console-subscribe-${Date.now()}`,
+        method: 'console.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (eventStr) => {
         try {

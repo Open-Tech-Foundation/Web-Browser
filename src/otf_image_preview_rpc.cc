@@ -1,5 +1,6 @@
 #include "otf_image_preview_rpc.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -95,6 +96,36 @@ bool ReadRequiredString(CefRefPtr<CefDictionaryValue> params,
   }
   if (value) *value = params->GetString(key).ToString();
   return true;
+}
+
+bool ReadRequiredUint64(CefRefPtr<CefDictionaryValue> params,
+                        const std::string& key,
+                        uint64_t* value,
+                        std::string* error) {
+  if (!params || !params->HasKey(key)) {
+    if (error) *error = key + " must be a string or integer";
+    return false;
+  }
+  if (params->GetType(key) == VTYPE_STRING) {
+    const auto parsed = ParseUint64Strict(params->GetString(key).ToString());
+    if (!parsed) {
+      if (error) *error = key + " must be an unsigned integer";
+      return false;
+    }
+    if (value) *value = *parsed;
+    return true;
+  }
+  if (params->GetType(key) == VTYPE_INT) {
+    const int parsed = params->GetInt(key);
+    if (parsed < 0) {
+      if (error) *error = key + " must be non-negative";
+      return false;
+    }
+    if (value) *value = static_cast<uint64_t>(parsed);
+    return true;
+  }
+  if (error) *error = key + " must be a string or integer";
+  return false;
 }
 
 void Failure(CefRefPtr<Callback> callback,
@@ -423,6 +454,34 @@ bool HandleGetSize(OtfHandler* handler,
   return true;
 }
 
+bool HandleDecode(OtfHandler* handler,
+                  CefRefPtr<CefBrowser> browser,
+                  CefRefPtr<Callback> callback,
+                  const NativeRpcRequest& request,
+                  bool thumbnail_request) {
+  std::string error;
+  if (!HasOnlyParamKeys(request.params, {"tabId", "url", "page", "decodeNonce"},
+                        &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  int explicit_tab_id = -1;
+  int page = 0;
+  uint64_t decode_nonce = 0;
+  std::string url;
+  if (!ReadOptionalTabId(request.params, &explicit_tab_id, &error) ||
+      !ReadRequiredString(request.params, "url", &url, &error) ||
+      !ReadRequiredInt(request.params, "page", &page, &error) ||
+      !ReadRequiredUint64(request.params, "decodeNonce", &decode_nonce, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+
+  return handler->HandleImagePreviewDecodeRequest(
+      browser, callback, request, thumbnail_request, decode_nonce, page,
+      explicit_tab_id, url);
+}
+
 }  // namespace
 
 bool HandleImagePreviewRpc(
@@ -436,7 +495,9 @@ bool HandleImagePreviewRpc(
        request.method != "imagePreview.setInfoVisible" &&
        request.method != "imagePreview.close" &&
        request.method != "imagePreview.download" &&
-       request.method != "imagePreview.getSize")) {
+       request.method != "imagePreview.getSize" &&
+       request.method != "imagePreview.decode" &&
+       request.method != "imagePreview.thumbnail")) {
     return false;
   }
 
@@ -457,6 +518,12 @@ bool HandleImagePreviewRpc(
   }
   if (request.method == "imagePreview.getSize") {
     return HandleGetSize(handler, browser, callback, request);
+  }
+  if (request.method == "imagePreview.decode") {
+    return HandleDecode(handler, browser, callback, request, false);
+  }
+  if (request.method == "imagePreview.thumbnail") {
+    return HandleDecode(handler, browser, callback, request, true);
   }
   return true;
 }
