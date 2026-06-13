@@ -1,23 +1,9 @@
 #include "otf_handler.h"
 #include "otf_app.h"
-#include "otf_clear_data_rpc.h"
-#include "otf_console_rpc.h"
-#include "otf_cookie_tracking_rpc.h"
-#include "otf_doc_preview_rpc.h"
-#include "otf_downloads_rpc.h"
-#include "otf_findbar_rpc.h"
 #include "otf_history_bookmarks_rpc.h"
-#include "otf_image_preview_rpc.h"
 #include "otf_keyboard_shortcuts.h"
-#include "otf_navigation_rpc.h"
 #include "otf_native_rpc.h"
-#include "otf_search_rpc.h"
-#include "otf_settings_rpc.h"
-#include "otf_permissions_rpc.h"
-#include "otf_site_data_rpc.h"
-#include "otf_tabs_rpc.h"
-#include "otf_ui_rpc.h"
-#include "otf_workspaces_rpc.h"
+#include "otf_rpc_dispatcher.h"
 
 #include <algorithm>
 #include <array>
@@ -1634,52 +1620,7 @@ class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
         callback->Failure(1, parse_error);
         return true;
       }
-      if (HandleSiteDataRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleClearDataRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleSettingsRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleHistoryBookmarksRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleNavigationRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleDownloadsRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleImagePreviewRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleDocPreviewRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleWorkspacesRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleUiRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleSearchRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandlePermissionsRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleFindbarRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleConsoleRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleCookieTrackingRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      if (HandleTabsRpc(handler, browser, callback, rpc_request)) {
+      if (DispatchNativeRpc(handler, browser, callback, rpc_request)) {
         return true;
       }
       NativeRpcFailure(callback, rpc_request, "unknown_method",
