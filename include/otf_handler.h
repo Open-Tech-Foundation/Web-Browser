@@ -328,11 +328,14 @@ class OtfHandler : public CefClient,
   std::map<int, int> tab_image_preview_pages_;
   std::map<int, int> tab_image_preview_page_counts_;
   std::map<int, uint64_t> tab_image_preview_decode_nonces_;
+  void ScheduleImagePreviewPushForTab(int tab_id);
+  void ScheduleDelayedImagePreviewPushForTab(int tab_id, int64_t delay_ms);
   void SetImagePreviewUrlForTab(int tab_id, const std::string& url);
   void SetImagePreviewLocalFileForTab(int tab_id,
                                       const std::string& public_url,
                                       const std::string& file_path);
   void ClearInlineImagePreviewForTab(int tab_id);
+  void ClearImagePreviewStateForTab(int tab_id);
   std::string GetImagePreviewUrlForTab(int tab_id) const;
   std::string GetImagePreviewLocalFileForTab(int tab_id) const;
   void SetImagePreviewFileSizeForTab(int tab_id, int64_t file_size_bytes);
