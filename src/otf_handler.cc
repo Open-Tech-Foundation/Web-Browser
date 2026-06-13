@@ -2,8 +2,8 @@
 #include "otf_app.h"
 #include "otf_history_bookmarks_rpc.h"
 #include "otf_keyboard_shortcuts.h"
+#include "otf_message_router_handler.h"
 #include "otf_native_rpc.h"
-#include "otf_rpc_dispatcher.h"
 
 #include <algorithm>
 #include <array>
@@ -1564,73 +1564,6 @@ static void ApplyJsPermission(CefBrowserSettings& settings,
     settings.javascript = STATE_DISABLED;
   }
 }
-
-// Handle messages from the UI Shell (index.html)
-class OtfMessageRouterHandler : public CefMessageRouterBrowserSide::Handler {
- public:
-  OtfMessageRouterHandler() {}
-
-  bool OnQuery(CefRefPtr<CefBrowser> browser,
-               CefRefPtr<CefFrame> frame,
-               int64_t query_id,
-               const CefString& request,
-               bool persistent,
-               CefRefPtr<Callback> callback) override {
-    // The cefQuery bridge exposes privileged operations (settings I/O, tab
-    // navigation, downloads, restart, etc.). Only the internal UI surface
-    // (browser:// or the dev-ui server) is trusted to
-    // call it — any other frame is denied outright. Web content should never
-    // see this API even though CEF injects the JS function globally.
-    const std::string frame_url = frame ? frame->GetURL().ToString() : "";
-    bool trusted_frame = IsInternalBrowserUiUrl(frame_url);
-    if (!trusted_frame) {
-      // Dev mode: Vite serves the shell at the dev-ui-url root with no
-      // /index.html in the path, so the suffix check above misses it.
-      CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
-      if (cmd && cmd->HasSwitch("dev-ui-url")) {
-        const std::string dev_ui_url = cmd->GetSwitchValue("dev-ui-url").ToString();
-        if (!dev_ui_url.empty() &&
-            (frame_url == dev_ui_url || frame_url == dev_ui_url + "/" ||
-             frame_url.rfind(dev_ui_url + "/", 0) == 0)) {
-          trusted_frame = true;
-        }
-      }
-    }
-    if (!trusted_frame) {
-      callback->Failure(1, "denied");
-      return true;
-    }
-
-    // Defense-in-depth cap: even trusted frames shouldn't push multi-megabyte
-    // payloads through the synchronous bridge.
-    constexpr size_t kMaxRequestBytes = 64 * 1024;
-    if (request.size() > kMaxRequestBytes) {
-      callback->Failure(1, "request too large");
-      return true;
-    }
-
-    OtfHandler* handler = OtfHandler::GetInstance();
-    if (!handler || !handler->tab_manager_) return false;
-    const std::string msg = request.ToString();
-    const size_t first_non_space = msg.find_first_not_of(" \t\r\n");
-    if (first_non_space != std::string::npos && msg[first_non_space] == '{') {
-      NativeRpcRequest rpc_request;
-      std::string parse_error;
-      if (!ParseNativeRpcRequest(msg, &rpc_request, &parse_error)) {
-        callback->Failure(1, parse_error);
-        return true;
-      }
-      if (DispatchNativeRpc(handler, browser, callback, rpc_request)) {
-        return true;
-      }
-      NativeRpcFailure(callback, rpc_request, "unknown_method",
-                       "Unknown native RPC method");
-      return true;
-    }
-
-    return false;
-  }
-};
 
 }  // namespace
 
@@ -3356,6 +3289,14 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     } else if (tab_manager_) {
       int tab_id = browser_view->GetID();
       tab_manager_->SetBrowser(tab_id, browser);
+      OtfApp* app = OtfApp::GetInstance();
+      if (app) {
+        bool is_visible = (tab_id == app->GetCurrentTabId());
+        if (app->HasSplitView() && (tab_id == app->GetSplitLeftTabId() || tab_id == app->GetSplitRightTabId())) {
+          is_visible = true;
+        }
+        browser->GetHost()->WasHidden(!is_visible);
+      }
       int zoom_percent = 100;
       if (!ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) &&
           !ApplyWorkspaceOriginZoom(browser, tab_manager_, tab_id,
