@@ -347,9 +347,18 @@ bool HandleWorkspacesRpc(
       if (active_it != persisted.end()) {
         std::map<int, int> db_pos_to_tab_id;
         int active_tab_id = -1;
+        OtfHandler::SplitViewState split_state = handler->GetSplitViewState(target);
+        bool split_enabled = split_state.enabled;
+
         for (auto it = persisted.begin(); it != persisted.end(); ++it) {
           if (!IsRestorableWorkspaceTab(*it)) continue;
-          const int id = app->CreateRestoredTab(*it);
+          bool should_load_immediately = (it == active_it);
+          if (split_enabled) {
+            if (it->url == split_state.left_url || it->url == split_state.right_url) {
+              should_load_immediately = true;
+            }
+          }
+          const int id = should_load_immediately ? app->CreateRestoredTab(*it) : app->CreateLazyTab(*it);
           handler->NotifyNewTab(id, -1);
           db_pos_to_tab_id[it->position] = id;
           if (it == active_it) active_tab_id = id;

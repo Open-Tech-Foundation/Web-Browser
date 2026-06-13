@@ -151,6 +151,10 @@ class TabManager {
     return nullptr;
   }
 
+  void SetView(int tab_id, CefRefPtr<CefBrowserView> view) {
+    view_map_[tab_id] = view;
+  }
+
   void SetMuted(int tab_id, bool muted) {
     muted_map_[tab_id] = muted;
   }

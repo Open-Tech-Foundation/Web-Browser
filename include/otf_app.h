@@ -103,6 +103,8 @@ class OtfApp : public CefApp,
   int CreateTab(const std::string& url, int parent_id = -1,
                 bool is_private = false, bool is_pinned = false);
   int CreateRestoredTab(const WorkspaceTab& tab, int parent_id = -1);
+  int CreateLazyTab(const WorkspaceTab& tab, int parent_id = -1);
+  CefRefPtr<CefBrowserView> RealizeLazyTab(int tab_id);
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
@@ -253,6 +255,8 @@ class OtfApp : public CefApp,
   // OnContextCreated when building the per-page policy script. The
   // renderer never resolves or persists anything — strictly read-only.
   std::string screen_profile_json_;
+
+  std::map<int, WorkspaceTab> lazy_tab_data_;
 
   IMPLEMENT_REFCOUNTING(OtfApp);
 };

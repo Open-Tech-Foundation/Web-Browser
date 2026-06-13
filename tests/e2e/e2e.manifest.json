@@ -21,7 +21,10 @@
         "toast-notification.test.js",
         "qr.test.js",
         "site-data.test.js",
-        "search-history.test.js"
+        "search-history.test.js",
+        "fullscreen.test.js",
+        "search-rpc.test.js",
+        "tab-title.test.js"
       ]
     },
     {
@@ -33,6 +36,7 @@
         "workspaces.test.js",
         "cookie-tracking.test.js",
         "session-restore.test.js",
+        "lazy-tabs.test.js",
         "startup-urls.test.js"
       ]
     },
@@ -58,7 +62,8 @@
         "popup-scheme.test.js",
         "popup-intent.test.js",
         "private-tab.test.js",
-        "canvas-protection.test.js"
+        "canvas-protection.test.js",
+        "permissions-rpc.test.js"
       ]
     }
   ]

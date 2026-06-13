@@ -12,7 +12,7 @@ import {
 import { setSitePermissionFromUi } from './helpers/e2eUtils.js';
 
 async function openNewTabUrl(cdp, url) {
-  await clickSelector(cdp, 'button[title="New tab"]');
+  await clickSelector(cdp, 'a[title="New tab"]');
   await navigateFromAddressBar(cdp, url);
 }
 
@@ -72,12 +72,18 @@ test(
         (t) => (t.url || '').includes(tagB),
         15000,
       );
-      await waitFor(
-        blockedCdp,
-        '!!document.querySelector("#js-output")',
-        Boolean,
-        15000,
-      );
+      try {
+        await waitFor(
+          blockedCdp,
+          '!!document.querySelector("#js-output")',
+          Boolean,
+          15000,
+        );
+      } catch (err) {
+        console.log("BLOCKED CDP URL:", await blockedCdp.evaluate('window.location.href'));
+        console.log("BLOCKED CDP HTML:", await blockedCdp.evaluate('document.body ? document.body.innerHTML : ""'));
+        throw err;
+      }
       const jsBlocked = await blockedCdp.evaluate(
         'document.getElementById("js-output").textContent',
       );

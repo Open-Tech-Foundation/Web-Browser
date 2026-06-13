@@ -309,6 +309,15 @@ async function resolveClickPoint(cdp, findExpr, label) {
 }
 
 export async function clickSelector(cdp, selector) {
+  await waitFor(cdp, `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  })()`, Boolean, 5000).catch(() => {});
+
   const rect = await resolveClickPoint(
     cdp,
     `document.querySelector(${JSON.stringify(selector)})`,
@@ -323,6 +332,15 @@ export async function clickByText(cdp, selector, text) {
     return [...document.querySelectorAll(${JSON.stringify(selector)})]
       .find((item) => (item.textContent || '').toLowerCase().includes(wanted));
   })()`;
+  await waitFor(cdp, `(() => {
+    const el = ${findExpr};
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  })()`, Boolean, 5000).catch(() => {});
+
   const rect = await resolveClickPoint(cdp, findExpr, `${selector} / ${text}`);
   await dispatchClickAt(cdp, rect.x, rect.y);
 }

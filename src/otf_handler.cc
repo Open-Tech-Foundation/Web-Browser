@@ -1606,6 +1606,9 @@ CefRefPtr<CefRequestContext> OtfHandler::GetGuestRequestContext() {
 }
 
 bool OtfHandler::IsGuestTab(int tab_id) const {
+  if (tab_id < 0) {
+    return guest_session_active_;
+  }
   return tab_manager_ && tab_manager_->GetWorkspaceId(tab_id) == 0;
 }
 

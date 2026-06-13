@@ -971,6 +971,113 @@ int OtfApp::CreateRestoredTab(const WorkspaceTab& tab, int parent_id) {
   return tab_id;
 }
 
+int OtfApp::CreateLazyTab(const WorkspaceTab& tab, int parent_id) {
+  CEF_REQUIRE_UI_THREAD();
+  OtfHandler* handler = OtfHandler::GetInstance();
+  
+  std::string target_url = tab.url;
+  if (tab.is_image_preview) {
+    if (!IsRestorableWorkspaceTab(tab)) {
+      target_url = "browser://newtab";
+    } else {
+      target_url = tab.preview_local_path.empty() ? "browser://imagepreview" : tab.url;
+    }
+  } else if (tab.is_doc_preview) {
+    if (!IsRestorableWorkspaceTab(tab)) {
+      target_url = "browser://newtab";
+    } else {
+      target_url = tab.preview_local_path.empty() ? "browser://docpreview" : tab.url;
+    }
+  } else if (!IsRestorableWorkspaceTab(tab)) {
+    target_url = "browser://newtab";
+  }
+
+  int tab_id = tab_manager_.AddTab(nullptr, parent_id);
+  
+  tab_manager_.SetUrl(tab_id, target_url);
+  tab_manager_.SetTitle(tab_id, tab.title.empty() ? "New Tab" : tab.title);
+  if (tab.pinned) {
+    tab_manager_.SetPinned(tab_id, true);
+  }
+  if (!tab.favicon.empty()) {
+    tab_manager_.SetFaviconUrl(tab_id, tab.favicon);
+  }
+  if (handler) {
+    tab_manager_.SetWorkspaceId(
+        tab_id, handler->IsGuestSessionActive() ? 0 : handler->active_workspace_id_);
+  }
+  
+  if (tab.is_image_preview) {
+    tab_manager_.SetSchemeUrl(tab_id, "browser://imagepreview");
+    tab_manager_.SetImagePreviewMode(tab_id, ImagePreviewMode::kDedicated);
+  }
+  if (tab.is_doc_preview) {
+    tab_manager_.SetSchemeUrl(tab_id, "browser://docpreview");
+    tab_manager_.SetDocPreviewMode(tab_id, DocPreviewMode::kDedicated);
+  }
+
+  lazy_tab_data_[tab_id] = tab;
+  
+  return tab_id;
+}
+
+CefRefPtr<CefBrowserView> OtfApp::RealizeLazyTab(int tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+  auto it = lazy_tab_data_.find(tab_id);
+  if (it == lazy_tab_data_.end()) {
+    return tab_manager_.GetView(tab_id);
+  }
+
+  const WorkspaceTab tab = it->second;
+  lazy_tab_data_.erase(it);
+
+  std::string target_url = tab_manager_.GetUrl(tab_id);
+  bool is_private = tab_manager_.IsPrivate(tab_id);
+  
+  CefBrowserSettings browser_settings;
+  bool js_disabled = false;
+  OtfHandler* handler = OtfHandler::GetInstance();
+  if (handler && !handler->IsGuestSessionActive()) {
+    OtfStore* store = handler->GetStore();
+    std::string origin = ExtractOrigin(target_url);
+    if (!origin.empty() && store &&
+        store->GetSitePermission(origin, "javascript") == "block") {
+      browser_settings.javascript = STATE_DISABLED;
+      js_disabled = true;
+    }
+  }
+
+  CefRefPtr<CefRequestContext> request_context =
+      handler ? (is_private ? handler->GetPrivateRequestContext()
+                            : handler->GetActiveWorkspaceRequestContext())
+              : nullptr;
+
+  CefRefPtr<CefBrowserView> content_view = CefBrowserView::CreateBrowserView(
+      OtfHandler::GetInstance(), target_url, browser_settings, MakeBrowserExtraInfo(), request_context,
+      new OtfViewDelegate(CEF_RUNTIME_STYLE_ALLOY));
+
+  if (!content_view) {
+    return nullptr;
+  }
+
+  tab_manager_.SetView(tab_id, content_view);
+  content_view->SetID(tab_id);
+
+  if (js_disabled && handler) {
+    handler->MarkTabJsDisabled(tab_id);
+  }
+
+  if (tab.is_image_preview) {
+    RestoreImagePreviewStateForTab(tab_id, tab);
+  } else if (tab.is_doc_preview) {
+    RestoreDocPreviewStateForTab(tab_id, tab);
+  }
+
+  ParkContentView(content_view);
+
+  return content_view;
+}
+
 bool OtfApp::IsTabInSplitView(int tab_id) const {
   return split_view_active_ &&
          (tab_id == split_left_tab_id_ || tab_id == split_right_tab_id_);
@@ -1289,6 +1396,9 @@ void OtfApp::SwitchTab(int tab_id) {
   }
 
   CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
+  if (!new_view) {
+    new_view = RealizeLazyTab(tab_id);
+  }
 
   if (new_view && window_ && content_panel_) {
     content_mode_ = split_view_active_ && IsTabInSplitView(tab_id)
@@ -2100,9 +2210,18 @@ void OtfApp::OpenPendingStartupTabs() {
       db_pos_to_tab_id[pending_workspace_restore_first_.position] = GetCurrentTabId();
     }
 
+    OtfHandler::SplitViewState split_state = h ? h->GetSplitViewState(h->active_workspace_id_) : OtfHandler::SplitViewState{};
+    bool split_enabled = split_state.enabled;
+
     for (const auto& t : pending_workspace_restore_) {
       if (!IsRestorableWorkspaceTab(t)) continue;
-      const int id = CreateRestoredTab(t);
+      bool should_load_immediately = false;
+      if (split_enabled) {
+        if (t.url == split_state.left_url || t.url == split_state.right_url) {
+          should_load_immediately = true;
+        }
+      }
+      const int id = should_load_immediately ? CreateRestoredTab(t) : CreateLazyTab(t);
       if (id >= 0) db_pos_to_tab_id[t.position] = id;
     }
     pending_workspace_restore_.clear();

@@ -17,7 +17,7 @@ const PIXEL_PNG = Buffer.from(
 );
 
 async function openNewTabUrl(cdp, url) {
-  await clickSelector(cdp, 'button[title="New tab"]');
+  await clickSelector(cdp, 'a[title="New tab"]');
   await navigateFromAddressBar(cdp, url);
 }
 

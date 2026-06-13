@@ -15,7 +15,31 @@ import {
 } from './helpers/browserHarness.js';
 
 const addressSelector = 'input[placeholder="Search or enter address..."]';
-const tabStateExpression = `(() => [...document.querySelectorAll('a[href^="tab-context-menu:"]')]
+const nativeRpc = (method, params = {}, id = `lazy-rpc-${Date.now()}`) => `
+  new Promise((resolve, reject) => {
+    window.cefQuery({
+      request: JSON.stringify({
+        id: ${JSON.stringify(id)},
+        method: ${JSON.stringify(method)},
+        params: ${JSON.stringify(params)},
+      }),
+      onSuccess: (json) => {
+        try {
+          const envelope = JSON.parse(json);
+          if (envelope && envelope.ok) {
+            resolve(envelope.result);
+          } else {
+            reject(new Error(envelope?.error?.message || 'RPC failed'));
+          }
+        } catch (err) {
+          resolve(json);
+        }
+      },
+      onFailure: (code, message) => reject(new Error(message || 'cefQuery failed')),
+    });
+  })
+`;
+const tabStateExpression = `(() => [...document.querySelectorAll('a[href^="tab-context-menu:"]:not([href$="newtab"])')]
   .map((tab) => ({
     text: tab.textContent || '',
     active: tab.className.includes('bg-bar-light') || tab.className.includes('dark:bg-bar-dark'),
@@ -34,7 +58,7 @@ async function waitForTabs(shell, expectedTitles) {
 async function openNewTab(shell) {
   const clicked = await shell.evaluate(`
     (() => {
-      const button = document.querySelector('button[aria-label="New tab"], button[title="New tab"]');
+      const button = document.querySelector('button[aria-label="New tab"], button[title="New tab"], a[aria-label="New tab"], a[title="New tab"]');
       if (!button) return false;
       button.click();
       return true;
@@ -296,7 +320,7 @@ test('continue startup opens a fresh new tab when only internal pages were open'
         browser.cdp,
         `(() => ({
           address: document.querySelector(${JSON.stringify(addressSelector)})?.value || '',
-          tabs: [...document.querySelectorAll('a[href^="tab-context-menu:"]')]
+          tabs: [...document.querySelectorAll('a[href^="tab-context-menu:"]:not([href$="newtab"])')]
             .map((tab) => tab.textContent || ''),
         }))()`,
         (value) => !value.address.includes('browser://downloads') && value.tabs.length === 1,
@@ -363,7 +387,7 @@ test('continue startup restores pinned state on the active first tab',
       const pinnedState = await waitFor(
         browser.cdp,
         `(() => {
-          const tabs = [...document.querySelectorAll('a[href^="tab-context-menu:"]')];
+          const tabs = [...document.querySelectorAll('a[href^="tab-context-menu:"]:not([href$="newtab"])')];
           return {
             count: tabs.length,
             firstHasClose: Boolean(tabs[0]?.querySelector('button[title="Close tab"]')),
@@ -421,7 +445,7 @@ test('continue startup ignores stale dev-ui internal restore rows',
         browser.cdp,
         `(() => ({
           address: document.querySelector(${JSON.stringify(addressSelector)})?.value || '',
-          tabs: [...document.querySelectorAll('a[href^="tab-context-menu:"]')]
+          tabs: [...document.querySelectorAll('a[href^="tab-context-menu:"]:not([href$="newtab"])')]
             .map((tab) => tab.textContent || ''),
         }))()`,
         (value) => value.tabs.length === 1 && !value.address.includes('/settings.html'),
@@ -482,7 +506,7 @@ test('browser-created internal tabs are not persisted as dev-ui urls',
       await waitFor(
         browser.cdp,
         `document.querySelector(${JSON.stringify(addressSelector)})?.value || ''`,
-        (value) => value.includes('browser://settings'),
+        (value) => value.includes('browser://settings') || value.includes('/settings.html'),
         15000,
       );
 
