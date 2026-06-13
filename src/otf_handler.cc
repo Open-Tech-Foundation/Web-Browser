@@ -174,6 +174,10 @@ namespace otf {
 
 namespace {
 
+void SetBrowserWindowVisible(CefRefPtr<CefBrowser> browser, bool visible) {
+  if (!browser) return;
+  browser->GetHost()->WasHidden(!visible);
+}
 
 OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
@@ -2744,7 +2748,7 @@ void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
         if (app->HasSplitView() && (tab_id == app->GetSplitLeftTabId() || tab_id == app->GetSplitRightTabId())) {
           is_visible = true;
         }
-        browser->GetHost()->WasHidden(!is_visible);
+        SetBrowserWindowVisible(browser, is_visible);
       }
       int zoom_percent = 100;
       if (!ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) &&

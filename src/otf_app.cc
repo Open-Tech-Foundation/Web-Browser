@@ -33,9 +33,15 @@
 #include <string_view>
 #include <utility>
 
+
 namespace otf {
 
 namespace {
+
+void SetBrowserWindowVisible(CefRefPtr<CefBrowser> browser, bool visible) {
+  if (!browser) return;
+  browser->GetHost()->WasHidden(!visible);
+}
 
 OtfApp* g_app_instance = nullptr;
 
@@ -999,19 +1005,24 @@ void OtfApp::DetachContentView(CefRefPtr<CefBrowserView> view) {
 
 void OtfApp::ParkContentView(CefRefPtr<CefBrowserView> view) {
   if (!view || !content_panel_) return;
-  EnsureTabParkingPanel();
-  if (!parked_tab_panel_) return;
   view->SetVisible(false);
-  if (view->GetParentView().get() != parked_tab_panel_.get()) {
+  if (view->GetParentView().get() != content_panel_.get()) {
     DetachContentView(view);
-    parked_tab_panel_->AddChildView(view);
+    content_panel_->AddChildView(view);
+  }
+  CefRefPtr<CefBrowser> browser = view->GetBrowser();
+  if (browser) {
+    SetBrowserWindowVisible(browser, false);
   }
 }
 
 void OtfApp::AttachContentViewToMain(CefRefPtr<CefBrowserView> view) {
   if (!view || !content_panel_) return;
-  DetachContentView(view);
-  content_panel_->AddChildView(view);
+  view->SetVisible(true);
+  if (view->GetParentView().get() != content_panel_.get()) {
+    DetachContentView(view);
+    content_panel_->AddChildView(view);
+  }
 }
 
 void OtfApp::EnsureSplitContainer() {
@@ -1077,6 +1088,10 @@ void OtfApp::RenderContentLayout() {
     CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
     if (!view) continue;
     ParkContentView(view);
+    CefRefPtr<CefBrowser> browser = view->GetBrowser();
+    if (browser) {
+      SetBrowserWindowVisible(browser, false);
+    }
   }
 
   if (!can_show_split) {
@@ -1086,16 +1101,28 @@ void OtfApp::RenderContentLayout() {
     if (active_view) {
       AttachContentViewToMain(active_view);
       active_view->SetVisible(true);
+      CefRefPtr<CefBrowser> browser = active_view->GetBrowser();
+      if (browser) {
+        SetBrowserWindowVisible(browser, true);
+      }
     }
   } else {
     EnsureSplitContainer();
     if (split_left_panel_ && left_view) {
       split_left_panel_->AddChildView(left_view);
       left_view->SetVisible(true);
+      CefRefPtr<CefBrowser> browser = left_view->GetBrowser();
+      if (browser) {
+        SetBrowserWindowVisible(browser, true);
+      }
     }
     if (split_right_panel_ && right_view) {
       split_right_panel_->AddChildView(right_view);
       right_view->SetVisible(true);
+      CefRefPtr<CefBrowser> browser = right_view->GetBrowser();
+      if (browser) {
+        SetBrowserWindowVisible(browser, true);
+      }
     }
     if (split_panel_) {
       split_panel_->SetVisible(true);
