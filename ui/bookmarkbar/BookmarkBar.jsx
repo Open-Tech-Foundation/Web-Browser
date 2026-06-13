@@ -159,7 +159,11 @@ const BookmarkBar = () => {
     fetchInfo();
 
     const sub = window.cefQuery({
-      request: 'bookmark-subscribe',
+      request: JSON.stringify({
+        id: `bookmark-subscription-${Date.now()}`,
+        method: 'bookmarks.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (json) => {
         try {

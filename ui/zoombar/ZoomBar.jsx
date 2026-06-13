@@ -54,7 +54,11 @@ const ZoomBar = () => {
   useEffect(() => {
     if (!window.cefQuery) return;
     const sub = window.cefQuery({
-      request: 'zoombar-subscribe',
+      request: JSON.stringify({
+        id: `zoombar-subscription-${Date.now()}`,
+        method: 'ui.zoomBar.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (json) => {
         try {

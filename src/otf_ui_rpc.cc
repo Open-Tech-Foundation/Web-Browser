@@ -159,6 +159,35 @@ bool HandlePopupRestoreSubscribe(CefRefPtr<Callback> callback,
   return true;
 }
 
+bool HandleUiSubscribe(OtfHandler* handler,
+                       CefRefPtr<Callback> callback,
+                       const NativeRpcRequest& request) {
+  std::string error;
+  if (!RequireNoParams(request, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  if (request.method == "ui.events.subscribe") {
+    handler->subscription_callback_ = callback;
+    return true;
+  }
+  if (request.method == "ui.zoomBar.subscribe") {
+    handler->zoombar_subscription_ = callback;
+    return true;
+  }
+  if (request.method == "ui.certificate.subscribe") {
+    handler->certificate_subscription_ = callback;
+    if (OtfApp* app = OtfApp::GetInstance()) {
+      callback->Success(JsonObjectBuilder()
+                            .AddString("key", "certificate-restore")
+                            .AddInt("tabId", app->GetCurrentTabId())
+                            .Build());
+    }
+    return true;
+  }
+  return false;
+}
+
 }  // namespace
 
 bool HandleUiRpc(
@@ -176,6 +205,11 @@ bool HandleUiRpc(
   }
   if (request.method == "ui.popup.restoreSubscribe") {
     return HandlePopupRestoreSubscribe(callback, request);
+  }
+  if (request.method == "ui.events.subscribe" ||
+      request.method == "ui.zoomBar.subscribe" ||
+      request.method == "ui.certificate.subscribe") {
+    return HandleUiSubscribe(handler, callback, request);
   }
 
   if (request.method != "ui.appMenu.toggle" &&

@@ -88,7 +88,11 @@ const CertificateViewer = () => {
         .catch(() => {});
 
       window.cefQuery({
-        request: 'certificate-subscribe',
+        request: JSON.stringify({
+          id: `certificate-subscription-${Date.now()}`,
+          method: 'ui.certificate.subscribe',
+          params: {},
+        }),
         persistent: true,
         onSuccess: (response) => {
           try {

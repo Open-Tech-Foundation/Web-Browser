@@ -215,7 +215,11 @@ const App = () => {
 
       // Subscribe to real-time events from the browser engine
       window.cefQuery({
-        request: "subscribe-events",
+        request: JSON.stringify({
+          id: `ui-events-subscription-${Date.now()}`,
+          method: 'ui.events.subscribe',
+          params: {},
+        }),
         persistent: true,
         onSuccess: (eventStr) => {
           try {

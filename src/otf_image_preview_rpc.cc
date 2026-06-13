@@ -482,6 +482,35 @@ bool HandleDecode(OtfHandler* handler,
       explicit_tab_id, url);
 }
 
+bool HandleSubscribe(OtfHandler* handler,
+                     CefRefPtr<CefBrowser> browser,
+                     CefRefPtr<Callback> callback,
+                     const NativeRpcRequest& request) {
+  std::string error;
+  if (!HasOnlyParamKeys(request.params, {}, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) {
+    return true;
+  }
+  int tab_id =
+      handler->tab_manager_ ? handler->tab_manager_->GetId(browser) : -1;
+  if (tab_id != -1) {
+    handler->tab_image_preview_subscriptions_[tab_id] = callback;
+  } else {
+    handler->image_preview_subscription_ = callback;
+    tab_id = app->GetCurrentTabId();
+  }
+
+  std::string event = handler->BuildImagePreviewLoadEvent(tab_id);
+  if (!event.empty()) {
+    callback->Success(event);
+  }
+  return true;
+}
+
 }  // namespace
 
 bool HandleImagePreviewRpc(
@@ -497,10 +526,14 @@ bool HandleImagePreviewRpc(
        request.method != "imagePreview.download" &&
        request.method != "imagePreview.getSize" &&
        request.method != "imagePreview.decode" &&
-       request.method != "imagePreview.thumbnail")) {
+       request.method != "imagePreview.thumbnail" &&
+       request.method != "imagePreview.subscribe")) {
     return false;
   }
 
+  if (request.method == "imagePreview.subscribe") {
+    return HandleSubscribe(handler, browser, callback, request);
+  }
   if (request.method == "imagePreview.refresh") {
     return HandleRefresh(handler, browser, callback, request);
   }

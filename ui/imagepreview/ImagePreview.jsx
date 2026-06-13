@@ -134,7 +134,11 @@ const ImagePreview = () => {
     window.__otfApplyImagePreview = applyLoadImage;
 
     const sub = window.cefQuery({
-      request: 'image-preview-subscribe',
+      request: JSON.stringify({
+        id: `image-preview-subscription-${Date.now()}`,
+        method: 'imagePreview.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (json) => {
         try {

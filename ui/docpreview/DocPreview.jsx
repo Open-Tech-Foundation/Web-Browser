@@ -129,7 +129,11 @@ const DocPreview = () => {
     window.__otfApplyDocPreview = applyLoadDoc;
 
     const sub = window.cefQuery({
-      request: 'doc-preview-subscribe',
+      request: JSON.stringify({
+        id: `doc-preview-subscription-${Date.now()}`,
+        method: 'docPreview.subscribe',
+        params: {},
+      }),
       persistent: true,
       onSuccess: (json) => {
         try {

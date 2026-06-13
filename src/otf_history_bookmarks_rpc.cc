@@ -203,6 +203,15 @@ bool HandleBookmarksRpc(OtfHandler* handler,
                         CefRefPtr<Callback> callback,
                         const NativeRpcRequest& request) {
   std::string error;
+  if (request.method == "bookmarks.subscribe") {
+    if (!RequireNoParams(request, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    handler->bookmark_subscription_ = callback;
+    return true;
+  }
+
   if (request.method == "bookmarks.list") {
     if (!RequireNoParams(request, &error)) {
       Failure(callback, request, "invalid_params", error);

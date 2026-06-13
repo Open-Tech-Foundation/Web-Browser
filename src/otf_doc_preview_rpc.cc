@@ -190,6 +190,33 @@ bool SaveMemoryPreviewDocument(OtfHandler* handler,
   return true;
 }
 
+bool HandleSubscribe(OtfHandler* handler,
+                     CefRefPtr<CefBrowser> browser,
+                     CefRefPtr<Callback> callback,
+                     const NativeRpcRequest& request) {
+  std::string error;
+  if (!RequireNoParams(request, &error)) {
+    Failure(callback, request, "invalid_params", error);
+    return true;
+  }
+  OtfApp* app = OtfApp::GetInstance();
+  if (!app) {
+    return true;
+  }
+  int tab_id =
+      handler->tab_manager_ ? handler->tab_manager_->GetId(browser) : -1;
+  if (tab_id != -1) {
+    handler->tab_doc_preview_subscriptions_[tab_id] = callback;
+  } else {
+    handler->doc_preview_subscription_ = callback;
+    tab_id = app->GetCurrentTabId();
+  }
+
+  std::string event = handler->BuildDocPreviewLoadEvent(tab_id);
+  callback->Success(event.empty() ? "{}" : event);
+  return true;
+}
+
 }  // namespace
 
 bool HandleDocPreviewRpc(
@@ -200,11 +227,16 @@ bool HandleDocPreviewRpc(
   if (!handler ||
       (request.method != "docPreview.refresh" &&
        request.method != "docPreview.close" &&
-       request.method != "docPreview.download")) {
+       request.method != "docPreview.download" &&
+       request.method != "docPreview.subscribe")) {
     return false;
   }
 
   std::string error;
+  if (request.method == "docPreview.subscribe") {
+    return HandleSubscribe(handler, browser, callback, request);
+  }
+
   if (request.method == "docPreview.refresh") {
     if (!RequireNoParams(request, &error)) {
       Failure(callback, request, "invalid_params", error);
