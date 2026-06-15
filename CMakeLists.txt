@@ -101,6 +101,7 @@ set(OTF_BROWSER_SRCS
     src/otf_ui_rpc.cc
     src/otf_utils.cc
     src/otf_workspaces_rpc.cc
+    src/otf_zoom_runtime.cc
 )
 
 # Application header files
@@ -138,6 +139,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_ui_rpc.h
     include/otf_utils.h
     include/otf_workspaces_rpc.h
+    include/otf_zoom_runtime.h
 )
 
 # Include directories
