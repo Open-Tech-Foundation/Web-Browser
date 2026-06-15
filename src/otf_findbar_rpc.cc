@@ -4,6 +4,7 @@
 #include <string>
 
 #include "otf_app.h"
+#include "otf_find_runtime.h"
 #include "otf_handler.h"
 #include "otf_popup_overlay.h"
 #include "otf_utils.h"
@@ -93,32 +94,6 @@ bool ReadFindParams(CefRefPtr<CefDictionaryValue> params,
          ReadBoolParam(params, "matchCase", &out->match_case, error) &&
          ReadBoolParam(params, "findNext", &out->find_next, error) &&
          ReadIntParam(params, "seq", &out->seq, error);
-}
-
-std::string BuildFindResultEvent(int count,
-                                 int active,
-                                 int tab_id,
-                                 const std::string& text,
-                                 bool final_update,
-                                 int seq = 0) {
-  JsonObjectBuilder builder;
-  builder.AddString("key", "find-result")
-      .AddInt("count", count)
-      .AddInt("active", active)
-      .AddInt("tabId", tab_id)
-      .AddBool("final", final_update)
-      .AddInt("seq", seq);
-  if (!text.empty() || tab_id < 0) {
-    builder.AddString("text", text);
-  }
-  return builder.Build();
-}
-
-std::string BuildFindbarClosedEvent(int tab_id) {
-  return JsonObjectBuilder()
-      .AddString("key", "findbar-closed")
-      .AddInt("tabId", tab_id)
-      .Build();
 }
 
 void Success(CefRefPtr<Callback> callback, const NativeRpcRequest& request) {

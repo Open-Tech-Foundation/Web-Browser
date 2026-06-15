@@ -80,6 +80,7 @@ set(OTF_BROWSER_SRCS
     src/otf_doc_preview_runtime.cc
     src/otf_downloads_rpc.cc
     src/otf_downloads_runtime.cc
+    src/otf_find_runtime.cc
     src/otf_findbar_rpc.cc
     src/otf_handler.cc
     src/otf_history_bookmarks_rpc.cc
@@ -118,6 +119,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_doc_preview_runtime.h
     include/otf_downloads_rpc.h
     include/otf_downloads_runtime.h
+    include/otf_find_runtime.h
     include/otf_findbar_rpc.h
     include/otf_handler.h
     include/otf_history_bookmarks_rpc.h
