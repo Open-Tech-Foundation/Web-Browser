@@ -94,6 +94,7 @@ set(OTF_BROWSER_SRCS
     src/otf_search_rpc.cc
     src/otf_settings_rpc.cc
     src/otf_site_data_rpc.cc
+    src/otf_split_runtime.cc
     src/otf_store.cc
     src/otf_tabs_rpc.cc
     src/otf_ui_rpc.cc
@@ -128,6 +129,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_search_rpc.h
     include/otf_settings_rpc.h
     include/otf_site_data_rpc.h
+    include/otf_split_runtime.h
     include/otf_browser_shell.h
     include/otf_store.h
     include/otf_tabs_rpc.h
