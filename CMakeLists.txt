@@ -70,6 +70,7 @@ add_subdirectory(${CEF_LIBCEF_DLL_WRAPPER_PATH} libcef_dll_wrapper)
 set(OTF_BROWSER_SRCS
     src/main.cc
     src/otf_app.cc
+    src/otf_bookmark_runtime.cc
     src/otf_certificate_runtime.cc
     src/otf_clear_data_rpc.cc
     src/otf_console_rpc.cc
@@ -107,6 +108,7 @@ set(OTF_BROWSER_SRCS
 # Application header files
 set(OTF_BROWSER_HEADERS
     include/otf_app.h
+    include/otf_bookmark_runtime.h
     include/otf_certificate_runtime.h
     include/otf_clear_data_rpc.h
     include/otf_console_rpc.h

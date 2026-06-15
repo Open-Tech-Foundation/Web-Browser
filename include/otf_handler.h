@@ -244,6 +244,9 @@ class OtfHandler : public CefClient,
                            std::string* error);
   std::string BuildTabsJson() const;
   bool ApplyTabZoomAction(int tab_id, const std::string& action);
+  bool ToggleBookmarkForTab(int tab_id,
+                            bool show_overlay_on_add,
+                            bool* bookmarked);
   bool SplitCurrentTab(std::string* error);
   bool AddTabToSplit(int target_tab_id, std::string* error);
   bool CloseSplitView(std::string* error);

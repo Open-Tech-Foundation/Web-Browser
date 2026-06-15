@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "otf_app.h"
+#include "otf_bookmark_runtime.h"
 #include "otf_handler.h"
 #include "otf_utils.h"
 
@@ -121,17 +122,6 @@ std::string BuildBookmarksJson(const std::vector<BookmarkEntry>& items) {
   }
   out << "]";
   return out.str();
-}
-
-std::string BuildBookmarkStateEvent(int tab_id,
-                                    const std::string& url,
-                                    bool bookmarked) {
-  return JsonObjectBuilder()
-      .AddString("key", "bookmarks-changed")
-      .AddInt("id", tab_id)
-      .AddString("url", url)
-      .AddBool("bookmarked", bookmarked)
-      .Build();
 }
 
 void Failure(CefRefPtr<Callback> callback,
@@ -324,20 +314,16 @@ bool HandleBookmarksRpc(OtfHandler* handler,
     }
     bool bookmarked = false;
     OtfApp* app = OtfApp::GetInstance();
-    if (app && !handler->guest_session_active_ && handler->tab_manager_ &&
-        handler->store_) {
+    if (app && !handler->guest_session_active_) {
       const int tab_id = app->GetCurrentTabId();
-      const std::string url =
-          NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
-      if (IsPersistableWebUrl(url) && !handler->IsGuestTab(tab_id)) {
-        if (!handler->store_->IsBookmarked(url)) {
-          const std::string title = handler->tab_manager_->GetTitle(tab_id);
-          const std::string favicon = handler->tab_manager_->GetFaviconUrl(tab_id);
-          handler->store_->AddBookmark(url, title, favicon);
+      if (tab_id >= 0 && handler->tab_manager_ && handler->store_) {
+        const std::string url =
+            NormalizeBookmarkUrl(handler->tab_manager_->GetUrl(tab_id));
+        if (IsPersistableWebUrl(url) &&
+            !handler->IsGuestTab(tab_id) &&
+            !handler->store_->IsBookmarked(url)) {
+          handler->ToggleBookmarkForTab(tab_id, true, &bookmarked);
         }
-        bookmarked = true;
-        handler->SendEvent(BuildBookmarkStateEvent(tab_id, url, bookmarked));
-        app->ShowBookmarkOverlay();
       }
     }
     NativeRpcSuccessRaw(callback, request, bookmarked ? "true" : "false");

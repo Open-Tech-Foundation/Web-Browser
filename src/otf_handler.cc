@@ -1,5 +1,6 @@
 #include "otf_handler.h"
 #include "otf_app.h"
+#include "otf_bookmark_runtime.h"
 #include "otf_certificate_runtime.h"
 #include "otf_doc_preview_runtime.h"
 #include "otf_downloads_runtime.h"
@@ -646,28 +647,6 @@ bool IsSameSecurityUrl(const std::string& a, const std::string& b) {
   return false;
 }
 
-std::string BuildBookmarkStateEvent(int tab_id,
-                                    const std::string& url,
-                                    bool bookmarked) {
-  return JsonObjectBuilder()
-      .AddString("key", "bookmarks-changed")
-      .AddInt("id", tab_id)
-      .AddString("url", url)
-      .AddBool("bookmarked", bookmarked)
-      .Build();
-}
-
-std::string BuildBookmarkSyncEvent(int tab_id,
-                                   const std::string& url,
-                                   bool bookmarked) {
-  return JsonObjectBuilder()
-      .AddString("key", "bookmark-sync")
-      .AddInt("id", tab_id)
-      .AddString("url", url)
-      .AddBool("bookmarked", bookmarked)
-      .Build();
-}
-
 static void ApplyJsPermission(CefBrowserSettings& settings,
                               OtfStore* store,
                               const std::string& url) {
@@ -1136,18 +1115,6 @@ void OtfHandler::OpenAcceptedPopup(const PendingPopup& popup) {
   }
   NotifyNewTab(new_id, popup.parent_tab_id);
   app->SwitchTab(new_id);
-}
-
-void OtfHandler::NotifyBookmarkStateForTab(int tab_id) {
-  if (tab_id < 0 || !store_ || !tab_manager_) {
-    return;
-  }
-
-  const std::string url = tab_manager_->GetUrl(tab_id);
-  const bool bookmarked =
-      IsPersistableWebUrl(url) && !IsGuestTab(tab_id) &&
-      store_->IsBookmarked(NormalizeBookmarkUrl(url));
-  SendEvent(BuildBookmarkSyncEvent(tab_id, url, bookmarked));
 }
 
 void OtfHandler::SendEvent(const std::string& event_json) {
@@ -2769,20 +2736,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     return true;
   }
   if (M(Mod::kCtrl, Key::kD)) {
-    if (store_ && tab_manager_) {
-      const std::string url = NormalizeBookmarkUrl(tab_manager_->GetUrl(cur));
-      if (IsPersistableWebUrl(url) && !IsGuestTab(cur)) {
-        bool bookmarked = false;
-        if (store_->IsBookmarked(url)) {
-          store_->RemoveBookmarkByUrl(url);
-        } else {
-          store_->AddBookmark(url, tab_manager_->GetTitle(cur),
-                              tab_manager_->GetFaviconUrl(cur));
-          bookmarked = true;
-        }
-        SendEvent(BuildBookmarkStateEvent(cur, url, bookmarked));
-      }
-    }
+    ToggleBookmarkForTab(cur, false, nullptr);
     return true;
   }
   if (M(Mod::kCtrl, Key::kG)) {
