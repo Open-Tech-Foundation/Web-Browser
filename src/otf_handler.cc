@@ -7,6 +7,7 @@
 #include "otf_image_preview_runtime.h"
 #include "otf_keyboard_shortcuts.h"
 #include "otf_message_router_handler.h"
+#include "otf_memory_runtime.h"
 #include "otf_native_rpc.h"
 #include "otf_split_runtime.h"
 
@@ -537,16 +538,6 @@ std::string BuildTabPropertyEvent(int tab_id,
       .AddInt("id", tab_id)
       .AddString("key", key)
       .AddBool("value", value)
-      .Build();
-}
-
-std::string BuildTabPropertyEvent(int tab_id,
-                                   const std::string& key,
-                                   int64_t value) {
-  return JsonObjectBuilder()
-      .AddInt("id", tab_id)
-      .AddString("key", key)
-      .AddRaw("value", std::to_string(value))
       .Build();
 }
 
@@ -1263,62 +1254,6 @@ void OtfHandler::SendEvent(const std::string& event_json) {
   if (subscription_callback_) {
     subscription_callback_->Success(event_json);
   }
-}
-
-// ── Periodic per-tab memory logging ──
-
-class MemoryLogTask : public CefTask {
- public:
-  explicit MemoryLogTask(OtfHandler* handler) : handler_(handler) {}
-  void Execute() override {
-    if (handler_ && handler_->IsMemoryLoggingRunning()) {
-      handler_->LogTabMemoryUsage();
-      CefPostDelayedTask(TID_UI, new MemoryLogTask(handler_), 60000);
-    }
-  }
- private:
-  OtfHandler* handler_;
-  IMPLEMENT_REFCOUNTING(MemoryLogTask);
-};
-
-void OtfHandler::StartMemoryLogging() {
-  CEF_REQUIRE_UI_THREAD();
-  if (memory_log_running_ || !tab_manager_) return;
-  memory_log_running_ = true;
-  memory_task_manager_ = CefTaskManager::GetTaskManager();
-  CefPostDelayedTask(TID_UI, new MemoryLogTask(this), 60000);
-}
-
-void OtfHandler::StopMemoryLogging() {
-  CEF_REQUIRE_UI_THREAD();
-  memory_log_running_ = false;
-  memory_task_manager_ = nullptr;
-}
-
-void OtfHandler::LogTabMemoryUsage() {
-  CEF_REQUIRE_UI_THREAD();
-  if (!tab_manager_) return;
-
-  auto tm = memory_task_manager_;
-  if (!tm) return;
-
-  OtfApp* app = OtfApp::GetInstance();
-  if (!app) return;
-
-  const int active_tab_id = app->GetCurrentTabId();
-  if (active_tab_id < 0) return;
-
-  CefRefPtr<CefBrowser> b = tab_manager_->GetBrowser(active_tab_id);
-  if (!b) return;
-
-  int64_t task_id = tm->GetTaskIdForBrowserId(b->GetIdentifier());
-  if (task_id < 0) return;
-
-  CefTaskInfo info;
-  if (!tm->GetTaskInfo(task_id, info)) return;
-
-  int64_t ram = info.memory > 0 ? info.memory : -1;
-  SendEvent(BuildTabPropertyEvent(active_tab_id, "memoryBytes", ram));
 }
 
 void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
