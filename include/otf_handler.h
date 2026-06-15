@@ -374,6 +374,9 @@ class OtfHandler : public CefClient,
   std::map<int, int64_t> tab_doc_preview_file_sizes_;
   std::map<int, std::string> tab_doc_preview_formats_;
   std::map<int, DocPreviewRenderCache> tab_doc_preview_render_cache_;
+  void ScheduleDocPreviewPushForTab(int tab_id);
+  void ScheduleDocPreviewFetchForTab(int tab_id, const std::string& url);
+  void ResetDocPreviewFetchStateForTab(int tab_id);
   void SetDocPreviewUrlForTab(int tab_id, const std::string& url);
   void SetDocPreviewLocalFileForTab(int tab_id, const std::string& public_url,
                                     const std::string& file_path);
