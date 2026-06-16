@@ -2,6 +2,7 @@
 #include "otf_app.h"
 #include "otf_bookmark_runtime.h"
 #include "otf_certificate_runtime.h"
+#include "otf_context_menu_runtime.h"
 #include "otf_doc_preview_runtime.h"
 #include "otf_downloads_runtime.h"
 #include "otf_find_runtime.h"
@@ -205,13 +206,6 @@ const int MENU_ID_PREVIEW_DOC = 10013;
 const int MENU_ID_PASTE_GO = 10014;
 const int MENU_ID_TAB_ADD_TO_SPLIT = 10015;
 const int MENU_ID_RELOAD = 10016;
-constexpr std::array<int, 4> kBlockedContextMenuCommandIds = {
-    IDC_VIEW_SOURCE,
-    IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE,
-    IDC_CONTENT_CONTEXT_OPENLINKNEWTAB,
-    IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,
-};
-
 using ::otf::ParseIntStrict;
 using ::otf::ParseUint32Strict;
 using ::otf::ParseUint64Strict;
@@ -315,89 +309,6 @@ std::string BuildSearchSelectionMenuLabel(const std::string& selection_text) {
     display_text += "...";
   }
   return "Search \"" + display_text + "\"";
-}
-
-std::string NormalizeMenuLabel(std::string label) {
-  std::string normalized;
-  normalized.reserve(label.size());
-  bool previous_space = false;
-  for (char c : label) {
-    if (c == '&') {
-      continue;
-    }
-    if (std::isspace(static_cast<unsigned char>(c))) {
-      if (!previous_space) {
-        normalized.push_back(' ');
-        previous_space = true;
-      }
-      continue;
-    }
-    normalized.push_back(
-        static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    previous_space = false;
-  }
-  return TrimWhitespaceCopy(normalized);
-}
-
-bool IsSourceViewMenuItem(int command_id, const std::string& label) {
-  if (std::find(kBlockedContextMenuCommandIds.begin(),
-                kBlockedContextMenuCommandIds.end(),
-                command_id) != kBlockedContextMenuCommandIds.end()) {
-    return true;
-  }
-
-  const std::string normalized_label = NormalizeMenuLabel(label);
-  return normalized_label.find("view") != std::string::npos &&
-         normalized_label.find("source") != std::string::npos;
-}
-
-bool IsBlockedContextMenuCommand(int command_id) {
-  return std::find(kBlockedContextMenuCommandIds.begin(),
-                   kBlockedContextMenuCommandIds.end(),
-                   command_id) != kBlockedContextMenuCommandIds.end();
-}
-
-void RemoveCommandEverywhere(CefRefPtr<CefMenuModel> model, int command_id) {
-  if (!model) {
-    return;
-  }
-
-  for (int index = static_cast<int>(model->GetCount()) - 1; index >= 0; --index) {
-    CefRefPtr<CefMenuModel> sub_menu = model->GetSubMenuAt(static_cast<size_t>(index));
-    if (sub_menu) {
-      RemoveCommandEverywhere(sub_menu, command_id);
-    }
-    if (model->GetCommandIdAt(static_cast<size_t>(index)) == command_id) {
-      model->RemoveAt(static_cast<size_t>(index));
-    }
-  }
-}
-
-void RemoveLabeledSourceItemsEverywhere(CefRefPtr<CefMenuModel> model) {
-  if (!model) {
-    return;
-  }
-
-  for (int index = static_cast<int>(model->GetCount()) - 1; index >= 0; --index) {
-    CefRefPtr<CefMenuModel> sub_menu = model->GetSubMenuAt(static_cast<size_t>(index));
-    if (sub_menu) {
-      RemoveLabeledSourceItemsEverywhere(sub_menu);
-    }
-
-    const std::string label =
-        model->GetLabelAt(static_cast<size_t>(index)).ToString();
-    const int command_id = model->GetCommandIdAt(static_cast<size_t>(index));
-    if (IsSourceViewMenuItem(command_id, label)) {
-      model->RemoveAt(static_cast<size_t>(index));
-    }
-  }
-}
-
-void SanitizeContextMenu(CefRefPtr<CefMenuModel> model) {
-  for (int command_id : kBlockedContextMenuCommandIds) {
-    RemoveCommandEverywhere(model, command_id);
-  }
-  RemoveLabeledSourceItemsEverywhere(model);
 }
 
 std::string GetDevUiUrl() {
