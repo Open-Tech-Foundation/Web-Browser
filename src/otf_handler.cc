@@ -18,6 +18,8 @@
 #include "otf_page_runtime.h"
 #include "otf_popup_runtime.h"
 #include "otf_request_context_runtime.h"
+#include "otf_shutdown_runtime.h"
+#include "otf_tab_runtime.h"
 #include "otf_split_runtime.h"
 #include "otf_zoom_runtime.h"
 
@@ -119,7 +121,6 @@ using ::otf::ParseIntStrict;
 using ::otf::ParseUint32Strict;
 using ::otf::ParseUint64Strict;
 
-std::string GetDataURI(const std::string& data, const std::string& mime_type);
 bool IsRestorableWorkspaceTab(const WorkspaceTab& tab);
 
 bool IsNonTabBrowserViewId(int view_id) {
@@ -156,15 +157,6 @@ std::string TrimWhitespaceCopy(const std::string& value) {
     --end;
   }
   return value.substr(start, end - start);
-}
-
-bool IsDangerousSchemeUrl(const std::string& url) {
-  static const char* kDangerousSchemes[] = {
-      "javascript:", "data:", "file:", "vbscript:", "blob:"};
-  for (const char* s : kDangerousSchemes) {
-    if (url.rfind(s, 0) == 0) return true;
-  }
-  return false;
 }
 
 std::string BuildSearchSelectionMenuLabel(const std::string& selection_text) {
@@ -319,12 +311,6 @@ bool RestartBrowserProcess() {
 }  // namespace
 
 namespace {
-
-// Returns a data: URI with the specified contents.
-std::string GetDataURI(const std::string& data, const std::string& mime_type) {
-  return "data:" + mime_type + ";base64," +
-         CefBase64Encode(data.data(), data.size()).ToString();
-}
 
 std::string TrimTrailingSlash(std::string value) {
   while (value.size() > 1 && value.back() == '/') {
@@ -569,132 +555,6 @@ void OtfHandler::EnsureMessageRouterInitialized() {
   message_router_->AddHandler(new OtfMessageRouterHandler(), true);
 }
 
-bool OtfHandler::DoClose(CefRefPtr<CefBrowser> browser) {
-  CEF_REQUIRE_UI_THREAD();
-  if (browser_list_.size() == 1) {
-    is_closing_ = true;
-  }
-  return false;
-}
-
-void OtfHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
-  CEF_REQUIRE_UI_THREAD();
-  BrowserList::iterator bit = browser_list_.begin();
-  for (; bit != browser_list_.end(); ++bit) {
-    if ((*bit)->IsSame(browser)) {
-      browser_list_.erase(bit);
-      break;
-    }
-  }
-  CefRefPtr<CefBrowserView> browser_view = CefBrowserView::GetForBrowser(browser);
-  if (browser_view && browser_view->GetID() == kCertificateBrowserViewId) {
-    certificate_browser_ = nullptr;
-    certificate_subscription_ = nullptr;
-  }
-
-  if (browser_list_.empty()) {
-    StopMemoryLogging();
-    CefQuitMessageLoop();
-  }
-}
-
-void OtfHandler::OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
-                                           TerminationStatus status,
-                                           int error_code,
-                                           const CefString& error_string) {
-  CEF_REQUIRE_UI_THREAD();
-  // A dead renderer paints a blank window. Log it (debug.txt) so a GPU/renderer
-  // crash is visible without DevTools.
-  std::string url;
-  if (browser && browser->GetMainFrame()) {
-    url = browser->GetMainFrame()->GetURL().ToString();
-  }
-  LOG(ERROR) << "[otf] RENDER PROCESS TERMINATED: status=" << status
-             << " error_code=" << error_code
-             << " error=" << error_string.ToString() << " url=" << url;
-  otf::DiagLog("RENDER PROCESS TERMINATED: status=" + std::to_string(status) +
-               " error_code=" + std::to_string(error_code) +
-               " error=" + error_string.ToString() + " url=" + url);
-}
-
-void OtfHandler::OnLoadError(CefRefPtr<CefBrowser> browser,
-                             CefRefPtr<CefFrame> frame,
-                             ErrorCode errorCode,
-                             const CefString& errorText,
-                             const CefString& failedUrl) {
-  CEF_REQUIRE_UI_THREAD();
-  if (errorCode == ERR_ABORTED) {
-    return;
-  }
-  LOG(ERROR) << "[otf] load error: " << std::string(failedUrl) << " — "
-             << std::string(errorText) << " (" << errorCode << ")"
-             << (frame->IsMain() ? " [main frame]" : " [subframe]");
-  otf::DiagLog("LOAD ERROR: " + std::string(failedUrl) + " — " +
-               std::string(errorText) + " (" + std::to_string(errorCode) + ")" +
-               (frame->IsMain() ? " [main frame]" : " [subframe]"));
-
-  if (frame->IsMain()) {
-    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-
-    // If this URL was silently upgraded from HTTP to HTTPS by OnBeforeBrowse
-    // and the HTTPS version failed, fall back to the insecure-blocked page
-    // with the original HTTP URL.
-    if (view && tab_manager_) {
-      const int tab_id = view->GetID();
-      auto it = http_upgraded_urls_.find(tab_id);
-      if (it != http_upgraded_urls_.end()) {
-        const std::string original_http_url = it->second;
-        http_upgraded_urls_.erase(it);
-        browser->GetMainFrame()->LoadURL(
-            "browser://insecure-blocked?url=" +
-            CefURIEncode(original_http_url, true).ToString());
-        return;
-      }
-    }
-
-    if (view && tab_manager_ && IsCertificateErrorCode(errorCode)) {
-      const int tab_id = view->GetID();
-      const std::string failed_url = failedUrl.ToString();
-      tab_manager_->SetUrl(tab_id, failed_url);
-      tab_manager_->SetSslError(tab_id, true);
-      tab_manager_->SetSslErrorUrl(tab_id, failed_url);
-      SendEvent(JsonObjectBuilder()
-                    .AddInt("id", tab_id)
-                    .AddString("key", "url")
-                    .AddString("value", failed_url)
-                    .Build());
-      SendEvent(JsonObjectBuilder()
-                    .AddInt("id", tab_id)
-                    .AddString("key", "sslError")
-                    .AddBool("value", true)
-                    .Build());
-    }
-  }
-  std::stringstream ss;
-  ss << "<html><body bgcolor=\"white\">"
-        "<h2>Failed to load URL "
-     << std::string(failedUrl) << " with error " << std::string(errorText)
-     << " (" << errorCode << ").</h2></body></html>";
-  frame->LoadURL(GetDataURI(ss.str(), "text/html"));
-}
-
-void OtfHandler::CloseAllBrowsers(bool force_close) {
-  if (!CefCurrentlyOn(TID_UI)) {
-    CefPostTask(TID_UI, base::BindOnce(&OtfHandler::CloseAllBrowsers, this,
-                                       force_close));
-    return;
-  }
-
-  if (browser_list_.empty()) {
-    return;
-  }
-
-  BrowserList::iterator it = browser_list_.begin();
-  for (; it != browser_list_.end(); ++it) {
-    (*it)->GetHost()->CloseBrowser(force_close);
-  }
-}
-
 bool OtfHandler::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
                                           CefRefPtr<CefFrame> frame,
                                           CefProcessId source_process,
@@ -929,121 +789,6 @@ OtfHandler::GetResourceRequestHandler(
   }
 
   return nullptr;
-}
-
-bool OtfHandler::OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,
-                                  CefRefPtr<CefFrame> frame,
-                                  const CefString& target_url,
-                                  cef_window_open_disposition_t target_disposition,
-                                  bool user_gesture) {
-  CEF_REQUIRE_UI_THREAD();
-  (void)frame;
-
-  const std::string raw_target = target_url.ToString();
-  const bool is_new_context_disposition =
-      target_disposition == CEF_WOD_NEW_BACKGROUND_TAB ||
-      target_disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
-      target_disposition == CEF_WOD_NEW_WINDOW;
-  if (!is_new_context_disposition) {
-    return false;
-  }
-  if (!user_gesture) {
-    return true;
-  }
-  if (raw_target.empty() || IsDangerousSchemeUrl(raw_target)) {
-    return true;
-  }
-
-  OtfApp* app = OtfApp::GetInstance();
-  if (!app || !tab_manager_) {
-    return true;
-  }
-
-  const bool opener_private =
-      tab_manager_->IsPrivate(tab_manager_->GetId(browser));
-  pending_new_tab_urls_.insert(raw_target);
-  const int parent_id = tab_manager_->GetId(browser);
-  const int new_id = app->CreateTab(raw_target, parent_id, opener_private);
-  if (raw_target.rfind("browser://", 0) == 0) {
-    tab_manager_->SetSchemeUrl(new_id, raw_target);
-  }
-  NotifyNewTab(new_id, parent_id);
-  if (target_disposition == CEF_WOD_NEW_FOREGROUND_TAB ||
-      target_disposition == CEF_WOD_NEW_WINDOW) {
-    app->SwitchTab(new_id);
-  }
-  return true;
-}
-
-void OtfHandler::OnGotFocus(CefRefPtr<CefBrowser> browser) {
-  CEF_REQUIRE_UI_THREAD();
-  if (!browser || !tab_manager_) return;
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (!view || IsNonTabBrowserViewId(view->GetID())) return;
-  const int tab_id = view->GetID();
-  OtfApp* app = OtfApp::GetInstance();
-  if (!app || !app->HasSplitView() || !app->IsTabInSplitView(tab_id)) return;
-  if (app->GetCurrentTabId() == tab_id) return;
-  if (app->ActivateSplitPane(tab_id)) {
-    SetSplitViewTabs(active_workspace_id_, app->GetSplitLeftTabId(),
-                     app->GetSplitRightTabId(), tab_id);
-    NotifySplitStateChanged(active_workspace_id_);
-  }
-}
-
-namespace {
-constexpr size_t kMaxClosedTabs = 25;
-}  // namespace
-
-void OtfHandler::CloseTabAndNotify(int tab_id) {
-  OtfApp* app = OtfApp::GetInstance();
-  if (!app) {
-    return;
-  }
-  if (tab_manager_ && tab_manager_->IsPinned(tab_id)) return;
-  const bool closed_split_tab = IsSplitTab(tab_id);
-  if (tab_manager_) {
-    std::string url = tab_manager_->GetUrl(tab_id);
-    const bool is_image_preview =
-        tab_manager_->GetImagePreviewMode(tab_id) == ImagePreviewMode::kDedicated;
-    const bool is_doc_preview =
-        tab_manager_->GetDocPreviewMode(tab_id) == DocPreviewMode::kDedicated;
-    // Private tabs must never be resurrectable via reopen-closed-tab — their
-    // URL/session is ephemeral and recording it would leak private browsing.
-    if (!tab_manager_->IsPrivate(tab_id) &&
-        (otf::IsPersistableWebUrl(url) || is_image_preview || is_doc_preview)) {
-      ClosedTabInfo info;
-      info.url = std::move(url);
-      info.title = tab_manager_->GetTitle(tab_id);
-      info.favicon = tab_manager_->GetFaviconUrl(tab_id);
-      info.workspace_id = tab_manager_->GetWorkspaceId(tab_id);
-      info.is_image_preview = is_image_preview;
-      info.is_doc_preview = is_doc_preview;
-      if (is_image_preview) {
-        info.preview_local_path = GetImagePreviewLocalFileForTab(tab_id);
-        info.preview_page = GetImagePreviewPageForTab(tab_id);
-      } else if (is_doc_preview) {
-        info.preview_local_path = GetDocPreviewLocalFileForTab(tab_id);
-      }
-      recently_closed_tabs_.push_front(std::move(info));
-      if (recently_closed_tabs_.size() > kMaxClosedTabs) {
-        recently_closed_tabs_.pop_back();
-      }
-    }
-    if (is_image_preview) {
-      ClearImagePreviewStateForTab(tab_id);
-    }
-  }
-  app->CloseTab(tab_id);
-  if (closed_split_tab) {
-    SyncSplitStateFromApp();
-  } else if (app->HasSplitView() && IsSplitTab(app->GetCurrentTabId())) {
-    SyncSplitStateFromApp();
-  }
-  SendEvent(JsonObjectBuilder()
-                .AddString("key", "tab-closed")
-                .AddInt("id", tab_id)
-                .Build());
 }
 
 } // namespace otf
