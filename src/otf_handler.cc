@@ -147,7 +147,8 @@ OtfHandler::OtfHandler(bool use_alloy_style)
       state.can_open = state.is_complete && !state.full_path.empty();
       state.can_show_in_folder = !state.full_path.empty();
       downloads_[state.id] = state;
-      if (item.status == "downloading" || item.status == "starting" || item.status == "paused") {
+      if (item.status == "downloading" || item.status == "starting" ||
+          item.status == "paused") {
         PersistedDownload normalized = item;
         normalized.status = "interrupted";
         if (normalized.ended_at == 0) {

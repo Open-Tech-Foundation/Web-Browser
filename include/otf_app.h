@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -105,6 +106,16 @@ class OtfApp : public CefApp,
   int CreateRestoredTab(const WorkspaceTab& tab, int parent_id = -1);
   int CreateLazyTab(const WorkspaceTab& tab, int parent_id = -1);
   CefRefPtr<CefBrowserView> RealizeLazyTab(int tab_id);
+  bool GetLazyTab(int tab_id, WorkspaceTab* tab_out) const;
+  void DiscardTab(int tab_id);
+  void RecordTabAccess(int tab_id);
+  void RemoveFromTabHistory(int tab_id);
+  void PruneRealizedTabs();
+  void DetachContentView(CefRefPtr<CefBrowserView> view);
+  void ParkContentView(CefRefPtr<CefBrowserView> view);
+  bool IsAnyTabDiscarding() const { return !discarding_tab_ids_.empty(); }
+  void AddDiscardingTabId(int tab_id) { discarding_tab_ids_.insert(tab_id); }
+  void RemoveDiscardingTabId(int tab_id) { discarding_tab_ids_.erase(tab_id); }
   void SwitchTab(int tab_id);
   int CloseTab(int tab_id);
   int GetCurrentTabId() const { return current_tab_id_; }
@@ -210,8 +221,6 @@ class OtfApp : public CefApp,
  private:
   void ApplyFullscreenState();
   void EnsureTabParkingPanel();
-  void DetachContentView(CefRefPtr<CefBrowserView> view);
-  void ParkContentView(CefRefPtr<CefBrowserView> view);
   void AttachContentViewToMain(CefRefPtr<CefBrowserView> view);
   void EnsureSplitContainer();
   void DestroySplitContainer();
@@ -257,6 +266,9 @@ class OtfApp : public CefApp,
   std::string screen_profile_json_;
 
   std::map<int, WorkspaceTab> lazy_tab_data_;
+  std::vector<int> realized_tab_history_;
+  std::set<int> discarding_tab_ids_;
+  bool prune_realized_tabs_pending_ = false;
 
   IMPLEMENT_REFCOUNTING(OtfApp);
 };

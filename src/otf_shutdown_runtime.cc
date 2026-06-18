@@ -11,6 +11,7 @@
 #include "include/views/cef_browser_view.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
+#include "otf_app.h"
 #include "otf_certificate_runtime.h"
 #include "otf_handler.h"
 #include "otf_utils.h"
@@ -71,6 +72,18 @@ void OtfHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
   if (browser_view && browser_view->GetID() == kCertificateBrowserViewId) {
     certificate_browser_ = nullptr;
     certificate_subscription_ = nullptr;
+  }
+
+  if (OtfApp* app = OtfApp::GetInstance(); app && browser_view) {
+    const int tab_id = browser_view->GetID();
+    app->RemoveDiscardingTabId(tab_id);
+    if (app->GetLazyTab(tab_id, nullptr)) {
+      app->DetachContentView(browser_view);
+      if (tab_manager_) {
+        tab_manager_->SetView(tab_id, nullptr);
+        tab_manager_->SetBrowser(tab_id, nullptr);
+      }
+    }
   }
 
   if (browser_list_.empty()) {

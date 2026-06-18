@@ -143,7 +143,7 @@ bool IsLoopbackHost(const std::string& host) {
          lower_host == "::1";
 }
 
-std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode, const std::vector<CustomSearchEngine>& custom_engines, const std::string& cache_dir = {}, const std::string& download_dir = {}) {
+std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id, bool history_enabled, bool downloads_enabled, const std::string& startup_behavior, const std::vector<std::string>& startup_urls, bool https_only, bool block_insecure, const std::string& appearance_mode, const std::vector<CustomSearchEngine>& custom_engines, const std::string& cache_dir = {}, const std::string& download_dir = {}, int max_realized_tabs = 8) {
   std::string urls_json = "[";
   for (size_t i = 0; i < startup_urls.size(); ++i) {
     if (i > 0) urls_json += ",";
@@ -166,6 +166,7 @@ std::string BuildSettingsJson(const std::optional<std::string>& search_engine_id
       .AddBool("httpsOnly", https_only)
       .AddBool("blockInsecure", block_insecure)
       .AddString("appearanceMode", appearance_mode)
+      .AddInt("maxRealizedTabs", max_realized_tabs)
       .AddRaw("customSearchEngines", BuildCustomEnginesJson(custom_engines));
   if (!cache_dir.empty()) {
     result.AddString("cacheDir", cache_dir);
@@ -721,7 +722,7 @@ std::string BuildDownloadPath(const std::string& suggested_name) {
 }
 
 std::string GetDefaultSettingsJson() {
-  return BuildSettingsJson(std::nullopt, false, false, "newtab", {}, false, true, "auto", {});
+  return BuildSettingsJson(std::nullopt, false, false, "newtab", {}, false, true, "auto", {}, "", "", 8);
 }
 
 std::optional<std::string> GetCurrentSearchEngineId() {
@@ -790,6 +791,27 @@ bool IsDownloadsEnabled() {
     return false;
   }
   return dict->GetBool("downloadsEnabled");
+}
+
+int GetMaxRealizedTabsSetting() {
+  CefRefPtr<CefValue> root =
+      CefParseJSON(LoadSettingsJson(), JSON_PARSER_ALLOW_TRAILING_COMMAS);
+  if (!root || root->GetType() != VTYPE_DICTIONARY) {
+    return 8;
+  }
+
+  CefRefPtr<CefDictionaryValue> dict = root->GetDictionary();
+  if (!dict || !dict->HasKey("maxRealizedTabs")) {
+    return 8;
+  }
+  const auto mrt_type = dict->GetType("maxRealizedTabs");
+  int val = 8;
+  if (mrt_type == VTYPE_INT) {
+    val = dict->GetInt("maxRealizedTabs");
+  } else if (mrt_type == VTYPE_DOUBLE) {
+    val = static_cast<int>(dict->GetDouble("maxRealizedTabs"));
+  }
+  return val < 1 ? 8 : val;
 }
 
 bool IsAllowedSearchEngineId(const std::string& search_engine_id) {
@@ -939,7 +961,7 @@ bool NormalizeSettingsJson(const std::string& raw_json,
   for (const auto& key : keys) {
     if (key != "searchEngine" && key != "historyEnabled" && key != "downloadsEnabled" && 
         key != "startupBehavior" && key != "startupUrls" && key != "httpsOnly" && 
-        key != "blockInsecure" && key != "appearanceMode" &&
+        key != "blockInsecure" && key != "appearanceMode" && key != "maxRealizedTabs" &&
         key != "customSearchEngines" && key != "cacheDir" && key != "downloadDir" &&
         key != "windowX" && key != "windowY" &&
         key != "windowWidth" && key != "windowHeight" &&
@@ -1061,6 +1083,19 @@ bool NormalizeSettingsJson(const std::string& raw_json,
     }
   }
 
+  int max_realized_tabs = 8;
+  if (dict->HasKey("maxRealizedTabs")) {
+    const auto mrt_type = dict->GetType("maxRealizedTabs");
+    if (mrt_type == VTYPE_INT) {
+      max_realized_tabs = dict->GetInt("maxRealizedTabs");
+    } else if (mrt_type == VTYPE_DOUBLE) {
+      max_realized_tabs = static_cast<int>(dict->GetDouble("maxRealizedTabs"));
+    } else {
+      return false;
+    }
+    if (max_realized_tabs < 1) max_realized_tabs = 8;
+  }
+
   std::string cache_dir, download_dir;
   if (dict->HasKey("cacheDir") && dict->GetType("cacheDir") == VTYPE_STRING)
     cache_dir = dict->GetString("cacheDir");
@@ -1069,10 +1104,11 @@ bool NormalizeSettingsJson(const std::string& raw_json,
 
   if (normalized_json) {
     *normalized_json = BuildSettingsJson(search_engine, history_enabled,
-                                        downloads_enabled, startup_behavior,
-                                        startup_urls, https_only,
-                                        block_insecure, appearance_mode,
-                                        custom_engines, cache_dir, download_dir);
+                                         downloads_enabled, startup_behavior,
+                                         startup_urls, https_only,
+                                         block_insecure, appearance_mode,
+                                         custom_engines, cache_dir, download_dir,
+                                         max_realized_tabs);
   }
   return true;
 }

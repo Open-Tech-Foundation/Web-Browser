@@ -66,6 +66,11 @@ void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
   for (int tab_id : tab_ids) {
     if (tab_manager_->IsPrivate(tab_id)) continue;
     WorkspaceTab t;
+    if (app && app->GetLazyTab(tab_id, &t)) {
+      t.was_active = (tab_id == active_tab);
+      snapshot.push_back(t);
+      continue;
+    }
     t.workspace_id = workspace_id;
     t.is_image_preview =
         tab_manager_->GetImagePreviewMode(tab_id) ==

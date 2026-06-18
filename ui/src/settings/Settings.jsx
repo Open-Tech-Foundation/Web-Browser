@@ -123,6 +123,7 @@ const Settings = () => {
   const [newUrl, setNewUrl] = useState('');
   const [startupUrlError, setStartupUrlError] = useState('');
   const [httpsOnly, setHttpsOnly] = useState(false);
+  const [maxRealizedTabs, setMaxRealizedTabs] = useState(8);
 
   const [storagePaths, setStoragePaths] = useState(null);
   const [storageError, setStorageError] = useState('');
@@ -259,6 +260,7 @@ const Settings = () => {
           setStartupBehavior(settings.startupBehavior || 'newtab');
           setStartupUrls(settings.startupUrls || []);
           setHttpsOnly(settings.httpsOnly || false);
+          setMaxRealizedTabs(settings.maxRealizedTabs ?? 8);
 
           setAppearanceMode(settings.appearanceMode || 'auto');
         })
@@ -330,7 +332,7 @@ const Settings = () => {
           startupBehavior,
           startupUrls,
           httpsOnly,
-
+          maxRealizedTabs,
           appearanceMode,
           customSearchEngines: customEngines,
           ...updates
@@ -382,6 +384,7 @@ const Settings = () => {
         setStartupUrls([]);
         setNewUrl('');
         setStartupUrlError('');
+        setMaxRealizedTabs(8);
         setResetStatus('Reset complete.');
         setResetBusy(false);
       })
@@ -982,6 +985,33 @@ const Settings = () => {
                         </div>
                       );
                     })}
+                  </div>
+
+                  <div className="mt-6 p-6 bg-card/50 border rounded-2xl border-main transition-all hover:bg-card hover:border-orange-500/30 group">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-grow min-w-0">
+                        <h3 className="text-base font-semibold text-main">
+                          Tab Memory Limit
+                        </h3>
+                        <p className="text-xs text-muted mt-1">
+                          Maximum number of active (realized) tabs to keep in memory. Background tabs exceeding this limit will be automatically unloaded.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="2"
+                          max="100"
+                          value={maxRealizedTabs}
+                          onChange={(e) => {
+                            const val = Math.max(2, parseInt(e.target.value) || 8);
+                            setMaxRealizedTabs(val);
+                            saveSettings({ maxRealizedTabs: val });
+                          }}
+                          className="w-20 px-3 py-2 bg-main/5 border border-main rounded-xl text-center text-sm font-semibold focus:outline-none focus:border-orange-500 text-main"
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {storageSuccess && (

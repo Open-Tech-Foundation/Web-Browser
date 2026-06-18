@@ -17,6 +17,8 @@
 #include "include/views/cef_window.h"
 #include "include/views/cef_fill_layout.h"
 #include "include/wrapper/cef_helpers.h"
+#include "include/base/cef_callback.h"
+#include "include/wrapper/cef_closure_task.h"
 #include "include/cef_scheme.h"
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
@@ -37,6 +39,20 @@
 namespace otf {
 
 namespace {
+
+class DiscardTabTask : public CefTask {
+ public:
+  DiscardTabTask(CefRefPtr<OtfApp> app, int tab_id) : app_(app), tab_id_(tab_id) {}
+  void Execute() override {
+    if (app_) {
+      app_->DiscardTab(tab_id_);
+    }
+  }
+ private:
+  CefRefPtr<OtfApp> app_;
+  int tab_id_;
+  IMPLEMENT_REFCOUNTING(DiscardTabTask);
+};
 
 void SetBrowserWindowVisible(CefRefPtr<CefBrowser> browser, bool visible) {
   if (!browser) return;
@@ -930,6 +946,8 @@ int OtfApp::CreateTab(const std::string& url, int parent_id, bool is_private, bo
 
   ParkContentView(content_view);
 
+  RecordTabAccess(tab_id);
+
   return tab_id;
 }
 
@@ -1029,6 +1047,29 @@ CefRefPtr<CefBrowserView> OtfApp::RealizeLazyTab(int tab_id) {
   }
 
   const WorkspaceTab tab = it->second;
+  CefRefPtr<CefBrowserView> existing_view = tab_manager_.GetView(tab_id);
+  CefRefPtr<CefBrowser> existing_browser = tab_manager_.GetBrowser(tab_id);
+  if (existing_view && existing_browser) {
+    lazy_tab_data_.erase(it);
+    if (tab.is_image_preview) {
+      RestoreImagePreviewStateForTab(tab_id, tab);
+    } else if (tab.is_doc_preview) {
+      RestoreDocPreviewStateForTab(tab_id, tab);
+    } else {
+      tab_manager_.SetUrl(tab_id, tab.url);
+      tab_manager_.SetTitle(tab_id, tab.title.empty() ? "New Tab" : tab.title);
+      if (!tab.favicon.empty()) {
+        tab_manager_.SetFaviconUrl(tab_id, tab.favicon);
+      }
+    }
+    const std::string target_url = tab_manager_.GetUrl(tab_id);
+    if (!target_url.empty()) {
+      existing_browser->GetMainFrame()->LoadURL(target_url);
+    }
+    RecordTabAccess(tab_id);
+    return existing_view;
+  }
+
   lazy_tab_data_.erase(it);
 
   std::string target_url = tab_manager_.GetUrl(tab_id);
@@ -1075,12 +1116,189 @@ CefRefPtr<CefBrowserView> OtfApp::RealizeLazyTab(int tab_id) {
 
   ParkContentView(content_view);
 
+  RecordTabAccess(tab_id);
+
   return content_view;
 }
 
 bool OtfApp::IsTabInSplitView(int tab_id) const {
   return split_view_active_ &&
          (tab_id == split_left_tab_id_ || tab_id == split_right_tab_id_);
+}
+
+bool OtfApp::GetLazyTab(int tab_id, WorkspaceTab* tab_out) const {
+  CEF_REQUIRE_UI_THREAD();
+  auto it = lazy_tab_data_.find(tab_id);
+  if (it != lazy_tab_data_.end()) {
+    if (tab_out) {
+      *tab_out = it->second;
+    }
+    return true;
+  }
+  return false;
+}
+
+void OtfApp::DiscardTab(int tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+
+  CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tab_id);
+  if (!view) return; // Already lazy/discarded
+
+  // Guard: Never discard active tab, split tabs, or pinned tabs
+  if (tab_id == current_tab_id_ || IsTabInSplitView(tab_id) ||
+      tab_manager_.IsPinned(tab_id) || discarding_tab_ids_.contains(tab_id)) {
+    return;
+  }
+
+  discarding_tab_ids_.insert(tab_id);
+
+  OtfHandler* handler = OtfHandler::GetInstance();
+
+  // Construct WorkspaceTab metadata
+  WorkspaceTab tab;
+  tab.id = tab_id;
+  tab.workspace_id = tab_manager_.GetWorkspaceId(tab_id);
+  tab.pinned = tab_manager_.IsPinned(tab_id);
+  tab.was_active = false;
+  tab.title = tab_manager_.GetTitle(tab_id);
+  tab.favicon = tab_manager_.GetFaviconUrl(tab_id);
+  
+  tab.is_image_preview = (tab_manager_.GetImagePreviewMode(tab_id) == ImagePreviewMode::kDedicated);
+  tab.is_doc_preview = (tab_manager_.GetDocPreviewMode(tab_id) == DocPreviewMode::kDedicated);
+  
+  if (tab.is_image_preview) {
+    if (handler) {
+      tab.preview_local_path = handler->GetImagePreviewLocalFileForTab(tab_id);
+      tab.url = handler->GetImagePreviewUrlForTab(tab_id);
+      tab.preview_page = handler->GetImagePreviewPageForTab(tab_id);
+    }
+  } else if (tab.is_doc_preview) {
+    if (handler) {
+      tab.preview_local_path = handler->GetDocPreviewLocalFileForTab(tab_id);
+      tab.url = handler->GetDocPreviewUrlForTab(tab_id);
+    }
+  } else {
+    tab.url = tab_manager_.GetUrl(tab_id);
+  }
+  
+  if (tab.url.empty()) {
+    tab.url = "browser://newtab";
+  }
+  
+  // Save to lazy tab data map
+  lazy_tab_data_[tab_id] = tab;
+  
+  // Clean up handler state first
+  if (handler) {
+    handler->tab_image_preview_subscriptions_.erase(tab_id);
+    handler->SetImagePreviewUrlForTab(tab_id, "");
+    handler->tab_doc_preview_subscriptions_.erase(tab_id);
+    handler->ClearDocPreviewStateForTab(tab_id);
+    handler->UnmarkTabJsDisabled(tab_id);
+  }
+  
+  // Hide immediately so it stops participating in layout/input. Final detach
+  // and pointer cleanup happens in OnBeforeClose once CEF completes teardown.
+  view->SetVisible(false);
+
+  CefRefPtr<CefBrowser> browser = tab_manager_.GetBrowser(tab_id);
+  if (browser && browser->GetMainFrame()) {
+    browser->GetMainFrame()->LoadURL("about:blank");
+  }
+
+  RemoveFromTabHistory(tab_id);
+  discarding_tab_ids_.erase(tab_id);
+
+  LOG(INFO) << "[otf] Discarded tab " << tab_id << " (" << tab.url << ") to reduce memory usage.";
+  otf::DiagLog("Discarded tab " + std::to_string(tab_id) + " (" + tab.url + ")");
+}
+
+void OtfApp::RecordTabAccess(int tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+
+  // Ensure the tab exists in the system
+  const auto all_tab_ids = tab_manager_.GetAllTabIds();
+  if (std::find(all_tab_ids.begin(), all_tab_ids.end(), tab_id) ==
+      all_tab_ids.end()) {
+    return;
+  }
+
+  auto it = std::find(realized_tab_history_.begin(), realized_tab_history_.end(), tab_id);
+  if (it != realized_tab_history_.end()) {
+    realized_tab_history_.erase(it);
+  }
+  
+  // Move to front (most recently used)
+  realized_tab_history_.insert(realized_tab_history_.begin(), tab_id);
+
+  if (prune_realized_tabs_pending_) {
+    return;
+  }
+  prune_realized_tabs_pending_ = true;
+
+  // Post pruning with a short delay to avoid layout and creation deadlocks
+  // during new tab flows, but keep only one pending prune at a time.
+  CefPostDelayedTask(
+      TID_UI,
+      base::BindOnce(
+          [](CefRefPtr<OtfApp> app) {
+            if (!app) {
+              return;
+            }
+            app->prune_realized_tabs_pending_ = false;
+            app->PruneRealizedTabs();
+          },
+          CefRefPtr<OtfApp>(this)),
+      500);
+}
+
+void OtfApp::RemoveFromTabHistory(int tab_id) {
+  CEF_REQUIRE_UI_THREAD();
+  auto it = std::find(realized_tab_history_.begin(), realized_tab_history_.end(), tab_id);
+  if (it != realized_tab_history_.end()) {
+    realized_tab_history_.erase(it);
+  }
+}
+
+void OtfApp::PruneRealizedTabs() {
+  CEF_REQUIRE_UI_THREAD();
+  
+  // Define maximum concurrent realized tabs from settings
+  const size_t kMaxRealizedTabs = GetMaxRealizedTabsSetting();
+  
+  // Count current realized tabs
+  size_t realized_count = 0;
+  for (int tid : tab_manager_.GetAllTabIds()) {
+    if (tab_manager_.GetView(tid) && !GetLazyTab(tid, nullptr)) {
+      realized_count++;
+    }
+  }
+  
+  if (realized_count <= kMaxRealizedTabs) {
+    return;
+  }
+  
+  // Find candidates to discard (least recently used)
+  std::vector<int> discard_candidates;
+  for (auto it = realized_tab_history_.rbegin(); it != realized_tab_history_.rend(); ++it) {
+    int tid = *it;
+    if (tid == current_tab_id_ || IsTabInSplitView(tid) ||
+        tab_manager_.IsPinned(tid) || discarding_tab_ids_.contains(tid)) {
+      continue;
+    }
+    if (GetLazyTab(tid, nullptr)) {
+      continue;
+    }
+    CefRefPtr<CefBrowserView> view = tab_manager_.GetView(tid);
+    if (view) {
+      discard_candidates.push_back(tid);
+    }
+  }
+  
+  size_t to_discard = realized_count - kMaxRealizedTabs;
+  for (size_t i = 0; i < to_discard && i < discard_candidates.size(); ++i) {
+    CefPostTask(TID_UI, new DiscardTabTask(this, discard_candidates[i]));
+  }
 }
 
 void OtfApp::EnsureTabParkingPanel() {
@@ -1112,10 +1330,12 @@ void OtfApp::DetachContentView(CefRefPtr<CefBrowserView> view) {
 
 void OtfApp::ParkContentView(CefRefPtr<CefBrowserView> view) {
   if (!view || !content_panel_) return;
+  EnsureTabParkingPanel();
+  if (!parked_tab_panel_) return;
   view->SetVisible(false);
-  if (view->GetParentView().get() != content_panel_.get()) {
+  if (view->GetParentView().get() != parked_tab_panel_.get()) {
     DetachContentView(view);
-    content_panel_->AddChildView(view);
+    parked_tab_panel_->AddChildView(view);
   }
   CefRefPtr<CefBrowser> browser = view->GetBrowser();
   if (browser) {
@@ -1395,7 +1615,12 @@ void OtfApp::SwitchTab(int tab_id) {
     if (old_browser) old_browser->GetHost()->StopFinding(true);
   }
 
-  CefRefPtr<CefBrowserView> new_view = tab_manager_.GetView(tab_id);
+  CefRefPtr<CefBrowserView> new_view;
+  if (GetLazyTab(tab_id, nullptr)) {
+    new_view = RealizeLazyTab(tab_id);
+  } else {
+    new_view = tab_manager_.GetView(tab_id);
+  }
   if (!new_view) {
     new_view = RealizeLazyTab(tab_id);
   }
@@ -1409,6 +1634,7 @@ void OtfApp::SwitchTab(int tab_id) {
 
     new_view->RequestFocus();
     UpdateWindowTitle(tab_id);
+    RecordTabAccess(tab_id);
 
     OtfHandler* handler = OtfHandler::GetInstance();
     if (handler) {
@@ -1700,6 +1926,8 @@ int OtfApp::CloseTab(int tab_id) {
     content_mode_ = ContentDisplayMode::kSingleTab;
   }
   tab_manager_.RemoveTab(tab_id);
+  RemoveFromTabHistory(tab_id);
+  lazy_tab_data_.erase(tab_id);
   if (handler) {
     handler->tab_image_preview_subscriptions_.erase(tab_id);
     handler->SetImagePreviewUrlForTab(tab_id, "");

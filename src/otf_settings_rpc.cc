@@ -93,7 +93,7 @@ bool ValidateSettingsParams(CefRefPtr<CefDictionaryValue> params,
       !HasOnlyParamKeys(params,
                         {"searchEngine", "historyEnabled", "downloadsEnabled",
                          "startupBehavior", "startupUrls", "httpsOnly",
-                         "blockInsecure", "appearanceMode",
+                         "blockInsecure", "appearanceMode", "maxRealizedTabs",
                          "customSearchEngines", "cacheDir", "downloadDir",
                          "windowX", "windowY", "windowWidth", "windowHeight",
                          "windowMaximized"},
@@ -134,7 +134,7 @@ bool ValidateSettingsParams(CefRefPtr<CefDictionaryValue> params,
           !ValidateCustomSearchEngines(params->GetList(k), error)) {
         return false;
       }
-    } else if (k == "windowX" || k == "windowY" ||
+    } else if (k == "maxRealizedTabs" || k == "windowX" || k == "windowY" ||
                k == "windowWidth" || k == "windowHeight") {
       if (!IsNumberType(type)) {
         if (error) *error = k + " must be a number";
@@ -474,6 +474,7 @@ std::string BuildResetSettingsJson(const std::string& current_settings_json) {
   bool https_only = false;
   bool block_insecure = true;
   std::string appearance_mode = "auto";
+  int max_realized_tabs = 8;
   std::vector<CustomSearchEngine> custom_engines;
 
   CefRefPtr<CefValue> root =
@@ -505,6 +506,10 @@ std::string BuildResetSettingsJson(const std::string& current_settings_json) {
           appearance_mode = "auto";
         }
       }
+      if (dict->HasKey("maxRealizedTabs") &&
+          IsNumberType(dict->GetType("maxRealizedTabs"))) {
+        max_realized_tabs = dict->GetInt("maxRealizedTabs");
+      }
       if (dict->HasKey("customSearchEngines") &&
           dict->GetType("customSearchEngines") == VTYPE_LIST) {
         CefRefPtr<CefListValue> list = dict->GetList("customSearchEngines");
@@ -533,6 +538,7 @@ std::string BuildResetSettingsJson(const std::string& current_settings_json) {
       .AddBool("httpsOnly", https_only)
       .AddBool("blockInsecure", block_insecure)
       .AddString("appearanceMode", appearance_mode)
+      .AddInt("maxRealizedTabs", max_realized_tabs)
       .AddRaw("customSearchEngines",
               otf::BuildCustomEnginesJson(custom_engines))
       .Build();

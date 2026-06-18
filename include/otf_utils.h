@@ -133,6 +133,7 @@ std::string GetDefaultSettingsJson();
 std::optional<std::string> GetCurrentSearchEngineId();
 bool IsHistoryEnabled();
 bool IsDownloadsEnabled();
+int GetMaxRealizedTabsSetting();
 bool IsAllowedSearchEngineId(const std::string& search_engine_id);
 bool IsAllowedSearchEngineId(const std::string& search_engine_id,
                              const std::vector<CustomSearchEngine>& custom_engines);

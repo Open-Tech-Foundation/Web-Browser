@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "include/wrapper/cef_helpers.h"
+#include "otf_app.h"
 #include "otf_handler.h"
 #include "otf_message_router_handler.h"
 #include "otf_utils.h"
@@ -14,13 +15,20 @@ namespace {
 
 std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
   JsonObjectBuilder builder;
-  const std::string url = tab_manager ? tab_manager->GetUrl(tab_id) : "";
+  WorkspaceTab lazy_tab;
+  const bool is_lazy_tab =
+      OtfApp::GetInstance() && OtfApp::GetInstance()->GetLazyTab(tab_id, &lazy_tab);
+  const std::string url = is_lazy_tab
+                              ? lazy_tab.url
+                              : (tab_manager ? tab_manager->GetUrl(tab_id) : "");
   OtfHandler* handler = OtfHandler::GetInstance();
   const bool is_guest_tab = handler && tab_manager && handler->IsGuestTab(tab_id);
   builder.AddInt("id", tab_id)
       .AddString("url", url)
-      .AddString("title", tab_manager ? tab_manager->GetTitle(tab_id)
-                                      : "New Tab");
+      .AddString("title",
+                 is_lazy_tab ? (lazy_tab.title.empty() ? "New Tab" : lazy_tab.title)
+                             : (tab_manager ? tab_manager->GetTitle(tab_id)
+                                            : "New Tab"));
   if (tab_manager) {
     builder.AddInt("zoomPercent", tab_manager->GetZoomPercent(tab_id));
     builder.AddBool("sslError", tab_manager->HasSslError(tab_id));
@@ -28,7 +36,8 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
     builder.AddBool("private", tab_manager->IsPrivate(tab_id));
     builder.AddBool("pinned", tab_manager->IsPinned(tab_id));
     builder.AddBool("guest", is_guest_tab);
-    const std::string favicon = tab_manager->GetFaviconUrl(tab_id);
+    const std::string favicon =
+        is_lazy_tab ? lazy_tab.favicon : tab_manager->GetFaviconUrl(tab_id);
     if (!favicon.empty()) {
       builder.AddString("favicon", favicon);
     }
