@@ -1,6 +1,7 @@
 #include "otf_handler.h"
 #include "otf_app.h"
 #include "otf_bookmark_runtime.h"
+#include "otf_browse_runtime.h"
 #include "otf_certificate_runtime.h"
 #include "otf_context_menu_runtime.h"
 #include "otf_doc_preview_runtime.h"
@@ -92,97 +93,6 @@
 #include "include/cef_command_ids.h"
 #include "include/cef_urlrequest.h"
 
-#if !defined(_WIN32) && !defined(__APPLE__)
-static bool HasCommand(const char* command) {
-  if (!command || command[0] == '\0') {
-    return false;
-  }
-
-  if (strchr(command, '/') != nullptr) {
-    struct stat buffer;
-    return (stat(command, &buffer) == 0) &&
-           S_ISREG(buffer.st_mode) &&
-           (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH));
-  }
-
-  const char* path_env = getenv("PATH");
-  if (!path_env) {
-    return false;
-  }
-
-  std::string path_str(path_env);
-  size_t start = 0;
-  size_t end = path_str.find(':');
-
-  while (end != std::string::npos) {
-    std::string dir = path_str.substr(start, end - start);
-    if (!dir.empty()) {
-      std::string full_path = dir + "/" + command;
-      struct stat buffer;
-      if (stat(full_path.c_str(), &buffer) == 0 &&
-          S_ISREG(buffer.st_mode) &&
-          (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
-        return true;
-      }
-    }
-    start = end + 1;
-    end = path_str.find(':', start);
-  }
-
-  std::string dir = path_str.substr(start);
-  if (!dir.empty()) {
-    std::string full_path = dir + "/" + command;
-    struct stat buffer;
-    if (stat(full_path.c_str(), &buffer) == 0 &&
-        S_ISREG(buffer.st_mode) &&
-        (buffer.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-#endif
-
-// Cross-platform clipboard write — CEF Alloy provides no clipboard API,
-// so we use platform-native calls.
-static void WriteToClipboard(const std::string& text) {
-#if defined(_WIN32)
-  if (OpenClipboard(nullptr)) {
-    EmptyClipboard();
-    // Convert UTF-8 to UTF-16 for Windows Unicode clipboard
-    int len = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-    HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, len * sizeof(WCHAR));
-    if (hg) {
-      WCHAR* buffer = static_cast<WCHAR*>(GlobalLock(hg));
-      MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, buffer, len);
-      GlobalUnlock(hg);
-      SetClipboardData(CF_UNICODETEXT, hg);
-    }
-    CloseClipboard();
-  }
-#elif defined(__APPLE__)
-  FILE* pipe = popen("pbcopy", "w");
-  if (pipe) {
-    fputs(text.c_str(), pipe);
-    pclose(pipe);
-  }
-#else  // Linux (X11 / Wayland)
-  FILE* pipe = nullptr;
-  if (HasCommand("wl-copy")) {
-    pipe = popen("wl-copy", "w");
-  } else if (HasCommand("xclip")) {
-    pipe = popen("xclip -selection clipboard", "w");
-  } else if (HasCommand("xsel")) {
-    pipe = popen("xsel --clipboard --input", "w");
-  }
-  if (pipe) {
-    fputs(text.c_str(), pipe);
-    pclose(pipe);
-  }
-#endif
-}
-
 namespace otf {
 
 namespace {
@@ -237,32 +147,6 @@ bool IsNonTabBrowserViewId(int view_id) {
            view_id == kSnipPreviewBrowserViewId ||
            view_id == kSplitMenuBrowserViewId;
 }
-
-class DeferredTabRedirectTask : public CefTask {
- public:
-  DeferredTabRedirectTask(const std::string& url, int old_tab_id)
-      : url_(url), old_tab_id_(old_tab_id) {}
-
-  void Execute() override {
-    OtfApp* app = OtfApp::GetInstance();
-    OtfHandler* handler = OtfHandler::GetInstance();
-    if (!app || !handler) return;
-    // Preserve the redirected tab's private flag so the JS-permission
-    // re-open of a private tab stays in the ephemeral context.
-    const bool was_private =
-        handler->tab_manager_ && handler->tab_manager_->IsPrivate(old_tab_id_);
-    int new_id = app->CreateTab(url_, -1, was_private);
-    if (new_id < 0) return;
-    handler->NotifyNewTab(new_id, -1);
-    app->SwitchTab(new_id);
-    handler->CloseTabAndNotify(old_tab_id_);
-  }
-
- private:
-  std::string url_;
-  int old_tab_id_;
-  IMPLEMENT_REFCOUNTING(DeferredTabRedirectTask);
-};
 
 std::string TrimWhitespaceCopy(const std::string& value) {
   size_t start = 0;
@@ -434,23 +318,6 @@ bool RestartBrowserProcess() {
   }
   return SpawnDetached(executable_path.c_str(), args);
 #endif
-}
-
-std::string BuildTabPropertyEvent(int tab_id,
-                                  const std::string& key,
-                                  bool value) {
-  return JsonObjectBuilder()
-      .AddInt("id", tab_id)
-      .AddString("key", key)
-      .AddBool("value", value)
-      .Build();
-}
-
-bool IsSecurityErrorDocumentUrl(const std::string& url) {
-  return url.rfind("browser://insecure-blocked", 0) == 0 ||
-         url.find("/insecure-blocked.html") != std::string::npos ||
-         url.rfind("chrome-error://", 0) == 0 ||
-         url.rfind("data:", 0) == 0;
 }
 
 }  // namespace
@@ -685,6 +552,13 @@ void OtfHandler::NotifyNewTab(int new_tab_id, int parent_tab_id) {
 void OtfHandler::SendEvent(const std::string& event_json) {
   if (subscription_callback_) {
     subscription_callback_->Success(event_json);
+  }
+}
+
+void OtfHandler::NotifyMessageRouterBeforeBrowse(CefRefPtr<CefBrowser> browser,
+                                                 CefRefPtr<CefFrame> frame) {
+  if (message_router_) {
+    message_router_->OnBeforeBrowse(browser, frame);
   }
 }
 
@@ -1159,173 +1033,6 @@ OtfHandler::GetResourceRequestHandler(
   }
 
   return nullptr;
-}
-
-bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
-                                 CefRefPtr<CefFrame> frame,
-                                 CefRefPtr<CefRequest> request,
-                                 bool user_gesture,
-                                 bool is_redirect) {
-  CEF_REQUIRE_UI_THREAD();
-
-  // Block javascript: and vbscript: navigations in any frame — covers
-  // iframe.src = 'javascript:...' which bypasses the OnBeforePopup check.
-  {
-    const std::string url = request->GetURL().ToString();
-    if (url.rfind("javascript:", 0) == 0 || url.rfind("vbscript:", 0) == 0) {
-      return true;
-    }
-  }
-
-  if (frame->IsMain()) {
-    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-    if (view && tab_manager_ && !IsNonTabBrowserViewId(view->GetID())) {
-      const std::string next_url = request->GetURL().ToString();
-      const std::string origin = ExtractOrigin(next_url);
-      const int tab_id = view->GetID();
-
-      if (!origin.empty() && store_ && !IsGuestTab(tab_id)) {
-        const bool dest_blocked =
-            store_->GetSitePermission(origin, "javascript") == "block";
-        const bool tab_js_disabled = IsTabJsDisabled(tab_id);
-
-        // Normal tab → blocked site: open a new JS-disabled tab.
-        // JS-disabled tab → non-blocked site: open a new JS-enabled tab.
-        // Both cases use the same redirect task; CreateTab picks the right
-        // browser_settings based on the destination origin.
-        if (dest_blocked != tab_js_disabled) {
-          // Must notify the message router before cancelling so it can clean
-          // up pending queries on this frame — skipping causes use-after-free
-          // on CefFrame when the old tab is closed by the redirect task.
-          if (message_router_) message_router_->OnBeforeBrowse(browser, frame);
-          CefPostTask(TID_UI, new DeferredTabRedirectTask(next_url, tab_id));
-          return true;
-        }
-      }
-
-      const std::string current_url = tab_manager_->GetUrl(view->GetID());
-      const bool is_image_preview_url =
-          next_url == "browser://imagepreview" ||
-          next_url.rfind("browser://image-preview/", 0) == 0 ||
-          next_url.find("/imagepreview.html") != std::string::npos;
-      const std::string ssl_error_url =
-          tab_manager_->GetSslErrorUrl(view->GetID());
-      const bool is_real_navigation =
-          IsPersistableWebUrl(next_url) ||
-          (next_url.rfind("browser://", 0) == 0 &&
-           !IsSecurityErrorDocumentUrl(next_url));
-      if (tab_manager_->HasSslError(view->GetID()) && current_url != next_url &&
-          next_url != ssl_error_url && is_real_navigation) {
-        tab_manager_->SetSslError(view->GetID(), false);
-        SendEvent(JsonObjectBuilder()
-                      .AddInt("id", view->GetID())
-                      .AddString("key", "sslError")
-                      .AddBool("value", false)
-                      .Build());
-      }
-      if (tab_manager_->GetImagePreviewMode(view->GetID()) ==
-              ImagePreviewMode::kDedicated &&
-          !is_image_preview_url) {
-        tab_manager_->SetSchemeUrl(view->GetID(), "");
-        tab_manager_->SetImagePreviewMode(view->GetID(), ImagePreviewMode::kNone);
-        SetImagePreviewUrlForTab(view->GetID(), "");
-        if (OtfApp* app = OtfApp::GetInstance()) {
-          app->HideImagePreviewOverlay();
-        }
-      }
-      const bool is_doc_preview_url =
-          next_url == "browser://docpreview" ||
-          next_url.rfind("browser://doc-preview/", 0) == 0 ||
-          next_url.find("/docpreview.html") != std::string::npos;
-      if (tab_manager_->GetDocPreviewMode(view->GetID()) ==
-              DocPreviewMode::kDedicated &&
-          !is_doc_preview_url) {
-        tab_manager_->SetSchemeUrl(view->GetID(), "");
-        tab_manager_->SetDocPreviewMode(view->GetID(), DocPreviewMode::kNone);
-        SetDocPreviewUrlForTab(view->GetID(), "");
-        if (OtfApp* app = OtfApp::GetInstance()) {
-          app->HideDocPreviewOverlay();
-        }
-      }
-    }
-    // If this URL is being opened in a new tab via middle-click or ctrl+click,
-    // cancel the navigation in the source tab.
-    if (!pending_new_tab_urls_.empty()) {
-      std::string nav_url = request->GetURL().ToString();
-      auto it = pending_new_tab_urls_.find(nav_url);
-      if (it != pending_new_tab_urls_.end()) {
-        pending_new_tab_urls_.erase(it);
-        return true;
-      }
-    }
-  }
-
-  message_router_->OnBeforeBrowse(browser, frame);
-
-  std::string url = request->GetURL().ToString();
-
-  const bool is_main_frame = !frame || frame->IsMain();
-
-  // Chromium features such as the built-in PDF viewer can load internal
-  // extension/untrusted subframes. Keep blocking direct top-level navigation.
-  if ((url.rfind("chrome-extension://", 0) == 0 ||
-       url.rfind("chrome-untrusted://", 0) == 0) &&
-      !is_main_frame) {
-    return false;
-  }
-
-  // Block dangerous and internal schemes for top-level/user navigation.
-  if (url.rfind("chrome://", 0) == 0 ||
-      url.rfind("chrome-devtools://", 0) == 0 ||
-      url.rfind("chrome-extension://", 0) == 0 ||
-      url.rfind("chrome-search://", 0) == 0 ||
-      url.rfind("chrome-untrusted://", 0) == 0 ||
-      url.rfind("devtools://", 0) == 0 ||
-      url.rfind("javascript:", 0) == 0 ||
-      url.rfind("about:srcdoc", 0) == 0) {
-    return true;
-  }
-
-  // data: and blob: are blocked at the top level (address-bar phishing
-  // surface) but allowed in subframes so the antifingerprint policy can be
-  // exercised across those realms.
-  if (is_main_frame &&
-      (url.rfind("data:", 0) == 0 || url.rfind("blob:", 0) == 0)) {
-    return true;
-  }
-
-  // Block file:// everywhere. The app UI is served through browser://; local
-  // files must not be reachable as browser content or privileged UI frames.
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (otf::IsLocalFilesystemPathLike(url)) {
-    return true;
-  }
-  if (url.rfind("file://", 0) == 0) {
-    return true;
-  }
-
-  if (is_main_frame && url.rfind("http://", 0) == 0 &&
-      !IsAllowedHttpUrl(url)) {
-    // Upgrade to HTTPS silently.  If the HTTPS version fails to load,
-    // OnLoadError will fall back to the insecure-blocked page.
-    const std::string https_url = "https://" + url.substr(7);
-    if (view && tab_manager_) {
-      const int tab_id = view->GetID();
-      http_upgraded_urls_[tab_id] = url;
-      tab_manager_->SetSslError(tab_id, false);
-    }
-    request->SetURL(https_url);
-    return false;
-  }
-
-  std::string dev_ui_url = CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
-
-  if (!dev_ui_url.empty() && IsAllowedBrowserPageUrl(url)) {
-    std::string transformed = GetBrowserPageDevUrl(dev_ui_url, url);
-    request->SetURL(transformed);
-  }
-
-  return false;
 }
 
 bool OtfHandler::OnOpenURLFromTab(CefRefPtr<CefBrowser> browser,

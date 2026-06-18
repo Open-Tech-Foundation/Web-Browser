@@ -256,6 +256,8 @@ class OtfHandler : public CefClient,
   void NotifyDownloadBadge();
   void NotifyBookmarkStateForTab(int tab_id);
   void NotifyNewTab(int new_tab_id, int parent_tab_id = -1);
+  void NotifyMessageRouterBeforeBrowse(CefRefPtr<CefBrowser> browser,
+                                       CefRefPtr<CefFrame> frame);
 
   void StartMemoryLogging();
   void StopMemoryLogging();
