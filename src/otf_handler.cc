@@ -13,6 +13,7 @@
 #include "otf_memory_runtime.h"
 #include "otf_native_rpc.h"
 #include "otf_popup_runtime.h"
+#include "otf_request_context_runtime.h"
 #include "otf_split_runtime.h"
 #include "otf_zoom_runtime.h"
 
@@ -614,13 +615,6 @@ OtfHandler* OtfHandler::GetInstance() {
   return g_instance;
 }
 
-CefRefPtr<CefRequestContext> OtfHandler::GetActiveWorkspaceRequestContext() {
-  if (guest_session_active_) {
-    return GetGuestRequestContext();
-  }
-  return GetWorkspaceRequestContext(active_workspace_id_);
-}
-
 void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
   if (!store_ || !tab_manager_ || workspace_id <= 0) return;
 
@@ -680,183 +674,6 @@ void OtfHandler::PersistWorkspaceForTab(int tab_id) {
   if (ws > 0) PersistWorkspaceTabs(ws);
 }
 
-CefRefPtr<CefRequestContext> OtfHandler::GetWorkspaceRequestContext(int workspace_id) {
-  // The default workspace shares the global context so we don't have to
-  // migrate existing on-disk state, and so that "no workspaces created"
-  // behaves identically to the pre-workspaces build.
-  if (workspace_id <= 1) {
-    return nullptr;
-  }
-  auto it = workspace_contexts_.find(workspace_id);
-  if (it != workspace_contexts_.end() && it->second) {
-    return it->second;
-  }
-  std::filesystem::path base = otf::GetWorkspaceCefCacheDir(workspace_id);
-  if (base.empty()) {
-    base = std::filesystem::temp_directory_path() / "otf-browser" / "cache" /
-           "cef" / "workspaces" / std::to_string(workspace_id);
-  }
-  std::error_code ec;
-  std::filesystem::create_directories(base, ec);
-
-  CefRequestContextSettings settings;
-#if defined(_WIN32)
-  CefString(&settings.cache_path) = base.wstring();
-#else
-  CefString(&settings.cache_path).FromString(base.string());
-#endif
-  CefRefPtr<CefRequestContext> ctx =
-      CefRequestContext::CreateContext(settings, nullptr);
-  OtfApp* app = OtfApp::GetInstance();
-  if (app) app->RegisterBrowserSchemeForContext(ctx);
-  ApplyAlwaysOnPrivacyPreferences(ctx);
-  workspace_contexts_[workspace_id] = ctx;
-  return ctx;
-}
-
-CefRefPtr<CefRequestContext> OtfHandler::GetGuestRequestContext() {
-  CEF_REQUIRE_UI_THREAD();
-  if (guest_context_) {
-    return guest_context_;
-  }
-
-  CefRequestContextSettings settings;
-  CefRefPtr<CefRequestContext> ctx =
-      CefRequestContext::CreateContext(settings, nullptr);
-  OtfApp* app = OtfApp::GetInstance();
-  if (app) app->RegisterBrowserSchemeForContext(ctx);
-  ApplyAlwaysOnPrivacyPreferences(ctx);
-  guest_context_ = ctx;
-  return ctx;
-}
-
-bool OtfHandler::IsGuestTab(int tab_id) const {
-  if (tab_id < 0) {
-    return guest_session_active_;
-  }
-  return tab_manager_ && tab_manager_->GetWorkspaceId(tab_id) == 0;
-}
-
-void OtfHandler::StartGuestSession() {
-  CEF_REQUIRE_UI_THREAD();
-  OtfApp* app = OtfApp::GetInstance();
-  if (!app) return;
-  if (guest_session_active_) {
-    const auto guest_tabs =
-        tab_manager_ ? tab_manager_->GetTabIdsForWorkspace(0) : std::vector<int>{};
-    if (!guest_tabs.empty()) {
-      app->SwitchTab(guest_tabs.front());
-      return;
-    }
-  }
-
-  pre_guest_workspace_id_ = active_workspace_id_;
-  pre_guest_tab_id_ = app->GetCurrentTabId();
-  PersistWorkspaceTabs(pre_guest_workspace_id_);
-  if (pre_guest_tab_id_ >= 0) {
-    workspace_last_active_tab_[pre_guest_workspace_id_] = pre_guest_tab_id_;
-  }
-  app->ClearSplitView();
-
-  guest_session_active_ = true;
-  const int tab_id = app->CreateTab("browser://newtab");
-  if (tab_manager_) tab_manager_->SetWorkspaceId(tab_id, 0);
-  NotifyNewTab(tab_id, -1);
-  app->SwitchTab(tab_id);
-  SendEvent(JsonObjectBuilder()
-                .AddString("key", "guest-session-changed")
-                .AddBool("active", true)
-                .Build());
-  SendEvent(JsonObjectBuilder().AddString("key", "workspaces-updated").Build());
-}
-
-void OtfHandler::EndGuestSession(bool restore_normal_tabs) {
-  CEF_REQUIRE_UI_THREAD();
-  if (!guest_session_active_) return;
-  OtfApp* app = OtfApp::GetInstance();
-
-  guest_session_active_ = false;
-  if (tab_manager_) {
-    tab_manager_->ClearWorkspaceOriginZooms(0);
-    tab_manager_->ClearPrivateWorkspaceOriginZooms(0);
-  }
-  for (auto it = downloads_.begin(); it != downloads_.end();) {
-    if (it->first < 0) {
-      it = downloads_.erase(it);
-    } else {
-      ++it;
-    }
-  }
-  for (auto it = runtime_download_ids_.begin(); it != runtime_download_ids_.end();) {
-    if (it->second < 0) {
-      it = runtime_download_ids_.erase(it);
-    } else {
-      ++it;
-    }
-  }
-  guest_context_ = nullptr;
-
-  active_workspace_id_ = pre_guest_workspace_id_ > 0 ? pre_guest_workspace_id_ : 1;
-  if (store_) store_->SetActiveWorkspace(active_workspace_id_);
-
-  if (restore_normal_tabs) {
-    int restore_tab = -1;
-    if (tab_manager_ && pre_guest_tab_id_ >= 0) {
-      const auto tabs = tab_manager_->GetTabIdsForWorkspace(active_workspace_id_);
-      if (std::find(tabs.begin(), tabs.end(), pre_guest_tab_id_) != tabs.end()) {
-        restore_tab = pre_guest_tab_id_;
-      } else if (!tabs.empty()) {
-        restore_tab = tabs.front();
-      }
-    }
-    if (app) {
-      if (restore_tab >= 0) {
-        app->SwitchTab(restore_tab);
-      } else {
-        const int new_id = app->CreateTab("browser://newtab");
-        NotifyNewTab(new_id, -1);
-        app->SwitchTab(new_id);
-      }
-    }
-  }
-
-  pre_guest_tab_id_ = -1;
-  SendEvent(JsonObjectBuilder()
-                .AddString("key", "guest-session-changed")
-                .AddBool("active", false)
-                .Build());
-  SendEvent(JsonObjectBuilder().AddString("key", "workspaces-updated").Build());
-  SendEvent(JsonObjectBuilder()
-                .AddString("key", "workspace-changed")
-                .AddInt("id", active_workspace_id_)
-                .Build());
-}
-
-CefRefPtr<CefRequestContext> OtfHandler::GetPrivateRequestContext() {
-  CEF_REQUIRE_UI_THREAD();
-  if (private_context_) {
-    return private_context_;
-  }
-  // Empty cache_path => in-memory only. Nothing is written to disk and the
-  // session is destroyed when the context is released.
-  CefRequestContextSettings settings;
-  CefRefPtr<CefRequestContext> ctx =
-      CefRequestContext::CreateContext(settings, nullptr);
-  OtfApp* app = OtfApp::GetInstance();
-  if (app) app->RegisterBrowserSchemeForContext(ctx);
-  ApplyAlwaysOnPrivacyPreferences(ctx);
-  private_context_ = ctx;
-  return ctx;
-}
-
-void OtfHandler::MaybeReleasePrivateContext() {
-  CEF_REQUIRE_UI_THREAD();
-  if (private_context_ && tab_manager_ && !tab_manager_->HasPrivateTabs()) {
-    private_context_ = nullptr;
-    tab_manager_->ClearPrivateOriginZooms();
-  }
-}
-
 CefRefPtr<CefBrowser> OtfHandler::ResolveSiteDataBrowser(
     CefRefPtr<CefBrowser> requester) {
   CEF_REQUIRE_UI_THREAD();
@@ -870,16 +687,6 @@ CefRefPtr<CefBrowser> OtfHandler::ResolveSiteDataBrowser(
   CefRefPtr<CefBrowser> resolved =
       (id >= 0 && tab_manager_) ? tab_manager_->GetBrowser(id) : nullptr;
   return resolved ? resolved : requester;
-}
-
-void OtfHandler::ApplyAlwaysOnPrivacyPreferences(
-    CefRefPtr<CefRequestContext> ctx) {
-  if (!ctx) return;
-  CEF_REQUIRE_UI_THREAD();
-  CefRefPtr<CefValue> val = CefValue::Create();
-  val->SetBool(true);
-  CefString error;
-  ctx->SetPreference("enable_do_not_track", val, error);
 }
 
 std::string OtfHandler::BuildTabsJson() const {

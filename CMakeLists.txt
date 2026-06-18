@@ -95,6 +95,7 @@ set(OTF_BROWSER_SRCS
     src/otf_permissions_rpc.cc
     src/otf_popup_overlay.cc
     src/otf_popup_runtime.cc
+    src/otf_request_context_runtime.cc
     src/otf_rpc_dispatcher.cc
     src/otf_search_rpc.cc
     src/otf_settings_rpc.cc
@@ -136,6 +137,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_permissions_rpc.h
     include/otf_popup_overlay.h
     include/otf_popup_runtime.h
+    include/otf_request_context_runtime.h
     include/otf_rpc_dispatcher.h
     include/otf_search_rpc.h
     include/otf_settings_rpc.h
