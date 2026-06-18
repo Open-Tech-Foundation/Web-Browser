@@ -87,6 +87,7 @@ set(OTF_BROWSER_SRCS
     src/otf_history_bookmarks_rpc.cc
     src/otf_image_preview_rpc.cc
     src/otf_image_preview_runtime.cc
+    src/otf_keyboard_runtime.cc
     src/otf_message_router_handler.cc
     src/otf_memory_runtime.cc
     src/otf_navigation_rpc.cc
@@ -130,6 +131,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_history_bookmarks_rpc.h
     include/otf_image_preview_rpc.h
     include/otf_image_preview_runtime.h
+    include/otf_keyboard_runtime.h
     include/otf_message_router_handler.h
     include/otf_memory_runtime.h
     include/otf_navigation_rpc.h
