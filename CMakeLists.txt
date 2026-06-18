@@ -82,6 +82,7 @@ set(OTF_BROWSER_SRCS
     src/otf_doc_preview_runtime.cc
     src/otf_downloads_rpc.cc
     src/otf_downloads_runtime.cc
+    src/otf_event_runtime.cc
     src/otf_find_runtime.cc
     src/otf_findbar_rpc.cc
     src/otf_handler.cc
@@ -99,11 +100,13 @@ set(OTF_BROWSER_SRCS
     src/otf_permissions_rpc.cc
     src/otf_popup_overlay.cc
     src/otf_popup_runtime.cc
+    src/otf_resource_runtime.cc
     src/otf_request_context_runtime.cc
     src/otf_rpc_dispatcher.cc
     src/otf_search_rpc.cc
     src/otf_settings_rpc.cc
     src/otf_shutdown_runtime.cc
+    src/otf_system_runtime.cc
     src/otf_site_data_rpc.cc
     src/otf_tab_runtime.cc
     src/otf_workspace_runtime.cc
@@ -148,14 +151,17 @@ set(OTF_BROWSER_HEADERS
     include/otf_permissions_rpc.h
     include/otf_popup_overlay.h
     include/otf_popup_runtime.h
+    include/otf_resource_runtime.h
     include/otf_request_context_runtime.h
     include/otf_rpc_dispatcher.h
     include/otf_search_rpc.h
     include/otf_settings_rpc.h
     include/otf_shutdown_runtime.h
+    include/otf_system_runtime.h
     include/otf_site_data_rpc.h
     include/otf_tab_runtime.h
     include/otf_workspace_runtime.h
+    include/otf_event_runtime.h
     include/otf_split_runtime.h
     include/otf_browser_shell.h
     include/otf_store.h
