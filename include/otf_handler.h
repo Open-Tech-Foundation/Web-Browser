@@ -258,6 +258,7 @@ class OtfHandler : public CefClient,
   void NotifyNewTab(int new_tab_id, int parent_tab_id = -1);
   void NotifyMessageRouterBeforeBrowse(CefRefPtr<CefBrowser> browser,
                                        CefRefPtr<CefFrame> frame);
+  void EnsureMessageRouterInitialized();
 
   void StartMemoryLogging();
   void StopMemoryLogging();

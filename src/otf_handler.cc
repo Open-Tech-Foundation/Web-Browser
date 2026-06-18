@@ -11,6 +11,7 @@
 #include "otf_image_preview_runtime.h"
 #include "otf_keyboard_runtime.h"
 #include "otf_keyboard_shortcuts.h"
+#include "otf_lifecycle_runtime.h"
 #include "otf_message_router_handler.h"
 #include "otf_memory_runtime.h"
 #include "otf_native_rpc.h"
@@ -96,11 +97,6 @@
 namespace otf {
 
 namespace {
-
-void SetBrowserWindowVisible(CefRefPtr<CefBrowser> browser, bool visible) {
-  if (!browser) return;
-  browser->GetHost()->WasHidden(!visible);
-}
 
 OtfHandler* g_instance = nullptr;
 const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
@@ -562,115 +558,15 @@ void OtfHandler::NotifyMessageRouterBeforeBrowse(CefRefPtr<CefBrowser> browser,
   }
 }
 
-void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
-  CEF_REQUIRE_UI_THREAD();
-  {
-    CefRefPtr<CefBrowserView> bv = CefBrowserView::GetForBrowser(browser);
-    const int vid = bv ? bv->GetID() : -1;
-    const std::string u =
-        browser->GetMainFrame() ? browser->GetMainFrame()->GetURL().ToString()
-                                : std::string();
-    LOG(INFO) << "[otf] browser OnAfterCreated: view_id=" << vid
-              << (vid == kUiBrowserViewId ? " (UI SHELL)" : "")
-              << " url=" << u;
-    otf::DiagLog("browser OnAfterCreated: view_id=" + std::to_string(vid) +
-                 (vid == kUiBrowserViewId ? " (UI SHELL)" : "") + " url=" + u);
+void OtfHandler::EnsureMessageRouterInitialized() {
+  if (message_router_) {
+    return;
   }
-
-  if (!message_router_) {
-    CefMessageRouterConfig config;
-    config.js_query_function = "cefQuery";
-    config.js_cancel_function = "cefQueryCancel";
-    message_router_ = CefMessageRouterBrowserSide::Create(config);
-    message_router_->AddHandler(new OtfMessageRouterHandler(), true);
-  }
-
-  // Link the browser to the tab model
-  CefRefPtr<CefBrowserView> browser_view = CefBrowserView::GetForBrowser(browser);
-  if (browser_view) {
-    if (browser_view->GetID() == kUiBrowserViewId) {
-      ui_browser_ = browser;
-      // Lazily build the DevTools bridge and attach it to the UI shell
-      // browser. The bridge routes async CDP responses back to per-call
-      // callbacks (Storage.getUsageAndQuota and friends).
-      if (!devtools_bridge_) {
-        devtools_bridge_ = new DevToolsBridge();
-      }
-      devtools_bridge_->Attach(browser);
-    } else if (browser_view->GetID() == kFindBarBrowserViewId ||
-               browser_view->GetID() == kZoomBarBrowserViewId ||
-               browser_view->GetID() == kDownloadsBrowserViewId ||
-               browser_view->GetID() == kCertificateBrowserViewId ||
-                browser_view->GetID() == kImagePreviewBrowserViewId ||
-                browser_view->GetID() == kLinkPreviewBrowserViewId ||
-                browser_view->GetID() == kToastNotificationBrowserViewId ||
-                 browser_view->GetID() == kConsoleBrowserViewId ||
-                 browser_view->GetID() == kSnipPreviewBrowserViewId) {
-      if (browser_view->GetID() == kFindBarBrowserViewId) {
-        findbar_browser_ = browser;
-      } else if (browser_view->GetID() == kLinkPreviewBrowserViewId) {
-        link_preview_browser_ = browser;
-      } else if (browser_view->GetID() == kToastNotificationBrowserViewId) {
-        toast_browser_ = browser;
-      } else if (browser_view->GetID() == kSnipPreviewBrowserViewId) {
-        snip_preview_browser_ = browser;
-      } else if (browser_view->GetID() == kCertificateBrowserViewId) {
-        certificate_browser_ = browser;
-        OtfApp* app = OtfApp::GetInstance();
-        if (app) {
-          app->RefreshCertificateOverlay();
-          if (app->certificate_overlay_ && app->certificate_overlay_->IsVisible()) {
-            browser->GetHost()->SetFocus(true);
-          }
-        }
-      } else if (browser_view->GetID() == kImagePreviewBrowserViewId) {
-        // The floating image preview overlay is not a workspace tab.
-      }
-    } else if (OtfApp* app = OtfApp::GetInstance();
-               app && app->DispatchPopupBrowserCreated(browser_view->GetID(),
-                                                      browser)) {
-      // Routed to a PopupOverlay (cleardata, etc.). Nothing else to do.
-    } else if (pending_external_popups_ > 0) {
-      --pending_external_popups_;
-    } else if (tab_manager_) {
-      int tab_id = browser_view->GetID();
-      tab_manager_->SetBrowser(tab_id, browser);
-      OtfApp* app = OtfApp::GetInstance();
-      if (app) {
-        bool is_visible = (tab_id == app->GetCurrentTabId());
-        if (app->HasSplitView() && (tab_id == app->GetSplitLeftTabId() || tab_id == app->GetSplitRightTabId())) {
-          is_visible = true;
-        }
-        SetBrowserWindowVisible(browser, is_visible);
-      }
-      int zoom_percent = 100;
-      if (!ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) &&
-          !ApplyWorkspaceOriginZoom(browser, tab_manager_, tab_id,
-                                    &zoom_percent)) {
-        zoom_percent = ToRoundedZoomPercent(browser->GetHost()->GetZoomLevel());
-        tab_manager_->SetZoomPercent(tab_id, zoom_percent);
-      }
-      std::string current = browser->GetMainFrame()->GetURL().ToString();
-      if (current.empty() || current == "about:blank") {
-        std::string stored = tab_manager_->GetUrl(tab_id);
-        if (!stored.empty()) {
-          if (tab_manager_->GetImagePreviewMode(tab_id) ==
-                  ImagePreviewMode::kDedicated &&
-              stored.rfind("browser://image-preview/", 0) != 0) {
-            stored = "browser://imagepreview";
-          }
-          browser->GetMainFrame()->LoadURL(stored);
-        }
-      }
-      // Start periodic memory logging on first content tab
-      StartMemoryLogging();
-    }
-  } else if (pending_external_popups_ > 0) {
-    // Browser created via CefBrowserHost::CreateBrowser (no CefBrowserView).
-    --pending_external_popups_;
-  }
-
-  browser_list_.push_back(browser);
+  CefMessageRouterConfig config;
+  config.js_query_function = "cefQuery";
+  config.js_cancel_function = "cefQueryCancel";
+  message_router_ = CefMessageRouterBrowserSide::Create(config);
+  message_router_->AddHandler(new OtfMessageRouterHandler(), true);
 }
 
 bool OtfHandler::DoClose(CefRefPtr<CefBrowser> browser) {
