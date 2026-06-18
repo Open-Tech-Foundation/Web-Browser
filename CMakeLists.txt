@@ -91,6 +91,7 @@ set(OTF_BROWSER_SRCS
     src/otf_memory_runtime.cc
     src/otf_navigation_rpc.cc
     src/otf_native_rpc.cc
+    src/otf_page_runtime.cc
     src/otf_page_policy.cc
     src/otf_permissions_rpc.cc
     src/otf_popup_overlay.cc
@@ -133,6 +134,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_memory_runtime.h
     include/otf_navigation_rpc.h
     include/otf_native_rpc.h
+    include/otf_page_runtime.h
     include/otf_page_policy.h
     include/otf_permissions_rpc.h
     include/otf_popup_overlay.h

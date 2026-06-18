@@ -12,6 +12,7 @@
 #include "otf_message_router_handler.h"
 #include "otf_memory_runtime.h"
 #include "otf_native_rpc.h"
+#include "otf_page_runtime.h"
 #include "otf_popup_runtime.h"
 #include "otf_request_context_runtime.h"
 #include "otf_split_runtime.h"
@@ -236,18 +237,6 @@ bool IsNonTabBrowserViewId(int view_id) {
            view_id == kSplitMenuBrowserViewId;
 }
 
-int ResolveRealTabIdForBrowser(CefRefPtr<CefBrowser> browser,
-                               TabManager* tab_manager) {
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view && !IsNonTabBrowserViewId(view->GetID())) {
-    return view->GetID();
-  }
-  if (tab_manager) {
-    return tab_manager->GetId(browser);
-  }
-  return -1;
-}
-
 class DeferredTabRedirectTask : public CefTask {
  public:
   DeferredTabRedirectTask(const std::string& url, int old_tab_id)
@@ -385,26 +374,6 @@ std::string BuildTabJson(TabManager* tab_manager, OtfStore* store, int tab_id) {
   return builder.Build();
 }
 
-std::string BuildTabPropertyEvent(int tab_id,
-                                  const std::string& key,
-                                  const std::string& value) {
-  return JsonObjectBuilder()
-      .AddInt("id", tab_id)
-      .AddString("key", key)
-      .AddString("value", value)
-      .Build();
-}
-
-std::string BuildTabPropertyEvent(int tab_id,
-                                   const std::string& key,
-                                   bool value) {
-  return JsonObjectBuilder()
-      .AddInt("id", tab_id)
-      .AddString("key", key)
-      .AddBool("value", value)
-      .Build();
-}
-
 bool RestartBrowserProcess() {
   CefRefPtr<CefCommandLine> command_line = CefCommandLine::GetGlobalCommandLine();
   if (!command_line) {
@@ -466,21 +435,21 @@ bool RestartBrowserProcess() {
 #endif
 }
 
+std::string BuildTabPropertyEvent(int tab_id,
+                                  const std::string& key,
+                                  bool value) {
+  return JsonObjectBuilder()
+      .AddInt("id", tab_id)
+      .AddString("key", key)
+      .AddBool("value", value)
+      .Build();
+}
+
 bool IsSecurityErrorDocumentUrl(const std::string& url) {
   return url.rfind("browser://insecure-blocked", 0) == 0 ||
          url.find("/insecure-blocked.html") != std::string::npos ||
          url.rfind("chrome-error://", 0) == 0 ||
          url.rfind("data:", 0) == 0;
-}
-
-bool IsSameSecurityUrl(const std::string& a, const std::string& b) {
-  if (a == b) {
-    return true;
-  }
-  if (IsPersistableWebUrl(a) && IsPersistableWebUrl(b)) {
-    return NormalizeBookmarkUrl(a) == NormalizeBookmarkUrl(b);
-  }
-  return false;
 }
 
 }  // namespace
@@ -716,372 +685,6 @@ void OtfHandler::SendEvent(const std::string& event_json) {
   if (subscription_callback_) {
     subscription_callback_->Success(event_json);
   }
-}
-
-void OtfHandler::OnTitleChange(CefRefPtr<CefBrowser> browser,
-                               const CefString& title) {
-  CEF_REQUIRE_UI_THREAD();
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view && !IsNonTabBrowserViewId(view->GetID())) {
-    if (tab_manager_) tab_manager_->SetTitle(view->GetID(), title.ToString());
-    const std::string url = tab_manager_ ? tab_manager_->GetUrl(view->GetID()) : "";
-    if (store_ && otf::IsHistoryEnabled() && IsPersistableWebUrl(url) &&
-        !IsInternalUiUrl(url) && !IsGuestTab(view->GetID())) {
-      const int workspace_id =
-          tab_manager_ ? tab_manager_->GetWorkspaceId(view->GetID()) : active_workspace_id_;
-      store_->UpdateHistoryTitle(url, title.ToString(), workspace_id);
-    }
-    SendEvent(BuildTabPropertyEvent(view->GetID(), "title", title.ToString()));
-    PersistWorkspaceForTab(view->GetID());
-    if (OtfApp* app = OtfApp::GetInstance()) {
-      app->UpdateWindowTitle(view->GetID());
-    }
-  }
-}
-
-void OtfHandler::OnAddressChange(CefRefPtr<CefBrowser> browser,
-                                 CefRefPtr<CefFrame> frame,
-                                 const CefString& url) {
-  CEF_REQUIRE_UI_THREAD();
-  if (frame->IsMain()) {
-    CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-    if (view && !IsNonTabBrowserViewId(view->GetID())) {
-      std::string url_str = url.ToString();
-      if (url_str.rfind("browser://insecure-blocked", 0) == 0) {
-        return;
-      }
-      if (otf::IsLocalFilesystemPathLike(url_str)) {
-        return;
-      }
-
-
-      if (tab_manager_) {
-        const bool is_image_preview_url =
-            url_str == "browser://imagepreview" ||
-            url_str.rfind("browser://image-preview/", 0) == 0 ||
-            url_str.find("/imagepreview.html") != std::string::npos;
-        const ImagePreviewMode preview_mode =
-            tab_manager_->GetImagePreviewMode(view->GetID());
-        if (preview_mode == ImagePreviewMode::kDedicated && !is_image_preview_url) {
-          tab_manager_->SetSchemeUrl(view->GetID(), "");
-          tab_manager_->SetImagePreviewMode(view->GetID(), ImagePreviewMode::kNone);
-          SetImagePreviewUrlForTab(view->GetID(), "");
-          if (OtfApp* app = OtfApp::GetInstance()) {
-            app->HideImagePreviewOverlay();
-          }
-        }
-        if (preview_mode != ImagePreviewMode::kDedicated || !is_image_preview_url) {
-          tab_manager_->SetUrl(view->GetID(), url_str);
-        }
-
-        const bool is_doc_preview_url =
-            url_str == "browser://docpreview" ||
-            url_str.rfind("browser://doc-preview/", 0) == 0 ||
-            url_str.find("/docpreview.html") != std::string::npos;
-        const DocPreviewMode doc_mode =
-            tab_manager_->GetDocPreviewMode(view->GetID());
-        if (doc_mode == DocPreviewMode::kDedicated && !is_doc_preview_url) {
-          tab_manager_->SetSchemeUrl(view->GetID(), "");
-          tab_manager_->SetDocPreviewMode(view->GetID(), DocPreviewMode::kNone);
-          SetDocPreviewUrlForTab(view->GetID(), "");
-          if (OtfApp* app = OtfApp::GetInstance()) {
-            app->HideDocPreviewOverlay();
-          }
-        }
-        if (doc_mode != DocPreviewMode::kDedicated || !is_doc_preview_url) {
-          tab_manager_->SetUrl(view->GetID(), url_str);
-        }
-      }
-
-      if (url_str.find("browser://") == 0) {
-        return;
-      }
-
-      if (tab_manager_) {
-        const std::string suppressed_url =
-            tab_manager_->GetHistorySuppressedUrl(view->GetID());
-        if (!suppressed_url.empty() && url_str != suppressed_url) {
-          tab_manager_->SetHistorySuppressedUrl(view->GetID(), "");
-        }
-      }
-
-      if (tab_manager_ && tab_manager_->HasSslError(view->GetID()) &&
-          !IsSecurityErrorDocumentUrl(url_str) &&
-          !IsSameSecurityUrl(url_str, tab_manager_->GetSslErrorUrl(view->GetID()))) {
-        tab_manager_->SetSslError(view->GetID(), false);
-        SendEvent(JsonObjectBuilder()
-                      .AddInt("id", view->GetID())
-                      .AddString("key", "sslError")
-                      .AddBool("value", false)
-                      .Build());
-      }
-
-      std::string dev_ui_url = GetDevUiUrl();
-      if (!dev_ui_url.empty()) {
-        std::string prefix = dev_ui_url + "/";
-        if (url_str.find(prefix) == 0) {
-          return;
-        }
-      }
-
-      SendEvent(BuildTabPropertyEvent(view->GetID(), "url", url_str));
-      // Clear stale favicon when navigating to a different origin.
-      if (tab_manager_) {
-        const std::string old_url = tab_manager_->GetUrl(view->GetID());
-        const std::string old_origin = ExtractOrigin(old_url);
-        const std::string new_origin = ExtractOrigin(url_str);
-        if (old_origin != new_origin) {
-          tab_manager_->SetFaviconUrl(view->GetID(), "");
-          SendEvent(BuildTabPropertyEvent(view->GetID(), "favicon", ""));
-        }
-      }
-      if (store_ && IsPersistableWebUrl(url_str)) {
-        SendEvent(BuildBookmarkSyncEvent(
-            view->GetID(), url_str,
-            !IsGuestTab(view->GetID()) &&
-                store_->IsBookmarked(NormalizeBookmarkUrl(url_str))));
-      }
-      PersistWorkspaceForTab(view->GetID());
-    }
-  }
-}
-
-void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
-                                     const std::vector<CefString>& icon_urls) {
-  CEF_REQUIRE_UI_THREAD();
-
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view && !IsNonTabBrowserViewId(view->GetID())) {
-    const int tab_id = view->GetID();
-    std::string favicon_url;
-    if (!icon_urls.empty()) {
-      favicon_url = icon_urls[0].ToString();
-    }
-    if (favicon_url.empty()) return;
-    const std::string page_url = tab_manager_ ? NormalizeBookmarkUrl(tab_manager_->GetUrl(tab_id))
-                                               : "";
-    if (store_ && !page_url.empty() && IsPersistableWebUrl(page_url) &&
-        store_->IsBookmarked(page_url)) {
-      store_->AddBookmark(page_url, tab_manager_->GetTitle(tab_id), favicon_url);
-    }
-    if (tab_manager_) {
-      tab_manager_->SetFaviconUrl(tab_id, favicon_url);
-    }
-    SendEvent(BuildTabPropertyEvent(tab_id, "favicon", favicon_url));
-    PersistWorkspaceForTab(tab_id);
-  }
-}
-
-void OtfHandler::OnFullscreenModeChange(CefRefPtr<CefBrowser> browser,
-                                        bool fullscreen) {
-  CEF_REQUIRE_UI_THREAD();
-  if (auto* app = OtfApp::GetInstance()) {
-    app->SetContentFullscreen(fullscreen);
-  }
-}
-
-void OtfHandler::OnStatusMessage(CefRefPtr<CefBrowser> browser,
-                                 const CefString& value) {
-  CEF_REQUIRE_UI_THREAD();
-  if (!link_preview_browser_) return;
-  // Only forward status from content tabs, not the overlay browsers themselves.
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (!view || IsNonTabBrowserViewId(view->GetID())) return;
-
-  std::string url = value.ToString();
-  OtfApp* app = OtfApp::GetInstance();
-  if (url.empty()) {
-    if (app) app->SetLinkPreviewVisible(false);
-    return;
-  }
-  // Escape backslashes and single-quotes for safe embedding in a JS string.
-  for (size_t i = 0; (i = url.find('\\', i)) != std::string::npos; i += 2)
-    url.replace(i, 1, "\\\\");
-  for (size_t i = 0; (i = url.find('\'', i)) != std::string::npos; i += 2)
-    url.replace(i, 1, "\\'");
-  if (app) app->SetLinkPreviewVisible(true);
-  const std::string js = "window.__otfSetLinkPreview('" + url + "');";
-  link_preview_browser_->GetMainFrame()->ExecuteJavaScript(js, "", 0);
-}
-
-bool OtfHandler::OnConsoleMessage(CefRefPtr<CefBrowser> browser,
-                                  cef_log_severity_t level,
-                                  const CefString& message,
-                                  const CefString& source,
-                                  int line) {
-  CEF_REQUIRE_UI_THREAD();
-
-  // Mirror ALL renderer console output to the CEF log (debug.txt) — including
-  // the UI shell and overlay browsers that aren't content tabs — so a blank
-  // window or a module/JS failure stays diagnosable when DevTools is
-  // unavailable (e.g. command-line flags are blocked).
-  LOG(INFO) << "[otf][console:" << level << "] " << message.ToString()
-            << " (" << source.ToString() << ":" << line << ")";
-  otf::DiagLog("console[" + std::to_string(level) + "]: " + message.ToString() +
-               " (" + source.ToString() + ":" + std::to_string(line) + ")");
-
-  if (!tab_manager_) return false;
-
-  // Only capture messages from real content tabs.
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view && IsNonTabBrowserViewId(view->GetID())) return false;
-
-  const int tab_id = ResolveRealTabIdForBrowser(browser, tab_manager_);
-  if (tab_id < 0) return false;
-
-  // Suppress the ResizeObserver loop warning — it is a browser-internal
-  // notification fired when the content panel is resized (e.g. console open/
-  // resize) and is not actionable user code output.
-  {
-    const std::string msg = message.ToString();
-    if (msg.find("ResizeObserver loop") != std::string::npos) return false;
-  }
-
-  // Timestamp in milliseconds since epoch.
-  const int64_t now_ms = static_cast<int64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count());
-
-  ConsoleEntry entry{
-    static_cast<int>(level),
-    message.ToString(),
-    source.ToString(),
-    line,
-    now_ms,
-  };
-  tab_manager_->AddConsoleEntry(tab_id, entry);
-
-  if (console_subscription_) {
-    // Escape JSON strings.
-    auto esc = [](const std::string& s) -> std::string {
-      std::string out;
-      out.reserve(s.size() + 4);
-      for (unsigned char c : s) {
-        if (c == '"') out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c == '\n') out += "\\n";
-        else if (c == '\r') out += "\\r";
-        else if (c == '\t') out += "\\t";
-        else out += static_cast<char>(c);
-      }
-      return out;
-    };
-    std::string event =
-        "{\"key\":\"console-entry\",\"tabId\":" + std::to_string(tab_id) +
-        ",\"level\":" + std::to_string(static_cast<int>(level)) +
-        ",\"message\":\"" + esc(entry.message) + "\"" +
-        ",\"source\":\"" + esc(entry.source) + "\"" +
-        ",\"line\":" + std::to_string(line) +
-        ",\"ts\":" + std::to_string(now_ms) + "}";
-    console_subscription_->Success(event);
-  }
-  return false;
-}
-
-void OtfHandler::OnLoadingStateChange(CefRefPtr<CefBrowser> browser,
-                                      bool isLoading,
-                                      bool canGoBack,
-                                      bool canGoForward) {
-  CEF_REQUIRE_UI_THREAD();
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view && view->GetID() == kUiBrowserViewId) {
-    LOG(INFO) << "[otf] UI shell OnLoadingStateChange: isLoading="
-              << (isLoading ? "true" : "false") << " url="
-              << (browser->GetMainFrame()
-                      ? browser->GetMainFrame()->GetURL().ToString()
-                      : std::string());
-  }
-  if (view && !IsNonTabBrowserViewId(view->GetID())) {
-    SendEvent(BuildTabPropertyEvent(view->GetID(), "loading", isLoading));
-    SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoBack", canGoBack));
-    SendEvent(BuildTabPropertyEvent(view->GetID(), "canGoForward", canGoForward));
-  }
-}
-
-void OtfHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser,
-                            CefRefPtr<CefFrame> frame,
-                            int httpStatusCode) {
-  if (!frame->IsMain()) return;
-
-  CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
-  if (view && view->GetID() == kUiBrowserViewId) {
-    LOG(INFO) << "[otf] UI shell OnLoadEnd: httpStatus=" << httpStatusCode
-              << " url=" << frame->GetURL().ToString();
-    otf::DiagLog("UI shell OnLoadEnd: httpStatus=" +
-                 std::to_string(httpStatusCode) + " url=" +
-                 frame->GetURL().ToString());
-  }
-  if (!view || IsNonTabBrowserViewId(view->GetID())) return;
-  const int tab_id = view->GetID();
-
-  // Clear any pending HTTP→HTTPS upgrade tracking — the page loaded
-  // successfully (or a different navigation superseded the upgrade).
-  http_upgraded_urls_.erase(tab_id);
-
-  if (httpStatusCode >= 200 && httpStatusCode < 400 && store_ && tab_manager_) {
-    const std::string url = frame->GetURL().ToString();
-    CefRefPtr<CefNavigationEntry> entry =
-        browser->GetHost() ? browser->GetHost()->GetVisibleNavigationEntry()
-                           : nullptr;
-    CefRefPtr<CefSSLStatus> ssl_status =
-        entry ? entry->GetSSLStatus() : nullptr;
-    const bool has_cert_error =
-        ssl_status && CefIsCertStatusError(ssl_status->GetCertStatus());
-    if (has_cert_error) {
-      tab_manager_->SetSslError(tab_id, true);
-      tab_manager_->SetSslErrorUrl(tab_id, url);
-      SendEvent(JsonObjectBuilder()
-                    .AddInt("id", tab_id)
-                    .AddString("key", "sslError")
-                    .AddBool("value", true)
-                    .Build());
-    } else if (tab_manager_->HasSslError(tab_id) &&
-               url != tab_manager_->GetSslErrorUrl(tab_id) &&
-               !IsSecurityErrorDocumentUrl(url)) {
-      tab_manager_->SetSslError(tab_id, false);
-      SendEvent(JsonObjectBuilder()
-                    .AddInt("id", tab_id)
-                    .AddString("key", "sslError")
-                    .AddBool("value", false)
-                    .Build());
-    }
-    const std::string current = tab_manager_->GetUrl(tab_id);
-    const std::string suppressed_url =
-        tab_manager_->GetHistorySuppressedUrl(tab_id);
-    const int workspace_id = tab_manager_->GetWorkspaceId(tab_id);
-    if (otf::IsHistoryEnabled() && !tab_manager_->IsPrivate(tab_id) &&
-        !IsGuestTab(tab_id) &&
-        IsPersistableWebUrl(url) &&
-        !IsInternalUiUrl(url) && (current.empty() ||
-        current.rfind("browser://", 0) != 0) &&
-        (suppressed_url.empty() || suppressed_url != url)) {
-      store_->RecordVisit(url, tab_manager_->GetTitle(tab_id), "link",
-                          workspace_id);
-    }
-    int zoom_percent = 100;
-    if (ApplyPrivateTabZoom(browser, tab_manager_, tab_id, &zoom_percent) ||
-        ApplyWorkspaceOriginZoom(browser, tab_manager_, tab_id, &zoom_percent)) {
-      SendEvent(BuildTabPropertyEvent(
-          tab_id, "zoomPercent", std::to_string(zoom_percent)));
-      if (zoombar_subscription_) {
-        zoombar_subscription_->Success(
-            BuildZoomUpdateEvent(tab_id, zoom_percent));
-      }
-    } else if (!tab_manager_->IsPrivate(tab_id) && !IsPersistableZoomUrl(url)) {
-      browser->GetHost()->SetZoomLevel(otf::ZoomReset());
-      tab_manager_->SetZoomPercent(tab_id, 100);
-      SendEvent(BuildTabPropertyEvent(tab_id, "zoomPercent", "100"));
-      if (zoombar_subscription_) {
-        zoombar_subscription_->Success(BuildZoomUpdateEvent(tab_id, 100));
-      }
-    }
-    SendEvent(BuildBookmarkSyncEvent(
-        tab_id, url,
-        !IsGuestTab(tab_id) &&
-            store_->IsBookmarked(NormalizeBookmarkUrl(url))));
-  }
-
-  SendEvent(BuildTabPropertyEvent(tab_id, "load-end", true));
 }
 
 void OtfHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
