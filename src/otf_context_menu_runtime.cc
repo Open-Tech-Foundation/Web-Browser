@@ -7,9 +7,12 @@
 #include <string>
 
 #include "include/cef_browser.h"
+#include "include/cef_browser_process_handler.h"
 #include "include/cef_command_ids.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_menu_model.h"
+#include "include/views/cef_browser_view.h"
+#include "include/wrapper/cef_helpers.h"
 #include "otf_app.h"
 #include "otf_handler.h"
 #include "otf_split_runtime.h"
@@ -80,6 +83,21 @@ std::string NormalizeMenuLabel(std::string label) {
     previous_space = false;
   }
   return TrimWhitespaceCopy(normalized);
+}
+
+std::string BuildSearchSelectionMenuLabel(const std::string& selection_text) {
+  constexpr size_t kMaxLabelChars = 80;
+  std::string display_text = selection_text;
+  for (char& c : display_text) {
+    if (c == '\r' || c == '\n' || c == '\t') {
+      c = ' ';
+    }
+  }
+  if (display_text.size() > kMaxLabelChars) {
+    display_text = display_text.substr(0, kMaxLabelChars);
+    display_text += "...";
+  }
+  return "Search \"" + display_text + "\"";
 }
 
 bool IsSourceViewMenuItem(int command_id, const std::string& label) {
@@ -345,6 +363,181 @@ void SanitizeContextMenu(CefRefPtr<CefMenuModel> model) {
     RemoveCommandEverywhere(model, command_id);
   }
   RemoveLabeledSourceItemsEverywhere(model);
+}
+
+void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
+                                     CefRefPtr<CefFrame> frame,
+                                     CefRefPtr<CefContextMenuParams> params,
+                                     CefRefPtr<CefMenuModel> model) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)frame;
+
+  SanitizeContextMenu(model);
+
+  if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    if (link_url.rfind("tab-context-menu:", 0) == 0) {
+      std::string tab_id_str = link_url.substr(17);
+
+      if (tab_id_str == "newtab") {
+        model->Clear();
+        model->AddItem(kMenuIdTabNew, "New Tab");
+        model->AddItem(kMenuIdTabNewPrivate, "New Private Tab");
+        return;
+      }
+
+      const auto tab_id_opt = ParseIntStrict(tab_id_str);
+      bool is_muted = false;
+      bool is_pinned = false;
+      if (tab_id_opt && tab_manager_) {
+        is_muted = tab_manager_->GetMuted(*tab_id_opt);
+        is_pinned = tab_manager_->IsPinned(*tab_id_opt);
+      }
+
+      model->Clear();
+      model->AddItem(kMenuIdTabNew, "New Tab");
+      model->AddItem(kMenuIdTabNewPrivate, "New Private Tab");
+      model->AddSeparator();
+      if (is_muted) {
+        model->AddItem(kMenuIdTabUnmute, "Unmute Tab");
+      } else {
+        model->AddItem(kMenuIdTabMute, "Mute Tab");
+      }
+      model->AddSeparator();
+      if (is_pinned) {
+        model->AddItem(kMenuIdTabUnpin, "Unpin Tab");
+      } else {
+        model->AddItem(kMenuIdTabPin, "Pin Tab");
+      }
+      model->AddSeparator();
+      if (IsSplitActive() && tab_id_opt && !IsSplitTab(*tab_id_opt)) {
+        model->AddItem(kMenuIdTabAddToSplit, "Add to Split View");
+        model->AddSeparator();
+      }
+      model->AddItem(kMenuIdTabClose, "Close Tab");
+      model->AddItem(kMenuIdTabCloseOthers, "Close Other Tabs");
+      return;
+    }
+  }
+
+  if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+
+    if (link_url.rfind("mailto:", 0) == 0) {
+      model->InsertItemAt(0, kMenuIdCopyEmail, "Copy Email ID");
+    } else {
+      model->InsertItemAt(0, kMenuIdOpenInNewTab, "Open in new tab");
+      if (model->GetIndexOf(IDC_CONTENT_CONTEXT_COPYLINKLOCATION) < 0) {
+        model->InsertItemAt(1, IDC_CONTENT_CONTEXT_COPYLINKLOCATION,
+                            "Copy link address");
+      }
+    }
+  }
+
+  const std::string selection_text = params->GetSelectionText().ToString();
+  const std::string search_text = TrimWhitespaceCopy(selection_text);
+  const std::optional<std::string> search_engine_id =
+      otf::GetCurrentSearchEngineId();
+  if (!search_text.empty() && search_engine_id.has_value()) {
+    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFOR) >= 0) {
+      model->Remove(IDC_CONTENT_CONTEXT_SEARCHWEBFOR);
+    }
+    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB) >= 0) {
+      model->Remove(IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB);
+    }
+    model->InsertItemAt(0, kMenuIdSearchSelection, "Search selected text");
+    const int search_index = model->GetIndexOf(kMenuIdSearchSelection);
+    if (search_index >= 0) {
+      model->SetLabelAt(
+          search_index, CefString(BuildSearchSelectionMenuLabel(selection_text)));
+    }
+  }
+
+  bool is_image_link = false;
+  if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    std::string lower_link = link_url;
+    std::transform(lower_link.begin(), lower_link.end(), lower_link.begin(),
+                   ::tolower);
+
+    size_t query_pos = lower_link.find('?');
+    if (query_pos != std::string::npos) {
+      lower_link = lower_link.substr(0, query_pos);
+    }
+    size_t hash_pos = lower_link.find('#');
+    if (hash_pos != std::string::npos) {
+      lower_link = lower_link.substr(0, hash_pos);
+    }
+
+    const std::string extensions[] = {
+        ".png",  ".jpg",  ".jpeg", ".webp", ".gif",  ".bmp",
+        ".svg",  ".ico",  ".avif", ".jfif", ".pjpeg", ".pjp",
+        ".apng", ".tiff", ".tif",  ".heic", ".heif"};
+    for (const auto& ext : extensions) {
+      if (lower_link.length() >= ext.length() &&
+          lower_link.compare(lower_link.length() - ext.length(), ext.length(),
+                             ext) == 0) {
+        is_image_link = true;
+        break;
+      }
+    }
+  }
+
+  if ((params->HasImageContents() && !params->GetSourceUrl().empty()) ||
+      is_image_link) {
+    model->InsertItemAt(model->GetCount(), kMenuIdPreviewImage,
+                        "Preview Image");
+  }
+
+  if (!params->GetLinkUrl().empty()) {
+    std::string link_url = params->GetLinkUrl().ToString();
+    if (otf::IsSupportedDocumentUrl(link_url)) {
+      model->InsertItemAt(model->GetCount(), kMenuIdPreviewDoc,
+                          "Preview Document");
+    }
+  }
+
+  const bool is_editable = (params->GetTypeFlags() & CM_TYPEFLAG_EDITABLE) != 0;
+  if (is_editable) {
+    model->AddItem(kMenuIdPasteGo, "Paste and Go");
+  }
+
+  if (params->GetLinkUrl().empty() && search_text.empty() &&
+      !params->HasImageContents() && !is_editable) {
+    model->AddItem(kMenuIdReload, "Reload");
+  }
+
+  if (ui_browser_ && browser->IsSame(ui_browser_) && !is_editable &&
+      params->GetLinkUrl().empty() && search_text.empty() &&
+      !(params->HasImageContents() && !params->GetSourceUrl().empty())) {
+    model->Clear();
+  }
+}
+
+bool OtfHandler::RunContextMenu(CefRefPtr<CefBrowser> browser,
+                                CefRefPtr<CefFrame> frame,
+                                CefRefPtr<CefContextMenuParams> params,
+                                CefRefPtr<CefMenuModel> model,
+                                CefRefPtr<CefRunContextMenuCallback> callback) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)browser;
+  (void)frame;
+  (void)params;
+  (void)callback;
+
+  SanitizeContextMenu(model);
+  return false;
+}
+
+bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
+                                      CefRefPtr<CefFrame> frame,
+                                      CefRefPtr<CefContextMenuParams> params,
+                                      int command_id,
+                                      EventFlags event_flags) {
+  CEF_REQUIRE_UI_THREAD();
+  (void)frame;
+  (void)event_flags;
+  return HandleContextMenuCommand(this, browser, params, command_id);
 }
 
 bool HandleContextMenuCommand(OtfHandler* handler,

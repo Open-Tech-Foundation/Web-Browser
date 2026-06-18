@@ -106,6 +106,7 @@ set(OTF_BROWSER_SRCS
     src/otf_shutdown_runtime.cc
     src/otf_site_data_rpc.cc
     src/otf_tab_runtime.cc
+    src/otf_workspace_runtime.cc
     src/otf_split_runtime.cc
     src/otf_store.cc
     src/otf_tabs_rpc.cc
@@ -154,6 +155,7 @@ set(OTF_BROWSER_HEADERS
     include/otf_shutdown_runtime.h
     include/otf_site_data_rpc.h
     include/otf_tab_runtime.h
+    include/otf_workspace_runtime.h
     include/otf_split_runtime.h
     include/otf_browser_shell.h
     include/otf_store.h

@@ -20,6 +20,7 @@
 #include "otf_request_context_runtime.h"
 #include "otf_shutdown_runtime.h"
 #include "otf_tab_runtime.h"
+#include "otf_workspace_runtime.h"
 #include "otf_split_runtime.h"
 #include "otf_zoom_runtime.h"
 
@@ -101,27 +102,9 @@ namespace otf {
 namespace {
 
 OtfHandler* g_instance = nullptr;
-const int MENU_ID_OPEN_IN_NEW_TAB = 10001;
-const int MENU_ID_SEARCH_SELECTION = 10002;
-const int MENU_ID_PREVIEW_IMAGE = 10003;
-const int MENU_ID_TAB_CLOSE = 10004;
-const int MENU_ID_TAB_CLOSE_OTHERS = 10005;
-const int MENU_ID_TAB_NEW = 10006;
-const int MENU_ID_TAB_MUTE = 10007;
-const int MENU_ID_TAB_UNMUTE = 10008;
-const int MENU_ID_COPY_EMAIL = 10009;
-const int MENU_ID_TAB_NEW_PRIVATE = 10010;
-const int MENU_ID_TAB_PIN = 10011;
-const int MENU_ID_TAB_UNPIN = 10012;
-const int MENU_ID_PREVIEW_DOC = 10013;
-const int MENU_ID_PASTE_GO = 10014;
-const int MENU_ID_TAB_ADD_TO_SPLIT = 10015;
-const int MENU_ID_RELOAD = 10016;
 using ::otf::ParseIntStrict;
 using ::otf::ParseUint32Strict;
 using ::otf::ParseUint64Strict;
-
-bool IsRestorableWorkspaceTab(const WorkspaceTab& tab);
 
 bool IsNonTabBrowserViewId(int view_id) {
   return view_id == kUiBrowserViewId ||
@@ -143,39 +126,6 @@ bool IsNonTabBrowserViewId(int view_id) {
            view_id == kConsoleBrowserViewId ||
            view_id == kSnipPreviewBrowserViewId ||
            view_id == kSplitMenuBrowserViewId;
-}
-
-std::string TrimWhitespaceCopy(const std::string& value) {
-  size_t start = 0;
-  while (start < value.size() &&
-         std::isspace(static_cast<unsigned char>(value[start]))) {
-    ++start;
-  }
-  size_t end = value.size();
-  while (end > start &&
-         std::isspace(static_cast<unsigned char>(value[end - 1]))) {
-    --end;
-  }
-  return value.substr(start, end - start);
-}
-
-std::string BuildSearchSelectionMenuLabel(const std::string& selection_text) {
-  constexpr size_t kMaxLabelChars = 80;
-  std::string display_text = selection_text;
-  for (char& c : display_text) {
-    if (c == '\r' || c == '\n' || c == '\t') {
-      c = ' ';
-    }
-  }
-  if (display_text.size() > kMaxLabelChars) {
-    display_text = display_text.substr(0, kMaxLabelChars);
-    display_text += "...";
-  }
-  return "Search \"" + display_text + "\"";
-}
-
-std::string GetDevUiUrl() {
-  return CefCommandLine::GetGlobalCommandLine()->GetSwitchValue("dev-ui-url");
 }
 
 #if !defined(_WIN32)
@@ -310,37 +260,6 @@ bool RestartBrowserProcess() {
 
 }  // namespace
 
-namespace {
-
-std::string TrimTrailingSlash(std::string value) {
-  while (value.size() > 1 && value.back() == '/') {
-    value.pop_back();
-  }
-  return value;
-}
-
-bool IsDevUiUrl(const std::string& url) {
-  const std::string dev_ui_url = TrimTrailingSlash(GetDevUiUrl());
-  return !dev_ui_url.empty() &&
-         (url == dev_ui_url || url == dev_ui_url + "/" ||
-          (url.rfind(dev_ui_url + "/", 0) == 0 &&
-           otf::IsInternalUiPagePath(url)));
-}
-
-bool IsRestorableWorkspaceTab(const WorkspaceTab& tab) {
-  if (tab.is_image_preview) {
-    return otf::IsPersistableWebUrl(tab.url);
-  }
-  if (tab.is_doc_preview) {
-    return otf::IsPersistableWebUrl(tab.url);
-  }
-  return otf::IsPersistableWebUrl(tab.url) &&
-         tab.url.rfind("browser://", 0) != 0 &&
-         !IsDevUiUrl(tab.url);
-}
-
-}  // namespace
-
 bool OtfHandler::RestartBrowser() {
   return RestartBrowserProcess();
 }
@@ -434,65 +353,6 @@ OtfHandler* OtfHandler::GetInstance() {
   return g_instance;
 }
 
-void OtfHandler::PersistWorkspaceTabs(int workspace_id) {
-  if (!store_ || !tab_manager_ || workspace_id <= 0) return;
-
-  // Guard: in "newtab" startup mode the auto-opened newtab must not clobber
-  // the saved session. Skip persist while every live tab is still browser://newtab
-  // (or has no URL yet). Self-clears as soon as a real URL appears.
-  const auto tab_ids = tab_manager_->GetTabIdsForWorkspace(workspace_id);
-  if (startup_session_guard_ && workspace_id == active_workspace_id_) {
-    const bool all_newtab = std::all_of(tab_ids.begin(), tab_ids.end(),
-        [this](int id) {
-          const std::string url = tab_manager_->GetUrl(id);
-          return url.empty() || url == "browser://newtab";
-        });
-    if (all_newtab) return;
-    startup_session_guard_ = false;  // real URL present — resume normal persist
-  }
-
-  std::vector<WorkspaceTab> snapshot;
-  OtfApp* app = OtfApp::GetInstance();
-  const int active_tab = app ? app->GetCurrentTabId() : -1;
-  for (int tab_id : tab_ids) {
-    // Private tabs are ephemeral and must never be written to the session DB.
-    if (tab_manager_->IsPrivate(tab_id)) continue;
-    WorkspaceTab t;
-    t.workspace_id = workspace_id;
-    t.is_image_preview =
-        tab_manager_->GetImagePreviewMode(tab_id) == ImagePreviewMode::kDedicated;
-    t.is_doc_preview =
-        tab_manager_->GetDocPreviewMode(tab_id) == DocPreviewMode::kDedicated;
-    if (t.is_image_preview) {
-      const std::string local_path = GetImagePreviewLocalFileForTab(tab_id);
-      t.url = GetImagePreviewUrlForTab(tab_id);
-      t.preview_local_path = local_path;
-      t.preview_page = GetImagePreviewPageForTab(tab_id);
-    } else if (t.is_doc_preview) {
-      const std::string local_path = GetDocPreviewLocalFileForTab(tab_id);
-      t.url = GetDocPreviewUrlForTab(tab_id);
-      t.preview_local_path = local_path;
-    } else {
-      const std::string scheme_url = tab_manager_->GetSchemeUrl(tab_id);
-      if (scheme_url.rfind("browser://", 0) == 0) continue;
-      t.url = tab_manager_->GetUrl(tab_id);
-    }
-    if (!IsRestorableWorkspaceTab(t)) continue;
-    t.title = tab_manager_->GetTitle(tab_id);
-    t.favicon = tab_manager_->GetFaviconUrl(tab_id);
-    t.was_active = (tab_id == active_tab);
-    t.pinned = tab_manager_->IsPinned(tab_id);
-    snapshot.push_back(t);
-  }
-  store_->ReplaceWorkspaceTabs(workspace_id, snapshot);
-}
-
-void OtfHandler::PersistWorkspaceForTab(int tab_id) {
-  if (!tab_manager_) return;
-  const int ws = tab_manager_->GetWorkspaceId(tab_id);
-  if (ws > 0) PersistWorkspaceTabs(ws);
-}
-
 CefRefPtr<CefBrowser> OtfHandler::ResolveSiteDataBrowser(
     CefRefPtr<CefBrowser> requester) {
   CEF_REQUIRE_UI_THREAD();
@@ -562,178 +422,6 @@ bool OtfHandler::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser,
   CEF_REQUIRE_UI_THREAD();
   return message_router_->OnProcessMessageReceived(browser, frame,
                                                   source_process, message);
-}
-
-void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
-                                     CefRefPtr<CefFrame> frame,
-                                     CefRefPtr<CefContextMenuParams> params,
-                                     CefRefPtr<CefMenuModel> model) {
-  CEF_REQUIRE_UI_THREAD();
-
-  SanitizeContextMenu(model);
-  
-  if (!params->GetLinkUrl().empty()) {
-    std::string link_url = params->GetLinkUrl().ToString();
-    if (link_url.rfind("tab-context-menu:", 0) == 0) {
-      std::string tab_id_str = link_url.substr(17);
-
-      if (tab_id_str == "newtab") {
-        model->Clear();
-        model->AddItem(MENU_ID_TAB_NEW, "New Tab");
-        model->AddItem(MENU_ID_TAB_NEW_PRIVATE, "New Private Tab");
-        return;
-      }
-
-      const auto tab_id_opt = ParseIntStrict(tab_id_str);
-      bool is_muted = false;
-      bool is_pinned = false;
-      if (tab_id_opt && tab_manager_) {
-        is_muted = tab_manager_->GetMuted(*tab_id_opt);
-        is_pinned = tab_manager_->IsPinned(*tab_id_opt);
-      }
-
-      model->Clear();
-      model->AddItem(MENU_ID_TAB_NEW, "New Tab");
-      model->AddItem(MENU_ID_TAB_NEW_PRIVATE, "New Private Tab");
-      model->AddSeparator();
-      if (is_muted) {
-        model->AddItem(MENU_ID_TAB_UNMUTE, "Unmute Tab");
-      } else {
-        model->AddItem(MENU_ID_TAB_MUTE, "Mute Tab");
-      }
-      model->AddSeparator();
-      if (is_pinned) {
-        model->AddItem(MENU_ID_TAB_UNPIN, "Unpin Tab");
-      } else {
-        model->AddItem(MENU_ID_TAB_PIN, "Pin Tab");
-      }
-      model->AddSeparator();
-      if (IsSplitActive() && tab_id_opt && !IsSplitTab(*tab_id_opt)) {
-        model->AddItem(MENU_ID_TAB_ADD_TO_SPLIT, "Add to Split View");
-        model->AddSeparator();
-      }
-      model->AddItem(MENU_ID_TAB_CLOSE, "Close Tab");
-      model->AddItem(MENU_ID_TAB_CLOSE_OTHERS, "Close Other Tabs");
-      return;
-    }
-  }
-
-  if (!params->GetLinkUrl().empty()) {
-    std::string link_url = params->GetLinkUrl().ToString();
-
-    if (link_url.rfind("mailto:", 0) == 0) {
-      model->InsertItemAt(0, MENU_ID_COPY_EMAIL, "Copy Email ID");
-    } else {
-      // Insert our custom background-tab opener at the top
-      model->InsertItemAt(0, MENU_ID_OPEN_IN_NEW_TAB, "Open in new tab");
-
-      // CEF Alloy does not add IDC_CONTENT_CONTEXT_COPYLINKLOCATION to the
-      // default link context menu. Add it only if it isn't already present
-      // (safe: we never remove then re-insert it, so routing stays intact).
-      if (model->GetIndexOf(IDC_CONTENT_CONTEXT_COPYLINKLOCATION) < 0) {
-        model->InsertItemAt(1, IDC_CONTENT_CONTEXT_COPYLINKLOCATION, "Copy link address");
-      }
-    }
-  }
-
-  const std::string selection_text = params->GetSelectionText().ToString();
-  const std::string search_text = TrimWhitespaceCopy(selection_text);
-  const std::optional<std::string> search_engine_id = otf::GetCurrentSearchEngineId();
-  if (!search_text.empty() && search_engine_id.has_value()) {
-    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFOR) >= 0) {
-      model->Remove(IDC_CONTENT_CONTEXT_SEARCHWEBFOR);
-    }
-    if (model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB) >= 0) {
-      model->Remove(IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB);
-    }
-    model->InsertItemAt(0, MENU_ID_SEARCH_SELECTION, "Search selected text");
-    const int search_index = model->GetIndexOf(MENU_ID_SEARCH_SELECTION);
-    if (search_index >= 0) {
-      model->SetLabelAt(search_index,
-                        CefString(BuildSearchSelectionMenuLabel(selection_text)));
-    }
-  }
-
-  bool is_image_link = false;
-  if (!params->GetLinkUrl().empty()) {
-    std::string link_url = params->GetLinkUrl().ToString();
-    std::string lower_link = link_url;
-    std::transform(lower_link.begin(), lower_link.end(), lower_link.begin(), ::tolower);
-    
-    size_t query_pos = lower_link.find('?');
-    if (query_pos != std::string::npos) {
-      lower_link = lower_link.substr(0, query_pos);
-    }
-    size_t hash_pos = lower_link.find('#');
-    if (hash_pos != std::string::npos) {
-      lower_link = lower_link.substr(0, hash_pos);
-    }
-    
-    const std::string extensions[] = {
-        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".ico", ".avif",
-        ".jfif", ".pjpeg", ".pjp", ".apng", ".tiff", ".tif", ".heic", ".heif"
-    };
-    for (const auto& ext : extensions) {
-      if (lower_link.length() >= ext.length() &&
-          lower_link.compare(lower_link.length() - ext.length(), ext.length(), ext) == 0) {
-        is_image_link = true;
-        break;
-      }
-    }
-  }
-
-  if ((params->HasImageContents() && !params->GetSourceUrl().empty()) || is_image_link) {
-    model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_IMAGE, "Preview Image");
-  }
-
-  if (!params->GetLinkUrl().empty()) {
-    std::string link_url = params->GetLinkUrl().ToString();
-    if (otf::IsSupportedDocumentUrl(link_url)) {
-      model->InsertItemAt(model->GetCount(), MENU_ID_PREVIEW_DOC, "Preview Document");
-    }
-  }
-
-  const bool is_editable = (params->GetTypeFlags() & CM_TYPEFLAG_EDITABLE) != 0;
-  if (is_editable) {
-    model->AddItem(MENU_ID_PASTE_GO, "Paste and Go");
-  }
-
-  if (params->GetLinkUrl().empty() && search_text.empty() &&
-      !params->HasImageContents() && !is_editable) {
-    model->AddItem(MENU_ID_RELOAD, "Reload");
-  }
-
-  if (ui_browser_ && browser->IsSame(ui_browser_) && !is_editable &&
-      params->GetLinkUrl().empty() && search_text.empty() &&
-      !(params->HasImageContents() && !params->GetSourceUrl().empty())) {
-    model->Clear();
-  }
-}
-
-bool OtfHandler::RunContextMenu(CefRefPtr<CefBrowser> browser,
-                                CefRefPtr<CefFrame> frame,
-                                CefRefPtr<CefContextMenuParams> params,
-                                CefRefPtr<CefMenuModel> model,
-                                CefRefPtr<CefRunContextMenuCallback> callback) {
-  CEF_REQUIRE_UI_THREAD();
-  (void)browser;
-  (void)frame;
-  (void)params;
-  (void)callback;
-
-  SanitizeContextMenu(model);
-  return false;
-}
-
-bool OtfHandler::OnContextMenuCommand(CefRefPtr<CefBrowser> browser,
-                                      CefRefPtr<CefFrame> frame,
-                                      CefRefPtr<CefContextMenuParams> params,
-                                      int command_id,
-                                      EventFlags event_flags) {
-  CEF_REQUIRE_UI_THREAD();
-  (void)frame;
-  (void)event_flags;
-  return HandleContextMenuCommand(this, browser, params, command_id);
 }
 
 namespace {
