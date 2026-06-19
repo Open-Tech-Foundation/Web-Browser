@@ -49,6 +49,14 @@ Pull requests should include a short summary, linked issue when relevant, verifi
 - **Never auto commit:** Always ask for permission before making a commit.
 - **Never code push:** Never perform code pushes.
 
+## Changelog Maintenance
+
+Maintain the root `CHANGELOG.md` using the `Keep a Changelog` style sections already present there.
+
+- After completing any task that changes behavior, fixes a bug, adds a feature, or makes a user-visible/internal workflow change worth tracking, update the current `## [Unreleased]` section before finishing.
+- Coding agents must make this changelog update as part of the same task.
+- Keep entries concise and place them under the most appropriate section such as `Added`, `Changed`, or `Fixed`.
+
 ## Security & Configuration Tips
 
 Treat `browser://` pages, settings JSON, and native-to-React event payloads as security-sensitive. Prefer allowlists for internal pages and search engines. Never concatenate untrusted strings into JSON without escaping or structured serialization.

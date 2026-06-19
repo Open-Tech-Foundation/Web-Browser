@@ -34,6 +34,8 @@ You can download the latest version of OTF Web Browser for your platform from ou
 
 ## Development
 
+Development changes are tracked in [CHANGELOG.md](CHANGELOG.md). Keep new work in the `Unreleased` section until `bun run release` cuts a version, and update that section as part of each completed feature, fix, or notable behavior change.
+
 ## 📦 Installation
 
 Prerequisites:

@@ -9,6 +9,10 @@
     "build": "bun run build:ui && bun run build:cpp",
     "build:ui": "bun x vite build ui",
     "build:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-browser",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "test:cpp": "mkdir -p build && cd build && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && ninja otf-tests && ctest --output-on-failure",
     "test:js": "bun test ui/src/shared/search.test.js",
     "test:e2e": "bun scripts/run-e2e-suite.js",
@@ -29,6 +33,7 @@
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
     "@tailwindcss/vite": "^4.3.0",
     "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.5.0",

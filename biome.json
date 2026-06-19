@@ -1,0 +1,30 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+  "files": {
+    "includes": [
+      "scripts/**/*.js",
+      "tests/**/*.js",
+      "ui/**/*.js",
+      "ui/**/*.jsx",
+      "website/**/*.js",
+      "website/**/*.jsx",
+      "!build",
+      "!third_party",
+      "!website/dist"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space"
+  },
+  "linter": {
+    "enabled": true
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "semicolons": "asNeeded"
+    }
+  }
+}
