@@ -107,12 +107,12 @@ void OtfHandler::OnGotFocus(CefRefPtr<CefBrowser> browser) {
   }
 }
 
-void OtfHandler::CloseTabAndNotify(int tab_id) {
+void OtfHandler::CloseTabAndNotify(int tab_id, bool allow_pinned) {
   OtfApp* app = OtfApp::GetInstance();
   if (!app) {
     return;
   }
-  if (tab_manager_ && tab_manager_->IsPinned(tab_id)) return;
+  if (tab_manager_ && tab_manager_->IsPinned(tab_id) && !allow_pinned) return;
   const bool closed_split_tab = IsSplitTab(tab_id);
   if (tab_manager_) {
     std::string url = tab_manager_->GetUrl(tab_id);
@@ -145,7 +145,9 @@ void OtfHandler::CloseTabAndNotify(int tab_id) {
       ClearImagePreviewStateForTab(tab_id);
     }
   }
-  app->CloseTab(tab_id);
+  if (app->CloseTab(tab_id, allow_pinned) < 0) {
+    return;
+  }
   if (closed_split_tab) {
     SyncSplitStateFromApp();
   } else if (app->HasSplitView() && IsSplitTab(app->GetCurrentTabId())) {

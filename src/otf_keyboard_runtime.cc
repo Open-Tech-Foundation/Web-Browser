@@ -408,7 +408,7 @@ bool OtfHandler::OnPreKeyEvent(CefRefPtr<CefBrowser> browser,
     return true;
   }
   if (matches(Mod::kCtrl, Key::kW)) {
-    CloseTabAndNotify(current_tab_id);
+    CloseTabAndNotify(current_tab_id, true);
     return true;
   }
   if (matches(Mod::kCtrl | Mod::kShift, Key::kT)) {

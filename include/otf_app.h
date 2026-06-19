@@ -117,7 +117,7 @@ class OtfApp : public CefApp,
   void AddDiscardingTabId(int tab_id) { discarding_tab_ids_.insert(tab_id); }
   void RemoveDiscardingTabId(int tab_id) { discarding_tab_ids_.erase(tab_id); }
   void SwitchTab(int tab_id);
-  int CloseTab(int tab_id);
+  int CloseTab(int tab_id, bool allow_pinned = false);
   int GetCurrentTabId() const { return current_tab_id_; }
   bool HasSplitView() const { return split_view_active_; }
   int GetSplitLeftTabId() const { return split_left_tab_id_; }

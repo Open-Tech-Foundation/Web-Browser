@@ -18,3 +18,4 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 
 - Pinned tabs now clear restored or stale favicons when a page reports no favicon instead of keeping the previous/default icon.
+- Explicit close actions such as the tab context menu can now close pinned tabs instead of being blocked by the generic pinned-tab guard.

@@ -257,7 +257,7 @@ bool HandleTabContextCommand(OtfHandler* handler,
   }
 
   if (command_id == kMenuIdTabClose) {
-    handler->CloseTabAndNotify(tab_id);
+    handler->CloseTabAndNotify(tab_id, true);
     return true;
   }
   if (command_id == kMenuIdTabCloseOthers) {

@@ -1892,9 +1892,9 @@ void OtfApp::SwitchTab(int tab_id) {
   }
 }
 
-int OtfApp::CloseTab(int tab_id) {
+int OtfApp::CloseTab(int tab_id, bool allow_pinned) {
   CEF_REQUIRE_UI_THREAD();
-  if (tab_manager_.IsPinned(tab_id)) return -1;
+  if (tab_manager_.IsPinned(tab_id) && !allow_pinned) return -1;
   OtfHandler* handler = OtfHandler::GetInstance();
   const int ws_id = tab_manager_.GetWorkspaceId(tab_id);
   const std::vector<int> ws_tab_ids = tab_manager_.GetTabIdsForWorkspace(ws_id);

@@ -253,11 +253,11 @@ bool HandleTabsRpc(
         handler->tab_manager_->GetTabIdsForWorkspace(0).size() == 1;
     if (closes_guest_session) {
       Success(callback, request);
-      handler->CloseTabAndNotify(tab_id);
+      handler->CloseTabAndNotify(tab_id, true);
       return true;
     }
     if (OtfApp::GetInstance()) {
-      handler->CloseTabAndNotify(tab_id);
+      handler->CloseTabAndNotify(tab_id, true);
     }
     if (workspace_id > 0) {
       handler->PersistWorkspaceTabs(workspace_id);

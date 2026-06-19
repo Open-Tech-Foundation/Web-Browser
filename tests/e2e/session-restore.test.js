@@ -482,6 +482,99 @@ test('continue startup clears a restored pinned favicon when the page has no fav
     }
   });
 
+test('explicit close can remove a restored pinned tab',
+  { timeout: timeoutMs + 45000, concurrency: false },
+  async () => {
+    const profileRoot = await mkdtemp(path.join(os.tmpdir(), 'otf-browser-pinned-close-'));
+    const unique = Date.now();
+    const titles = [`Pinned Close Alpha ${unique}`, `Pinned Close Beta ${unique}`];
+    const server = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      const title = req.url === '/beta' ? titles[1] : titles[0];
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<!doctype html><title>${title}</title><main>${title}</main>`);
+    });
+
+    const settings = {
+      searchEngine: 'google',
+      historyEnabled: true,
+      downloadsEnabled: true,
+      startupBehavior: 'continue',
+      startupUrls: [],
+      httpsOnly: false,
+      blockInsecure: false,
+      appearanceMode: 'auto',
+    };
+
+    let browser = null;
+    try {
+      const alphaUrl = `${server.origin}/alpha`;
+      const betaUrl = `${server.origin}/beta`;
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true, settings });
+      await navigateFromAddressBar(browser.cdp, alphaUrl);
+      await waitForTabs(browser.cdp, [titles[0]]);
+
+      await openNewTab(browser.cdp);
+      await navigateFromAddressBar(browser.cdp, betaUrl);
+      await waitForTabs(browser.cdp, titles);
+
+      await browser.close();
+      browser = null;
+      await sleep(1000);
+
+      updateWorkspaceTab(profileRoot, alphaUrl, { pinned: 1, was_active: 1 });
+      updateWorkspaceTab(profileRoot, betaUrl, { pinned: 0, was_active: 0 });
+
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true, settings });
+      const pinnedState = await waitFor(
+        browser.cdp,
+        `(() => {
+          const tabs = [...document.querySelectorAll('a[href^="tab-context-menu:"]:not([href$="newtab"])')];
+          const firstHref = tabs[0]?.getAttribute('href') || '';
+          const firstId = Number(firstHref.replace('tab-context-menu:', ''));
+          return {
+            count: tabs.length,
+            pinnedTabId: Number.isFinite(firstId) ? firstId : -1,
+          };
+        })()`,
+        (state) => state.count >= 2 && state.pinnedTabId > 0,
+        30000,
+      );
+      const { count: initialCount, pinnedTabId } = pinnedState;
+
+      await browser.cdp.evaluate(
+        nativeRpc('tabs.close', { tabId: pinnedTabId }, 'tabs-close-pinned'),
+      );
+
+      const remainingTabs = await waitFor(
+        browser.cdp,
+        `(() => [...document.querySelectorAll('a[href^="tab-context-menu:"]:not([href$="newtab"])')]
+          .map((tab) => {
+            const href = tab.getAttribute('href') || '';
+            return {
+              id: Number(href.replace('tab-context-menu:', '')),
+              text: tab.textContent || '',
+            };
+          }))()`,
+        (tabs) => tabs.length === initialCount - 1 && tabs.every((tab) => tab.id !== pinnedTabId),
+        30000,
+      );
+      assert.equal(remainingTabs.length, initialCount - 1);
+      assert.ok(remainingTabs.every((tab) => tab.id !== pinnedTabId));
+      assert.ok(remainingTabs.some((tab) => tab.text.includes(titles[1])));
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+      await server.close();
+      await rm(profileRoot, { recursive: true, force: true });
+    }
+  });
+
 test('continue startup ignores stale dev-ui internal restore rows',
   { timeout: timeoutMs + 30000, concurrency: false },
   async () => {
