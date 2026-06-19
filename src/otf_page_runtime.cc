@@ -382,6 +382,11 @@ void OtfHandler::OnFaviconURLChange(CefRefPtr<CefBrowser> browser,
     favicon_url = icon_urls[0].ToString();
   }
   if (favicon_url.empty()) {
+    if (tab_manager_) {
+      tab_manager_->SetFaviconUrl(tab_id, "");
+    }
+    SendEvent(BuildTabPropertyEvent(tab_id, "favicon", ""));
+    PersistWorkspaceForTab(tab_id);
     return;
   }
 

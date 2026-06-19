@@ -14,3 +14,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 
 - Repository guidance now requires coding agents to update this changelog after completing any task that changes behavior, fixes bugs, or adds features.
+
+### Fixed
+
+- Pinned tabs now clear restored or stale favicons when a page reports no favicon instead of keeping the previous/default icon.

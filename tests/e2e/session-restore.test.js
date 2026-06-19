@@ -411,6 +411,77 @@ test('continue startup restores pinned state on the active first tab',
     }
   });
 
+test('continue startup clears a restored pinned favicon when the page has no favicon',
+  { timeout: timeoutMs + 45000, concurrency: false },
+  async () => {
+    const profileRoot = await mkdtemp(path.join(os.tmpdir(), 'otf-browser-pinned-favicon-restore-'));
+    const unique = Date.now();
+    const title = `Pinned No Favicon ${unique}`;
+    const staleFavicon = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 fill=%22%23f97316%22/%3E%3C/svg%3E';
+    const server = await startStaticServer((req, res) => {
+      if (req.url === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<!doctype html><title>${title}</title><main>${title}</main>`);
+    });
+
+    const settings = {
+      searchEngine: 'google',
+      historyEnabled: true,
+      downloadsEnabled: true,
+      startupBehavior: 'continue',
+      startupUrls: [],
+      httpsOnly: false,
+      blockInsecure: false,
+      appearanceMode: 'auto',
+    };
+
+    let browser = null;
+    try {
+      const pageUrl = `${server.origin}/pinned-no-favicon`;
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true, settings });
+      await navigateFromAddressBar(browser.cdp, pageUrl);
+      await waitForTabs(browser.cdp, [title]);
+
+      await browser.close();
+      browser = null;
+      await sleep(1000);
+
+      updateWorkspaceTab(profileRoot, pageUrl, {
+        pinned: 1,
+        was_active: 1,
+        favicon: staleFavicon,
+      });
+
+      browser = await launchDevBrowser({ profileRoot, preserveProfile: true, settings });
+      const pinnedState = await waitFor(
+        browser.cdp,
+        `(() => {
+          const tab = document.querySelector('a[href^="tab-context-menu:"]:not([href$="newtab"])');
+          return {
+            hasImage: Boolean(tab?.querySelector('img')),
+            hasFallbackIcon: Boolean(tab?.querySelector('svg')),
+            title: tab?.getAttribute('title') || '',
+          };
+        })()`,
+        (state) => state.title.includes(title) && !state.hasImage && state.hasFallbackIcon,
+        30000,
+      );
+
+      assert.equal(pinnedState.hasImage, false);
+      assert.equal(pinnedState.hasFallbackIcon, true);
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+      await server.close();
+      await rm(profileRoot, { recursive: true, force: true });
+    }
+  });
+
 test('continue startup ignores stale dev-ui internal restore rows',
   { timeout: timeoutMs + 30000, concurrency: false },
   async () => {
