@@ -95,6 +95,9 @@ bool IsValidPermissionSetting(const std::string& permission,
   if (permission == "popup" || permission == "downloads") {
     return setting == "ask" || setting == "allow" || setting == "block";
   }
+  if (permission == "autoPictureInPicture") {
+    return setting == "allow" || setting == "block";
+  }
   if (permission == "images" || permission == "javascript") {
     return setting == "allow" || setting == "block";
   }

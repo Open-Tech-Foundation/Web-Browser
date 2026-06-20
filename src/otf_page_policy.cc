@@ -2062,6 +2062,193 @@ R"JS(
     ['log', 'info', 'warn', 'error', 'debug'].forEach(__otf_wrapLog);
   })();
 
+  (() => {
+    'use strict';
+
+    const hasNativeBridge = () => typeof window !== 'undefined' &&
+      typeof window.cefQuery === 'function';
+    const AUTO_PIP_REQUEST_TIMEOUT_MS = 1500;
+    let autoPiPRequestSequence = 0;
+    let latestAutoPiPRequestSeq = 0;
+    const expiredAutoPiPRequests = new Set();
+    const hasUserActivation = () => {
+      try {
+        return !!(navigator.userActivation && navigator.userActivation.isActive);
+      } catch (_) {
+        return false;
+      }
+    };
+    const shouldTreatAsDirectUserPiP = () => {
+      try {
+        return hasUserActivation() &&
+          document.visibilityState === 'visible' &&
+          document.hasFocus();
+      } catch (_) {
+        return hasUserActivation();
+      }
+    };
+    const requestDecision = (kind) => new Promise((resolve) => {
+      if (!hasNativeBridge()) {
+        resolve('block');
+        return;
+      }
+      window.cefQuery({
+        request: JSON.stringify({
+          id: `autopip-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          method: 'permissions.autoPictureInPicture.request',
+          params: {
+            kind,
+            url: String(location.href || ''),
+          },
+        }),
+        onSuccess: (response) => {
+          try {
+            const parsed = JSON.parse(response);
+            resolve(parsed?.ok ? parsed.result : 'block');
+          } catch (_) {
+            resolve('block');
+          }
+        },
+        onFailure: () => resolve('block'),
+      });
+    });
+    const rejectBlocked = () => Promise.reject(
+      makeSecurityError('Automatic Picture-in-Picture was blocked by the browser.')
+    );
+    const expireDelayedVideoPiP = (video, requestSeq) => {
+      expiredAutoPiPRequests.add(requestSeq);
+      const onEnter = () => {
+        video.removeEventListener('enterpictureinpicture', onEnter);
+        expiredAutoPiPRequests.delete(requestSeq);
+        try {
+          if (document.pictureInPictureElement === video &&
+              typeof document.exitPictureInPicture === 'function') {
+            document.exitPictureInPicture().catch(() => {});
+          }
+        } catch (_) {}
+      };
+      video.addEventListener('enterpictureinpicture', onEnter, { once: true });
+    };
+
+    if (typeof HTMLVideoElement !== 'undefined' &&
+        HTMLVideoElement.prototype &&
+        typeof HTMLVideoElement.prototype.requestPictureInPicture === 'function' &&
+        !HTMLVideoElement.prototype.__otfAutoPictureInPicturePolicy) {
+      const originalRequestPictureInPicture =
+        HTMLVideoElement.prototype.requestPictureInPicture;
+      Object.defineProperty(HTMLVideoElement.prototype, 'requestPictureInPicture', {
+        value: makeNative(async function requestPictureInPicture(...args) {
+          if (shouldTreatAsDirectUserPiP()) {
+            return originalRequestPictureInPicture.apply(this, args);
+          }
+          const requestSeq = ++autoPiPRequestSequence;
+          latestAutoPiPRequestSeq = requestSeq;
+          const decision = await requestDecision('video');
+          if (decision !== 'allow') {
+            return rejectBlocked();
+          }
+          let settled = false;
+          const requestPromise = originalRequestPictureInPicture.apply(this, args);
+          requestPromise
+            .then(() => {
+              settled = true;
+              if (expiredAutoPiPRequests.has(requestSeq) ||
+                  requestSeq !== latestAutoPiPRequestSeq) {
+                expiredAutoPiPRequests.delete(requestSeq);
+                try {
+                  if (document.pictureInPictureElement === this &&
+                      typeof document.exitPictureInPicture === 'function') {
+                    document.exitPictureInPicture().catch(() => {});
+                  }
+                } catch (_) {}
+              }
+            })
+            .catch(() => {
+              settled = true;
+              expiredAutoPiPRequests.delete(requestSeq);
+            });
+
+          return Promise.race([
+            requestPromise,
+            new Promise((_, reject) => {
+              setTimeout(() => {
+                if (settled) {
+                  return;
+                }
+                expireDelayedVideoPiP(this, requestSeq);
+                reject(makeSecurityError('Automatic Picture-in-Picture permission expired before the request completed.'));
+              }, AUTO_PIP_REQUEST_TIMEOUT_MS);
+            }),
+          ]);
+        }, 'function requestPictureInPicture() { [native code] }'),
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      Object.defineProperty(HTMLVideoElement.prototype, '__otfAutoPictureInPicturePolicy', {
+        value: true,
+        configurable: false,
+        enumerable: false,
+      });
+    }
+
+    if (typeof documentPictureInPicture !== 'undefined' &&
+        documentPictureInPicture &&
+        typeof documentPictureInPicture.requestWindow === 'function' &&
+        !documentPictureInPicture.__otfAutoPictureInPicturePolicy) {
+      const originalRequestWindow = documentPictureInPicture.requestWindow;
+      Object.defineProperty(documentPictureInPicture, 'requestWindow', {
+        value: makeNative(async function requestWindow(...args) {
+          if (shouldTreatAsDirectUserPiP()) {
+            return originalRequestWindow.apply(this, args);
+          }
+          const requestSeq = ++autoPiPRequestSequence;
+          latestAutoPiPRequestSeq = requestSeq;
+          const decision = await requestDecision('document');
+          if (decision !== 'allow') {
+            return rejectBlocked();
+          }
+          let settled = false;
+          const requestPromise = originalRequestWindow.apply(this, args);
+          requestPromise
+            .then((pipWindow) => {
+              settled = true;
+              if (expiredAutoPiPRequests.has(requestSeq) ||
+                  requestSeq !== latestAutoPiPRequestSeq) {
+                expiredAutoPiPRequests.delete(requestSeq);
+                try { pipWindow?.close?.(); } catch (_) {}
+              }
+            })
+            .catch(() => {
+              settled = true;
+              expiredAutoPiPRequests.delete(requestSeq);
+            });
+
+          return Promise.race([
+            requestPromise,
+            new Promise((_, reject) => {
+              setTimeout(() => {
+                if (settled) {
+                  return;
+                }
+                expiredAutoPiPRequests.add(requestSeq);
+                reject(makeSecurityError('Automatic Picture-in-Picture permission expired before the request completed.'));
+              }, AUTO_PIP_REQUEST_TIMEOUT_MS);
+            }),
+          ]);
+        }, 'function requestWindow() { [native code] }'),
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+      Object.defineProperty(documentPictureInPicture, '__otfAutoPictureInPicturePolicy', {
+        value: true,
+        configurable: false,
+        enumerable: false,
+      });
+    }
+  })();
+
   }  // applyPagePolicy
 
   applyPagePolicy();

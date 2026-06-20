@@ -15,6 +15,8 @@ bool HandlePermissionsRpc(
     CefRefPtr<CefMessageRouterBrowserSide::Handler::Callback> callback,
     const NativeRpcRequest& request);
 
+bool IsAllowedContentPermissionRequest(const std::string& method);
+
 }  // namespace otf
 
 #endif  // OTF_PERMISSIONS_RPC_H_

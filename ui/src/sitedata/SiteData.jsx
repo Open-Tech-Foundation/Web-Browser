@@ -5,6 +5,7 @@ import { createNativeRequestScope, nativeRequest } from '../shared/nativeRequest
 const PERMISSION_LABELS = {
   popup: 'Pop-ups',
   downloads: 'Downloads',
+  autoPictureInPicture: 'Auto Picture-in-Picture',
   images: 'Images',
   javascript: 'JavaScript',
 };
@@ -12,6 +13,7 @@ const PERMISSION_LABELS = {
 const PERMISSION_SETTING_ORDER = {
   popup: ['ask', 'allow', 'block'],
   downloads: ['ask', 'allow', 'block'],
+  autoPictureInPicture: ['block', 'allow'],
   images: ['allow', 'block'],
   javascript: ['allow', 'block'],
 };
@@ -389,7 +391,7 @@ const SiteData = () => {
               </table>
             </div>
             <p className="text-[10px] text-slate-400 mt-2">
-              Click a setting to cycle: Ask → Allow → Block → Ask.
+              Click a setting to cycle through the available states for that permission.
             </p>
             {jsJustChanged && (
               <div className="mt-3 p-2 rounded-md bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40 text-[10px] text-amber-700 dark:text-amber-300 leading-relaxed">

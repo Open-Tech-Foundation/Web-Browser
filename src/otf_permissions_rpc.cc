@@ -100,7 +100,39 @@ void Failure(CefRefPtr<Callback> callback,
   NativeRpcFailure(callback, request, code, message);
 }
 
+std::string ResolveAutoPictureInPictureSetting(
+    OtfHandler* handler,
+    const std::string& origin) {
+  if (!handler || handler->IsGuestSessionActive() || !handler->GetStore()) {
+    return "block";
+  }
+  std::string setting = handler->GetStore()->GetSitePermission(
+      origin, "autoPictureInPicture");
+  return setting == "allow" ? "allow" : "block";
+}
+
+bool ReadStringParam(CefRefPtr<CefDictionaryValue> params,
+                     const std::string& key,
+                     std::string* value,
+                     std::string* error) {
+  if (!params || !params->HasKey(key) || params->GetType(key) != VTYPE_STRING) {
+    if (error) *error = key + " must be a string";
+    return false;
+  }
+  std::string parsed = params->GetString(key).ToString();
+  if (parsed.empty()) {
+    if (error) *error = key + " must not be empty";
+    return false;
+  }
+  if (value) *value = std::move(parsed);
+  return true;
+}
+
 }  // namespace
+
+bool IsAllowedContentPermissionRequest(const std::string& method) {
+  return method == "permissions.autoPictureInPicture.request";
+}
 
 bool HandlePermissionsRpc(
     OtfHandler* handler,
@@ -112,7 +144,8 @@ bool HandlePermissionsRpc(
       (request.method != "permissions.popup.allow" &&
        request.method != "permissions.popup.alwaysAllow" &&
        request.method != "permissions.download.allow" &&
-       request.method != "permissions.download.alwaysAllow")) {
+       request.method != "permissions.download.alwaysAllow" &&
+       request.method != "permissions.autoPictureInPicture.request")) {
     return false;
   }
 
@@ -153,6 +186,41 @@ bool HandlePermissionsRpc(
     return true;
   }
 
+  if (request.method == "permissions.autoPictureInPicture.request") {
+    std::string page_url;
+    std::string kind;
+    if (!request.params ||
+        !HasOnlyParamKeys(request.params, {"kind", "url"}, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (!ReadStringParam(request.params, "kind", &kind, &error) ||
+        !ReadStringParam(request.params, "url", &page_url, &error)) {
+      Failure(callback, request, "invalid_params", error);
+      return true;
+    }
+    if (kind != "video" && kind != "document") {
+      Failure(callback, request, "invalid_params", "kind must be video or document");
+      return true;
+    }
+
+    const std::string origin = NormalizeOrigin(
+        page_url.empty() ? "" : ExtractOrigin(page_url));
+    if (origin.empty()) {
+      Failure(callback, request, "invalid_params", "url must contain a valid origin");
+      return true;
+    }
+
+    const std::string setting =
+        ResolveAutoPictureInPictureSetting(handler, origin);
+    if (setting == "allow") {
+      NativeRpcSuccessString(callback, request, "allow");
+      return true;
+    }
+    NativeRpcSuccessString(callback, request, "block");
+    return true;
+  }
+
   if (!request.params ||
       !HasOnlyParamKeys(request.params, {"origin"}, &error)) {
     Failure(callback, request, "invalid_params", error);
@@ -179,6 +247,8 @@ bool HandlePermissionsRpc(
   StartPendingDownload(handler);
   Success(callback, request);
   return true;
+
+  return false;
 }
 
 }  // namespace otf

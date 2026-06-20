@@ -7,28 +7,31 @@ import { nativeRequest } from '../shared/nativeRequest';
 //   • Close button → ui.popup.hide
 //   • Standardized container + header so popups look consistent
 // Body content is whatever the caller passes as children.
-const Popup = ({ name, title, children, className = '', closeOnBlur = false }) => {
+const Popup = ({ name, title, children, className = '', closeOnBlur = false, onClose = null }) => {
+  const hide = () => {
+    if (typeof onClose === 'function') {
+      onClose();
+      return;
+    }
+    nativeRequest({
+      method: 'ui.popup.hide',
+      params: { name },
+    }).catch(() => {});
+  };
+
   // Esc closes. (Window blur as a hide trigger was tried but fires
   // during the focus handoff right after Show, which causes the popup
   // to close before it paints. Click-outside-to-hide is a separate
   // feature that needs to be implemented on the C++ side via a focus
   // handler, not from the popup's renderer.)
   useEffect(() => {
-    const hide = () => nativeRequest({
-      method: 'ui.popup.hide',
-      params: { name },
-    }).catch(() => {});
     const onKeyDown = (e) => { if (e.key === 'Escape') hide(); };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [name]);
+  }, [hide]);
 
   useEffect(() => {
     if (!closeOnBlur) return undefined;
-    const hide = () => nativeRequest({
-      method: 'ui.popup.hide',
-      params: { name },
-    }).catch(() => {});
     const onBlur = () => {
       window.setTimeout(() => {
         if (!document.hasFocus()) hide();
@@ -36,12 +39,7 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false }) =
     };
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
-  }, [closeOnBlur, name]);
-
-  const close = () => nativeRequest({
-    method: 'ui.popup.hide',
-    params: { name },
-  }).catch(() => {});
+  }, [closeOnBlur, hide]);
 
   return (
     <div className="w-full h-full p-1.5 bg-transparent box-border">
@@ -49,7 +47,7 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false }) =
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
           <button
-            onClick={close}
+            onClick={hide}
             className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors duration-150 cursor-pointer"
             aria-label="Close"
           >

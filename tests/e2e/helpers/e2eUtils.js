@@ -8,6 +8,7 @@ import {
 const permissionLabels = {
   downloads: 'Downloads',
   popup: 'Pop-ups',
+  autoPictureInPicture: 'Auto Picture-in-Picture',
   images: 'Images',
   javascript: 'JavaScript',
 };

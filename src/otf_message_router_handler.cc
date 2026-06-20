@@ -3,6 +3,8 @@
 #include "include/cef_command_line.h"
 #include "otf_handler.h"
 #include "otf_native_rpc.h"
+#include "otf_page_policy.h"
+#include "otf_permissions_rpc.h"
 #include "otf_rpc_dispatcher.h"
 #include "otf_utils.h"
 
@@ -18,24 +20,6 @@ bool OtfMessageRouterHandler::OnQuery(
   // The cefQuery bridge exposes privileged operations. Only internal UI
   // surfaces are trusted to call it; web content is denied outright.
   const std::string frame_url = frame ? frame->GetURL().ToString() : "";
-  bool trusted_frame = IsInternalBrowserUiUrl(frame_url);
-  if (!trusted_frame) {
-    CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
-    if (cmd && cmd->HasSwitch("dev-ui-url")) {
-      const std::string dev_ui_url =
-          cmd->GetSwitchValue("dev-ui-url").ToString();
-      if (!dev_ui_url.empty() &&
-          (frame_url == dev_ui_url || frame_url == dev_ui_url + "/" ||
-           frame_url.rfind(dev_ui_url + "/", 0) == 0)) {
-        trusted_frame = true;
-      }
-    }
-  }
-  if (!trusted_frame) {
-    callback->Failure(1, "denied");
-    return true;
-  }
-
   constexpr size_t kMaxRequestBytes = 64 * 1024;
   if (request.size() > kMaxRequestBytes) {
     callback->Failure(1, "request too large");
@@ -55,6 +39,33 @@ bool OtfMessageRouterHandler::OnQuery(
   if (!ParseNativeRpcRequest(msg, &rpc_request, &parse_error)) {
     callback->Failure(1, parse_error);
     return true;
+  }
+  bool trusted_frame = IsInternalBrowserUiUrl(frame_url);
+  if (!trusted_frame) {
+    CefRefPtr<CefCommandLine> cmd = CefCommandLine::GetGlobalCommandLine();
+    if (cmd && cmd->HasSwitch("dev-ui-url")) {
+      const std::string dev_ui_url =
+          cmd->GetSwitchValue("dev-ui-url").ToString();
+      if (!dev_ui_url.empty() &&
+          (frame_url == dev_ui_url || frame_url == dev_ui_url + "/" ||
+           frame_url.rfind(dev_ui_url + "/", 0) == 0)) {
+        trusted_frame = true;
+      }
+    }
+  }
+  if (!trusted_frame) {
+    const bool allowed_content_request =
+        ShouldInjectPagePolicy(frame_url) &&
+        IsAllowedContentPermissionRequest(rpc_request.method);
+    if (!allowed_content_request) {
+      callback->Failure(1, "denied");
+      return true;
+    }
+    if (rpc_request.params &&
+        rpc_request.params->HasKey("url") &&
+        rpc_request.params->GetType("url") == VTYPE_STRING) {
+      rpc_request.params->SetString("url", frame_url);
+    }
   }
   if (DispatchNativeRpc(handler, browser, callback, rpc_request)) {
     return true;
