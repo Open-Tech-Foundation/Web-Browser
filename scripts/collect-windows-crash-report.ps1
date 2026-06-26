@@ -1,5 +1,5 @@
 param(
-  [string]$ExePath = ".\otf-browser.exe",
+  [string]$ExePath = "",
   [int]$Seconds = 30,
   [string[]]$ExtraArgs = @(),
   [switch]$KeepWerConfig
@@ -8,6 +8,27 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
+# Default ExePath to the otf-browser.exe that sits next to the diagnostics/
+# folder this script ships in (release layout: <root>/otf-browser.exe and
+# <root>/diagnostics/collect-windows-crash-report.ps1). Falling back to
+# ".\otf-browser.exe" relative to CWD almost never works because users run
+# the script from inside the diagnostics/ directory or right-click "Run with
+# PowerShell", leaving CWD = <root>\diagnostics where otf-browser.exe is NOT.
+if (-not $ExePath) {
+  $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+  $candidate = Join-Path (Split-Path -Parent $scriptDir) "otf-browser.exe"
+  if (Test-Path -LiteralPath $candidate) {
+    $ExePath = $candidate
+  } else {
+    $ExePath = ".\otf-browser.exe"
+  }
+}
+
+function Write-Step {
+  param([string]$Message)
+  Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $Message)
+}
+
 function Write-TextFile {
   param([string]$Path, [object]$Value)
   $Value | Out-File -FilePath $Path -Encoding utf8 -Width 4096
@@ -15,6 +36,7 @@ function Write-TextFile {
 
 function Run-Capture {
   param([string]$Name, [scriptblock]$Block)
+  Write-Step "Capturing $Name ..."
   $path = Join-Path $ReportDir $Name
   try {
     & $Block 2>&1 | Out-File -FilePath $path -Encoding utf8 -Width 4096
@@ -44,21 +66,32 @@ function Get-FileSummary {
   }
 }
 
+Write-Step "Resolving otf-browser.exe path ..."
 $ResolvedExe = (Resolve-Path -LiteralPath $ExePath -ErrorAction Stop).Path
 $ExeDir = Split-Path -Parent $ResolvedExe
+Write-Step "ExeDir: $ExeDir"
 $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $ReportDir = Join-Path $ExeDir "otf-crash-report-$Timestamp"
 $DumpDir = Join-Path $ReportDir "dumps"
 New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null
 New-Item -ItemType Directory -Path $DumpDir -Force | Out-Null
+Write-Step "Report dir: $ReportDir"
 
 Start-Transcript -Path (Join-Path $ReportDir "collector-transcript.txt") -Force | Out-Null
 
 $startTime = Get-Date
 $werKey = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\otf-browser.exe"
+# Pre-create the parent LocalDumps key if missing - New-Item on the Registry
+# provider doesn't reliably create intermediate keys across all PowerShell
+# versions, so an absent parent silently fails the WER dump configuration.
+$werParent = "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps"
 $hadWerKey = Test-Path $werKey
 $oldWerValues = @{}
+Write-Step "Configuring Windows Error Reporting LocalDumps ..."
 try {
+  if (-not (Test-Path $werParent)) {
+    New-Item -Path $werParent -Force | Out-Null
+  }
   if ($hadWerKey) {
     $oldWer = Get-ItemProperty -Path $werKey
     foreach ($name in @("DumpFolder", "DumpType", "DumpCount")) {
@@ -71,6 +104,7 @@ try {
   New-ItemProperty -Path $werKey -Name DumpFolder -Value $DumpDir -PropertyType ExpandString -Force | Out-Null
   New-ItemProperty -Path $werKey -Name DumpType -Value 2 -PropertyType DWord -Force | Out-Null
   New-ItemProperty -Path $werKey -Name DumpCount -Value 32 -PropertyType DWord -Force | Out-Null
+  Write-Step "WER LocalDumps configured to: $DumpDir"
 } catch {
   Write-Warning "Failed to configure WER LocalDumps: $($_.Exception.Message)"
 }
@@ -114,6 +148,11 @@ foreach ($file in $requiredFiles) {
 }
 $summary.missingRequiredFiles = $missing
 $summary | ConvertTo-Json -Depth 6 | Out-File -FilePath (Join-Path $ReportDir "summary.json") -Encoding utf8
+if ($missing.Count -gt 0) {
+  Write-Step "WARNING: Missing required files: $($missing -join ', ')"
+} else {
+  Write-Step "All required CEF files are present."
+}
 
 Run-Capture "systeminfo.txt" { systeminfo }
 Run-Capture "driverquery.txt" { driverquery /v }
@@ -147,18 +186,22 @@ Copy-IfExists (Join-Path $ExeDir "debug.log") $ReportDir
 $processLog = Join-Path $ReportDir "process-snapshots.jsonl"
 $browserArgs = @($ExtraArgs | Where-Object { $_ -ne $null -and $_ -ne "" })
 $proc = $null
+Write-Step "Launching $ResolvedExe for up to $Seconds seconds ..."
 try {
   if ($browserArgs.Count -gt 0) {
     $proc = Start-Process -FilePath $ResolvedExe -ArgumentList $browserArgs -WorkingDirectory $ExeDir -PassThru
   } else {
     $proc = Start-Process -FilePath $ResolvedExe -WorkingDirectory $ExeDir -PassThru
   }
+  Write-Step "Started pid=$($proc.Id)"
   "started pid=$($proc.Id) at=$((Get-Date).ToString("o")) args=$($browserArgs -join ' ')" | Out-File -FilePath (Join-Path $ReportDir "run.txt") -Encoding utf8
 } catch {
+  Write-Warning "Failed to start otf-browser.exe: $($_.Exception.Message)"
   "failed to start: $($_.Exception.Message)" | Out-File -FilePath (Join-Path $ReportDir "run.txt") -Encoding utf8
 }
 
 $deadline = (Get-Date).AddSeconds($Seconds)
+$lastShown = 0
 while ((Get-Date) -lt $deadline) {
   try {
     $snapshot = Get-CimInstance Win32_Process -Filter "name = 'otf-browser.exe'" |
@@ -167,13 +210,22 @@ while ((Get-Date) -lt $deadline) {
       at = (Get-Date).ToString("o")
       processes = $snapshot
     } | ConvertTo-Json -Depth 8 -Compress | Out-File -FilePath $processLog -Encoding utf8 -Append
+    $procCount = if ($snapshot) { @($snapshot).Count } else { 0 }
+    $now = [int](Get-Date -UFormat %s)
+    if ($now - $lastShown -ge 5) {
+      $lastShown = $now
+      Write-Step "Running: $procCount otf-browser.exe process(es) alive"
+    }
   } catch {
     [pscustomobject]@{
       at = (Get-Date).ToString("o")
       error = $_.Exception.Message
     } | ConvertTo-Json -Compress | Out-File -FilePath $processLog -Encoding utf8 -Append
   }
-  if ($proc -and $proc.HasExited) { break }
+  if ($proc -and $proc.HasExited) {
+    Write-Step "Browser process exited with code: $($proc.ExitCode)"
+    break
+  }
   Start-Sleep -Milliseconds 500
 }
 
