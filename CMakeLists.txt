@@ -32,12 +32,35 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Force the static C runtime (/MT) for ALL targets on MSVC. CEF's cmake adds
+# /MT via CEF_COMPILER_FLAGS_RELEASE, but if CMake's default
+# CMAKE_MSVC_RUNTIME_LIBRARY (MultiThreadedDLL = /MD) is left unchanged, the
+# compiler gets BOTH /MD and /MT while the linker links against MSVCRT.lib
+# (dynamic CRT). Object files compiled with /MT but linked against the
+# dynamic CRT cause STATUS_ACCESS_VIOLATION at runtime when C runtime state
+# (heap, errno) is accessed across the boundary — this was the root cause of
+# the Windows renderer crashes. Setting this before any targets ensures the
+# linker also uses LIBCMT.lib (static CRT).
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
+
 # This project expects the CEF SDK to be in third_party/cef
 set(CEF_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cef")
 
 # Add CEF to the module search path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CEF_ROOT}/cmake")
 find_package(CEF REQUIRED)
+
+# CEF's cmake auto-adds CEF_USE_BOOTSTRAP to CEF_COMPILER_DEFINES on Windows
+# when USE_SANDBOX=ON (the default). That define is meant for apps built as a
+# DLL loaded by bootstrap.exe — we build a standalone EXE with our own
+# wWinMain, so remove it to avoid CEF header code paths that expect the
+# bootstrap DLL mechanism.
+if(WIN32)
+    list(REMOVE_ITEM CEF_COMPILER_DEFINES CEF_USE_BOOTSTRAP)
+endif()
+
 find_package(SQLite3 REQUIRED)
 
 if(WIN32)

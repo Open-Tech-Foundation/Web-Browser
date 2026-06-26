@@ -10,6 +10,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 - Windows release CI now runs a smoke test that launches the freshly built `otf-browser.exe` and verifies it stays alive for 10 seconds before packaging. Catches renderer startup crashes (CRT mismatch, missing DLLs, sandbox config) that unit tests cannot detect.
 
+### Fixed
+
+- Windows production builds no longer crash on launch. The root cause was a C runtime linker mismatch: CEF's cmake adds `/MT` (static CRT) to compiler flags, but CMake's default `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` caused the linker to link against `MSVCRT.lib` (dynamic CRT). Object files compiled with `/MT` but linked against the dynamic CRT caused `STATUS_ACCESS_VIOLATION` in the renderer process. The fix sets `CMAKE_MSVC_RUNTIME_LIBRARY` to `MultiThreaded` so the linker also uses `LIBCMT.lib`. Additionally, the erroneous `CEF_USE_BOOTSTRAP` define (auto-added by CEF's cmake for the bootstrap DLL mechanism, which this project does not use) is now stripped, and `SET_LPAC_ACLS` is called for CEF 147 Windows LPAC support (CEF issue #3791).
+
 
 ## [0.1.0-alpha.52] - 2026-06-26
 
