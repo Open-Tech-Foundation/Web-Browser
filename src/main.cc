@@ -3,6 +3,10 @@
 #include "otf_app.h"
 #include "otf_utils.h"
 
+#if defined(_WIN32)
+#include "include/cef_sandbox_win.h"
+#endif
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -63,7 +67,7 @@ std::string GetProcessTypeForLog(int argc, char* argv[]) {
   return type.empty() ? "browser" : type;
 }
 
-static int RunApp(int argc, char* argv[]) {
+static int RunApp(int argc, char* argv[], void* windows_sandbox_info = nullptr) {
 #if defined(_WIN32)
   // GUI subsystem — no console, so --version is not useful here.
   // CefMainArgs on Windows takes HINSTANCE; obtain it from the module handle.
@@ -89,7 +93,7 @@ static int RunApp(int argc, char* argv[]) {
 
   CefRefPtr<otf::OtfApp> app(new otf::OtfApp());
 
-  int exit_code = CefExecuteProcess(main_args, app.get(), nullptr);
+  int exit_code = CefExecuteProcess(main_args, app.get(), windows_sandbox_info);
   if (exit_code >= 0) {
     otf::DiagLog("process exit: type=" + process_type +
                  " CefExecuteProcess exit_code=" +
@@ -112,17 +116,13 @@ static int RunApp(int argc, char* argv[]) {
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
   settings.uncaught_exception_stack_size = 50;
 
-#if defined(_WIN32)
-  // The Windows sandbox is NOT linked: this CEF distribution ships only the
-  // Linux chrome-sandbox helper, not cef_sandbox.lib, and the build never links
-  // a Windows sandbox library. With the sandbox enabled (the default) CEF
-  // expects a real sandbox_info pointer; we pass nullptr, so CefInitialize
-  // returns false and the app never starts (the cause of the blank window on
-  // Windows). Disabling the sandbox here is mandatory until cef_sandbox.lib is
-  // linked and CefScopedSandboxInfo is wired into CefExecuteProcess/CefInitialize.
-  // Linux is unaffected — it keeps its SUID chrome-sandbox helper.
-  settings.no_sandbox = true;
-#endif
+  // The Windows Chromium sandbox is now enabled: cef_sandbox.lib is linked
+  // (see CMakeLists.txt) and CefScopedSandboxInfo provides the sandbox info
+  // pointer that CefExecuteProcess/CefInitialize forward to sandboxed child
+  // processes. Previously this set settings.no_sandbox = true and passed
+  // nullptr, which left the renderer with no sandbox info and caused it to
+  // crash with STATUS_ACCESS_VIOLATION during V8 initialization. Linux is
+  // unaffected — it keeps its SUID chrome-sandbox helper.
 
   // Active cache path: the user-configured cacheDir if set, otherwise default.
   const std::filesystem::path app_cache = otf::GetActiveCacheDir();
@@ -151,7 +151,7 @@ static int RunApp(int argc, char* argv[]) {
   otf::DiagLog("app data dir : " + app_data.string());
   otf::DiagLog("app cache dir: " + app_cache.string());
 #if defined(_WIN32)
-  otf::DiagLog("sandbox: DISABLED (no_sandbox=true; cef_sandbox.lib not linked)");
+  otf::DiagLog("sandbox: ENABLED (cef_sandbox.lib linked, CefScopedSandboxInfo active)");
 #endif
 
   // Diagnostics for production UI serving: the browser:// scheme handler serves
@@ -193,7 +193,7 @@ static int RunApp(int argc, char* argv[]) {
   otf::DiagLog("startup 1/4: cef cache path = " + cef_cache.string());
   otf::DiagLog("startup 2/4: calling CefInitialize...");
   const bool initialized =
-      CefInitialize(main_args, settings, app.get(), nullptr);
+      CefInitialize(main_args, settings, app.get(), windows_sandbox_info);
   if (!initialized) {
     LOG(ERROR) << "[otf] startup 2/4 FAILED: CefInitialize returned false";
     otf::DiagLog("startup 2/4 FAILED: CefInitialize returned false — ABORTING");
@@ -225,13 +225,17 @@ static int RunApp(int argc, char* argv[]) {
 
 #if defined(_WIN32)
 #include <windows.h>
-#include "include/cef_sandbox_win.h"
 
 int APIENTRY wWinMain(HINSTANCE hInstance,
                       HINSTANCE hPrevInstance,
                       LPWSTR lpCmdLine,
                       int nCmdShow) {
-  return RunApp(__argc, __argv);
+  // Build the sandbox info that CefExecuteProcess/CefInitialize forward to
+  // sandboxed child processes. With cef_sandbox.lib linked this gives the
+  // renderer a real sandbox info pointer; the previous null pointer caused
+  // STATUS_ACCESS_VIOLATION crashes during renderer V8 initialization.
+  CefScopedSandboxInfo scoped_sandbox;
+  return RunApp(__argc, __argv, scoped_sandbox.sandbox_info());
 }
 #else
 int main(int argc, char* argv[]) {

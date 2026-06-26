@@ -435,7 +435,8 @@ bool IsKnownUiPageAuthority(const std::string& authority) {
       "settings",        "findbar",       "downloads",
       "downloadsbar",    "zoombar",       "history",
       "bookmarks",       "bookmarkbar",   "security",
-      "insecure-blocked", "pdfviewer",     "certificate",
+      "insecure-blocked", "apitest",       "pdfviewer",
+      "certificate",
       "imagepreview",    "docpreview",    "cleardata",
       "sitedata",        "workspace",     "qr",
       "linkpreview",     "console",       "blockedpopup",
@@ -874,10 +875,15 @@ OtfApp* OtfApp::GetInstance() {
 void OtfApp::OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) {
 #if defined(_WIN32)
   if (!command_line) return;
-  command_line->AppendSwitch("no-sandbox");
+  // The Windows Chromium sandbox is now enabled (cef_sandbox.lib linked +
+  // CefScopedSandboxInfo wired in src/main.cc). Do NOT append --no-sandbox
+  // here: child processes receive sandbox info from the browser process and
+  // must run sandboxed. Forcing --no-sandbox previously masked the real
+  // problem (null sandbox info) while still leaving the renderer to crash
+  // during V8 initialization.
   std::string child_type = command_line->GetSwitchValue("type").ToString();
   if (child_type.empty()) child_type = "unknown";
-  otf::DiagLog("child launch: type=" + child_type + " no-sandbox=YES");
+  otf::DiagLog("child launch: type=" + child_type + " sandbox=ENABLED");
 #endif
 }
 
