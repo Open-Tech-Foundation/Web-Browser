@@ -32,15 +32,22 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Disable the CEF/Chromium sandbox. Starting with M138 (Chromium 138+),
+# cef_sandbox.lib is no longer distributed; CEF uses bootstrap executables
+# instead. We build a standalone EXE (not a DLL loaded by bootstrap.exe),
+# so we disable the sandbox via the officially supported USE_SANDBOX=OFF
+# option. This must be set BEFORE find_package(CEF) so CEF's cmake doesn't
+# add CEF_USE_BOOTSTRAP to the compiler defines. See:
+# https://chromiumembedded.github.io/cef/sandbox_setup
+set(USE_SANDBOX OFF CACHE BOOL "Disable CEF sandbox (standalone EXE)" FORCE)
+
 # Force the static C runtime (/MT) for ALL targets on MSVC. CEF's cmake adds
-# /MT via CEF_COMPILER_FLAGS_RELEASE, but if CMake's default
-# CMAKE_MSVC_RUNTIME_LIBRARY (MultiThreadedDLL = /MD) is left unchanged, the
-# compiler gets BOTH /MD and /MT while the linker links against MSVCRT.lib
-# (dynamic CRT). Object files compiled with /MT but linked against the
-# dynamic CRT cause STATUS_ACCESS_VIOLATION at runtime when C runtime state
-# (heap, errno) is accessed across the boundary — this was the root cause of
-# the Windows renderer crashes. Setting this before any targets ensures the
-# linker also uses LIBCMT.lib (static CRT).
+# /MT via CEF_COMPILER_FLAGS_RELEASE, but CMake's default
+# CMAKE_MSVC_RUNTIME_LIBRARY (MultiThreadedDLL = /MD) causes the linker to
+# link against MSVCRT.lib (dynamic CRT). Object files compiled with /MT but
+# linked against the dynamic CRT cause STATUS_ACCESS_VIOLATION at runtime
+# when C runtime state (heap, errno) is accessed across the boundary.
+# Setting this before any targets ensures the linker also uses LIBCMT.lib.
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
@@ -51,16 +58,6 @@ set(CEF_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/cef")
 # Add CEF to the module search path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CEF_ROOT}/cmake")
 find_package(CEF REQUIRED)
-
-# CEF's cmake auto-adds CEF_USE_BOOTSTRAP to CEF_COMPILER_DEFINES on Windows
-# when USE_SANDBOX=ON (the default). That define is meant for apps built as a
-# DLL loaded by bootstrap.exe — we build a standalone EXE with our own
-# wWinMain, so remove it to avoid CEF header code paths that expect the
-# bootstrap DLL mechanism.
-if(WIN32)
-    list(REMOVE_ITEM CEF_COMPILER_DEFINES CEF_USE_BOOTSTRAP)
-endif()
-
 find_package(SQLite3 REQUIRED)
 
 if(WIN32)
@@ -215,6 +212,13 @@ add_executable(otf-browser WIN32 ${OTF_BROWSER_SRCS} ${OTF_BROWSER_HEADERS})
 # Apply CEF standard compiler/linker properties
 SET_EXECUTABLE_TARGET_PROPERTIES(otf-browser)
 
+# Explicitly set the MSVC runtime library on the target (belt-and-suspenders
+# with the CMAKE_MSVC_RUNTIME_LIBRARY variable set above). This ensures the
+# linker uses LIBCMT.lib (static CRT) to match CEF's /MT compiler flag.
+if(MSVC)
+    set_property(TARGET otf-browser PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
+
 # Use C++20 (required by CEF) with appropriate flags per compiler
 if(MSVC)
     target_compile_options(otf-browser PRIVATE /std:c++20)
@@ -240,14 +244,6 @@ if(WIN32 AND MSVC)
         "/DELAYLOAD:libglib-2.0-0.dll"
         "/DELAYLOAD:libgobject-2.0-0.dll"
     )
-endif()
-
-# Set LPAC ACLs required for CEF 147 Windows sandbox support (see CEF issue
-# #3791). Even with --no-sandbox, CEF 147 may use Less Privileged App Container
-# isolation for some process types; without these ACLs the output directory is
-# not accessible to the LPAC SID and child processes can crash.
-if(OS_WINDOWS)
-    SET_LPAC_ACLS(otf-browser)
 endif()
 
 # Set rpath so that libraries can be placed next to the executable
