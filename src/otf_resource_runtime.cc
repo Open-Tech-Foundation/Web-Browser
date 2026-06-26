@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "include/cef_callback.h"
 #include "include/cef_cookie.h"
 #include "include/cef_parser.h"
 #include "include/cef_request.h"
@@ -143,6 +144,22 @@ void RecordThirdPartyIsolation(OtfStore* store,
   store->RecordCookiePolicyEvent(record);
 }
 
+class FlushCookieStoreCallback : public CefSetCookieCallback {
+ public:
+  explicit FlushCookieStoreCallback(CefRefPtr<CefCookieManager> manager)
+      : manager_(manager) {}
+
+  void OnComplete(bool success) override {
+    if (success && manager_) {
+      manager_->FlushStore(nullptr);
+    }
+  }
+
+ private:
+  CefRefPtr<CefCookieManager> manager_;
+  IMPLEMENT_REFCOUNTING(FlushCookieStoreCallback);
+};
+
 std::vector<std::string> CookieNamesFromHeader(const std::string& header) {
   std::vector<std::string> names;
   std::stringstream stream(header);
@@ -272,7 +289,8 @@ class CookieRewriteTask : public CefTask {
     if (!manager) return;
     cookie_.has_expires = true;
     cookie_.expires = UnixSecondsToCefBaseTime(capped_expires_at_);
-    manager->SetCookie(CookieUrl(request_url_, cookie_), cookie_, nullptr);
+    manager->SetCookie(CookieUrl(request_url_, cookie_), cookie_,
+                       new FlushCookieStoreCallback(manager));
     if (store_ && !top_origin_.empty()) {
       RecordCookiePolicy(store_, top_origin_, cookie_origin_, cookie_,
                          "capped_expiry", reason_,
@@ -346,7 +364,8 @@ class CookieCapSweepVisitor : public CefCookieVisitor {
     CefCookie capped = cookie;
     capped.has_expires = true;
     capped.expires = UnixSecondsToCefBaseTime(capped_expires_at);
-    manager_->SetCookie(CookieUrl(request_url_, capped), capped, nullptr);
+    manager_->SetCookie(CookieUrl(request_url_, capped), capped,
+                        new FlushCookieStoreCallback(manager_));
     RecordCookiePolicy(
         store_, top_origin_, cookie_origin_, capped, "capped_expiry",
         original_expires_at > 0 ? "first_party_expiry_over_7_days"
