@@ -3,10 +3,6 @@
 #include "otf_app.h"
 #include "otf_utils.h"
 
-#if defined(_WIN32)
-#include "include/cef_sandbox_win.h"
-#endif
-
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -116,13 +112,16 @@ static int RunApp(int argc, char* argv[], void* windows_sandbox_info = nullptr) 
   CefString(&settings.user_agent).FromASCII(GetOtfUserAgent().c_str());
   settings.uncaught_exception_stack_size = 50;
 
-  // The Windows Chromium sandbox is now enabled: cef_sandbox.lib is linked
-  // (see CMakeLists.txt) and CefScopedSandboxInfo provides the sandbox info
-  // pointer that CefExecuteProcess/CefInitialize forward to sandboxed child
-  // processes. Previously this set settings.no_sandbox = true and passed
-  // nullptr, which left the renderer with no sandbox info and caused it to
-  // crash with STATUS_ACCESS_VIOLATION during V8 initialization. Linux is
-  // unaffected — it keeps its SUID chrome-sandbox helper.
+  // Follow the same pattern as CEF's cefsimple example: when no Windows
+  // sandbox info is provided (the minimal CEF distribution does not ship
+  // cef_sandbox.lib, and the bootstrap DLL mechanism is not used), set
+  // no_sandbox=true so CefInitialize does not expect a sandbox_info pointer.
+  // The real cause of the previous Windows renderer crashes was a CRT
+  // linkage mismatch (CEF uses /MT, vcpkg was building SQLite3 with /MD),
+  // not the sandbox configuration.
+  if (!windows_sandbox_info) {
+    settings.no_sandbox = true;
+  }
 
   // Active cache path: the user-configured cacheDir if set, otherwise default.
   const std::filesystem::path app_cache = otf::GetActiveCacheDir();
@@ -151,7 +150,8 @@ static int RunApp(int argc, char* argv[], void* windows_sandbox_info = nullptr) 
   otf::DiagLog("app data dir : " + app_data.string());
   otf::DiagLog("app cache dir: " + app_cache.string());
 #if defined(_WIN32)
-  otf::DiagLog("sandbox: ENABLED (cef_sandbox.lib linked, CefScopedSandboxInfo active)");
+  otf::DiagLog(std::string("sandbox: ") +
+               (windows_sandbox_info ? "ENABLED" : "DISABLED (no_sandbox=true)"));
 #endif
 
   // Diagnostics for production UI serving: the browser:// scheme handler serves
@@ -225,17 +225,19 @@ static int RunApp(int argc, char* argv[], void* windows_sandbox_info = nullptr) 
 
 #if defined(_WIN32)
 #include <windows.h>
+#include "include/cef_sandbox_win.h"
 
 int APIENTRY wWinMain(HINSTANCE hInstance,
                       HINSTANCE hPrevInstance,
                       LPWSTR lpCmdLine,
                       int nCmdShow) {
-  // Build the sandbox info that CefExecuteProcess/CefInitialize forward to
-  // sandboxed child processes. With cef_sandbox.lib linked this gives the
-  // renderer a real sandbox info pointer; the previous null pointer caused
-  // STATUS_ACCESS_VIOLATION crashes during renderer V8 initialization.
-  CefScopedSandboxInfo scoped_sandbox;
-  return RunApp(__argc, __argv, scoped_sandbox.sandbox_info());
+  // The minimal CEF distribution does not include cef_sandbox.lib, so we
+  // pass nullptr as sandbox_info. RunApp follows the cefsimple pattern and
+  // sets settings.no_sandbox = true when sandbox_info is null. The real fix
+  // for the Windows renderer crash was aligning the CRT linkage (vcpkg
+  // triplet changed from x64-windows to x64-windows-static to match CEF's
+  // /MT) and adding SET_LPAC_ACLS for CEF 147's LPAC support.
+  return RunApp(__argc, __argv, nullptr);
 }
 #else
 int main(int argc, char* argv[]) {

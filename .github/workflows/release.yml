@@ -322,7 +322,12 @@ jobs:
           VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
         run: |
           .\vcpkg\bootstrap-vcpkg.bat
-          .\vcpkg\vcpkg.exe install --triplet x64-windows
+          # Use the static CRT triplet (/MT) to match CEF's runtime library.
+          # CEF's cmake forces /MT via CEF_COMPILER_FLAGS_RELEASE; if vcpkg
+          # builds SQLite3 with /MD (the x64-windows default), the resulting
+          # CRT mismatch causes STATUS_ACCESS_VIOLATION in the renderer
+          # process at runtime.
+          .\vcpkg\vcpkg.exe install --triplet x64-windows-static
 
       - name: Download libvips
         shell: powershell
@@ -361,7 +366,7 @@ jobs:
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
           mkdir build -Force
           cd build
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows-static" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
           ninja otf-browser
 
       - name: Run C++ Tests
@@ -369,7 +374,7 @@ jobs:
           Remove-Item Env:CC, Env:CXX -ErrorAction SilentlyContinue
           cd build
           $toolchain_file = "$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
-          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
+          cmake -G Ninja "-DCMAKE_BUILD_TYPE=Release" "-DCMAKE_TOOLCHAIN_FILE=$toolchain_file" "-DVCPKG_TARGET_TRIPLET=x64-windows-static" "-DCMAKE_C_COMPILER=cl.exe" "-DCMAKE_CXX_COMPILER=cl.exe" ..
           ninja otf-tests
           ctest --output-on-failure -C Release
 

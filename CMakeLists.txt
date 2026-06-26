@@ -52,19 +52,6 @@ if(WIN32)
     )
     link_directories("${VIPS_ROOT}/lib")
     set(VIPS_LIBS libvips libglib-2.0 libgobject-2.0)
-
-    # cef_sandbox.lib ships in the Windows CEF distribution at Release/ and is
-    # required by CefScopedSandboxInfo (see src/main.cc). Without it the
-    # renderer process crashes during V8 initialization with
-    # STATUS_ACCESS_VIOLATION because the sandbox info pointer passed to
-    # CefExecuteProcess/CefInitialize is null. The Linux/macOS SDKs do not
-    # include this lib — they use the SUID chrome-sandbox helper instead.
-    set(CEF_SANDBOX_LIB "${CEF_ROOT}/Release/cef_sandbox.lib")
-    if(NOT EXISTS "${CEF_SANDBOX_LIB}")
-        message(FATAL_ERROR
-            "cef_sandbox.lib not found at ${CEF_SANDBOX_LIB}. "
-            "Install the Windows CEF SDK via 'bash setup_deps.sh windows64'.")
-    endif()
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(VIPS REQUIRED vips)
@@ -218,13 +205,6 @@ target_compile_definitions(otf-browser PRIVATE OTF_VERSION="${OTF_VERSION}")
 
 # Link libraries
 target_link_libraries(otf-browser libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} SQLite::SQLite3 ${VIPS_LIBS})
-if(WIN32)
-    # cef_sandbox.lib provides CefScopedSandboxInfo and the Windows sandbox
-    # bootstrap referenced by CEF_USE_BOOTSTRAP (set by CEF's cmake when
-    # USE_SANDBOX=ON, the default). Linking it lets the renderer process
-    # initialize its sandbox info instead of crashing on a null pointer.
-    target_link_libraries(otf-browser "${CEF_SANDBOX_LIB}")
-endif()
 
 if(WIN32 AND MSVC)
     # The same executable is used for Chromium renderer/GPU/utility child
@@ -237,6 +217,14 @@ if(WIN32 AND MSVC)
         "/DELAYLOAD:libglib-2.0-0.dll"
         "/DELAYLOAD:libgobject-2.0-0.dll"
     )
+endif()
+
+# Set LPAC ACLs required for CEF 147 Windows sandbox support (see CEF issue
+# #3791). Even with --no-sandbox, CEF 147 may use Less Privileged App Container
+# isolation for some process types; without these ACLs the output directory is
+# not accessible to the LPAC SID and child processes can crash.
+if(OS_WINDOWS)
+    SET_LPAC_ACLS(otf-browser)
 endif()
 
 # Set rpath so that libraries can be placed next to the executable

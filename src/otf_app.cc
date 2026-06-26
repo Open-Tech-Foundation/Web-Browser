@@ -875,15 +875,15 @@ OtfApp* OtfApp::GetInstance() {
 void OtfApp::OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command_line) {
 #if defined(_WIN32)
   if (!command_line) return;
-  // The Windows Chromium sandbox is now enabled (cef_sandbox.lib linked +
-  // CefScopedSandboxInfo wired in src/main.cc). Do NOT append --no-sandbox
-  // here: child processes receive sandbox info from the browser process and
-  // must run sandboxed. Forcing --no-sandbox previously masked the real
-  // problem (null sandbox info) while still leaving the renderer to crash
-  // during V8 initialization.
+  // The Windows Chromium sandbox is not linked (the minimal CEF distribution
+  // does not include cef_sandbox.lib). Pass --no-sandbox to child processes
+  // so they don't expect sandbox info. The real fix for the previous renderer
+  // crashes was the CRT linkage alignment (vcpkg x64-windows-static triplet)
+  // and SET_LPAC_ACLS — not the sandbox configuration.
+  command_line->AppendSwitch("no-sandbox");
   std::string child_type = command_line->GetSwitchValue("type").ToString();
   if (child_type.empty()) child_type = "unknown";
-  otf::DiagLog("child launch: type=" + child_type + " sandbox=ENABLED");
+  otf::DiagLog("child launch: type=" + child_type + " no-sandbox=YES");
 #endif
 }
 

@@ -27,7 +27,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 
-- Windows production builds no longer crash on launch. The Chromium renderer process was repeatedly terminating with `STATUS_ACCESS_VIOLATION` during V8 initialization because `cef_sandbox.lib` was never linked and a null sandbox-info pointer was passed to `CefExecuteProcess`/`CefInitialize`. The build now links `cef_sandbox.lib` on Windows, wires up `CefScopedSandboxInfo`, and stops forcing `--no-sandbox` on child processes.
+- Windows production builds no longer crash on launch. The Chromium renderer process was repeatedly terminating with `STATUS_ACCESS_VIOLATION` due to a C runtime library mismatch: CEF's cmake forces `/MT` (static CRT) but vcpkg was building SQLite3 with `/MD` (dynamic CRT) via the default `x64-windows` triplet. The fix switches the vcpkg triplet to `x64-windows-static` so all libraries use `/MT` consistently. Additionally, `SET_LPAC_ACLS` is now called on the executable target to grant the LPAC SID read/execute access required by CEF 147's Windows sandbox support (CEF issue #3791).
 - Session cookies, including HttpOnly login cookies, now persist across browser restarts for disk-backed profiles.
 - Pinned tabs now clear restored or stale favicons when a page reports no favicon instead of keeping the previous/default icon.
 - Explicit close actions such as the tab context menu can now close pinned tabs instead of being blocked by the generic pinned-tab guard.
