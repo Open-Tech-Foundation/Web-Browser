@@ -395,8 +395,12 @@ jobs:
             Write-Host "ERROR: otf-browser.exe not found at $exe"
             exit 1
           }
-          # Remove any stale diag log so we only capture this run.
+          # List all files in Release dir to verify CEF DLLs are present.
+          Write-Host "--- Files in Release directory ---"
+          Get-ChildItem -LiteralPath $exeDir -File | Select-Object Name, Length | Format-Table -AutoSize
+          # Remove stale logs so we only capture this run.
           Remove-Item -LiteralPath (Join-Path $exeDir "otf-diag.log") -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $exeDir "debug.log") -ErrorAction SilentlyContinue
           $proc = Start-Process -FilePath $exe -WorkingDirectory $exeDir -PassThru
           $deadline = (Get-Date).AddSeconds(10)
           $exited = $false
@@ -409,12 +413,20 @@ jobs:
           }
           if ($exited) {
             Write-Host "ERROR: otf-browser.exe exited early with code: $($proc.ExitCode)"
-            Write-Host "--- otf-diag.log ---"
+            Write-Host "--- otf-diag.log (custom) ---"
             $diagLog = Join-Path $exeDir "otf-diag.log"
             if (Test-Path -LiteralPath $diagLog) {
               Get-Content -LiteralPath $diagLog
             } else {
               Write-Host "(no otf-diag.log produced - crash happened before DiagLog was wired)"
+            }
+            Write-Host ""
+            Write-Host "--- debug.log (CEF/Chromium) ---"
+            $cefLog = Join-Path $exeDir "debug.log"
+            if (Test-Path -LiteralPath $cefLog) {
+              Get-Content -LiteralPath $cefLog
+            } else {
+              Write-Host "(no debug.log produced)"
             }
             exit 1
           }
