@@ -36,6 +36,7 @@
         "workspaces.test.js",
         "cookie-tracking.test.js",
         "cookie-privacy-policy.test.js",
+        "tracking-param-strip.test.js",
         "session-cookie-persistence.test.js",
         "session-restore.test.js",
         "lazy-tabs.test.js",

@@ -1,6 +1,7 @@
 #include "otf_browse_runtime.h"
 
 #include <string>
+#include <utility>
 
 #include "include/cef_command_line.h"
 #include "include/views/cef_browser_view.h"
@@ -68,6 +69,21 @@ class DeferredTabRedirectTask : public CefTask {
   std::string url_;
   int old_tab_id_;
   IMPLEMENT_REFCOUNTING(DeferredTabRedirectTask);
+};
+
+class DeferredFrameLoadTask : public CefTask {
+ public:
+  DeferredFrameLoadTask(CefRefPtr<CefFrame> frame, std::string url)
+      : frame_(frame), url_(std::move(url)) {}
+
+  void Execute() override {
+    if (frame_) frame_->LoadURL(url_);
+  }
+
+ private:
+  CefRefPtr<CefFrame> frame_;
+  std::string url_;
+  IMPLEMENT_REFCOUNTING(DeferredFrameLoadTask);
 };
 
 void ClearDedicatedPreviewModeIfNeeded(OtfHandler* handler,
@@ -225,6 +241,14 @@ bool OtfHandler::OnBeforeBrowse(CefRefPtr<CefBrowser> browser,
   }
 
   CefRefPtr<CefBrowserView> view = CefBrowserView::GetForBrowser(browser);
+  if (is_main_frame) {
+    const std::string stripped_url = otf::StripTrackingParamsFromUrl(url);
+    if (stripped_url != url) {
+      CefPostTask(TID_UI, new DeferredFrameLoadTask(frame, stripped_url));
+      return true;
+    }
+  }
+
   if (is_main_frame && url.rfind("http://", 0) == 0 && !IsAllowedHttpUrl(url)) {
     const std::string https_url = "https://" + url.substr(7);
     if (view && tab_manager_) {
