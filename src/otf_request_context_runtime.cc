@@ -35,6 +35,7 @@ CefRefPtr<CefRequestContext> CreateRequestContext(
 #else
     CefString(&settings.cache_path).FromString(cache_path.string());
 #endif
+    settings.persist_session_cookies = true;
   }
   return CefRequestContext::CreateContext(settings, nullptr);
 }

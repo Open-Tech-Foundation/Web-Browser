@@ -20,6 +20,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 
+- Session cookies, including HttpOnly login cookies, now persist across browser restarts for disk-backed profiles.
 - Pinned tabs now clear restored or stale favicons when a page reports no favicon instead of keeping the previous/default icon.
 - Explicit close actions such as the tab context menu can now close pinned tabs instead of being blocked by the generic pinned-tab guard.
 - Automatic Picture-in-Picture is now blocked by default instead of prompting, avoiding stale deferred PiP requests while still allowing explicit per-site opt-in.

@@ -185,6 +185,7 @@ static int RunApp(int argc, char* argv[]) {
     CefString(&settings.root_cache_path).FromString(cef_cache.string());
     CefString(&settings.cache_path).FromString(default_profile_cache.string());
 #endif
+    settings.persist_session_cookies = true;
   }
 
   LOG(INFO) << "[otf] startup 1/4: cef cache path = " << cef_cache.string();
