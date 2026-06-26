@@ -6,6 +6,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- Windows release CI now runs a smoke test that launches the freshly built `otf-browser.exe` and verifies it stays alive for 10 seconds before packaging. Catches renderer startup crashes (CRT mismatch, missing DLLs, sandbox config) that unit tests cannot detect.
+
 
 ## [0.1.0-alpha.52] - 2026-06-26
 

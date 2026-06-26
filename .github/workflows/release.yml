@@ -381,6 +381,47 @@ jobs:
       - name: Run JS Tests
         run: bun run test:js
 
+      - name: Smoke test (launch browser)
+        # Launch the freshly built browser and verify it stays alive for 10s.
+        # This catches the class of regressions where the binary builds and
+        # unit tests pass, but the renderer process crashes on startup (e.g.
+        # CRT mismatch, missing DLLs, sandbox config errors). Without this
+        # step CI would publish a broken release artifact.
+        shell: powershell
+        run: |
+          $exe = Join-Path $PWD "build\Release\otf-browser.exe"
+          $exeDir = Join-Path $PWD "build\Release"
+          if (-not (Test-Path -LiteralPath $exe)) {
+            Write-Host "ERROR: otf-browser.exe not found at $exe"
+            exit 1
+          }
+          # Remove any stale diag log so we only capture this run.
+          Remove-Item -LiteralPath (Join-Path $exeDir "otf-diag.log") -ErrorAction SilentlyContinue
+          $proc = Start-Process -FilePath $exe -WorkingDirectory $exeDir -PassThru
+          $deadline = (Get-Date).AddSeconds(10)
+          $exited = $false
+          while ((Get-Date) -lt $deadline) {
+            if ($proc.HasExited) {
+              $exited = $true
+              break
+            }
+            Start-Sleep -Milliseconds 250
+          }
+          if ($exited) {
+            Write-Host "ERROR: otf-browser.exe exited early with code: $($proc.ExitCode)"
+            Write-Host "--- otf-diag.log ---"
+            $diagLog = Join-Path $exeDir "otf-diag.log"
+            if (Test-Path -LiteralPath $diagLog) {
+              Get-Content -LiteralPath $diagLog
+            } else {
+              Write-Host "(no otf-diag.log produced — crash happened before DiagLog was wired)"
+            }
+            exit 1
+          }
+          # Browser stayed alive — clean up.
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "Smoke test PASSED: otf-browser.exe ran for 10s without crashing"
+
       - name: Package Release
         run: |
           $version = "$env:GITHUB_REF_NAME"
