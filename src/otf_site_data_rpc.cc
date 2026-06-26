@@ -3,6 +3,7 @@
 #include <set>
 #include <cctype>
 #include <cstdio>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -12,6 +13,7 @@
 #include "include/cef_cookie.h"
 #include "include/cef_parser.h"
 #include "include/cef_task.h"
+#include "include/internal/cef_time.h"
 #include "include/views/cef_browser_view.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_helpers.h"
@@ -102,6 +104,16 @@ bool IsValidPermissionSetting(const std::string& permission,
     return setting == "allow" || setting == "block";
   }
   return false;
+}
+
+int64_t CefBaseTimeToUnixSeconds(cef_basetime_t base_time) {
+  cef_time_t cef_time{};
+  time_t out = 0;
+  if (cef_time_from_basetime(base_time, &cef_time) &&
+      cef_time_to_timet(&cef_time, &out)) {
+    return static_cast<int64_t>(out);
+  }
+  return 0;
 }
 
 void Fail(CefRefPtr<Callback> callback,
@@ -221,6 +233,14 @@ class CookieListVisitor : public CefCookieVisitor {
                  .AddString("path", CefString(&cookie.path).ToString())
                  .AddBool("secure", cookie.secure != 0)
                  .AddBool("httpOnly", cookie.httponly != 0)
+                 .AddRaw("createdAt",
+                         std::to_string(CefBaseTimeToUnixSeconds(cookie.creation)))
+                 .AddRaw("lastAccessAt",
+                         std::to_string(CefBaseTimeToUnixSeconds(cookie.last_access)))
+                 .AddRaw("expiresAt",
+                         std::to_string(cookie.has_expires
+                                            ? CefBaseTimeToUnixSeconds(cookie.expires)
+                                            : 0))
                  .Build();
     if (count + 1 >= total) Resolve();
     return true;
@@ -346,6 +366,9 @@ bool HandleClearCookies(OtfHandler* handler,
   } else {
     visitor->Resolve();
   }
+  if (handler->store_) {
+    handler->store_->ClearCookiePolicyRecords(origin);
+  }
   CefPostDelayedTask(TID_UI, new CookiePurgeFallbackTask(visitor), 2000);
   return true;
 }
@@ -463,6 +486,24 @@ bool HandleGetPermissions(OtfHandler* handler,
   return true;
 }
 
+bool HandleGetCookiePolicy(OtfHandler* handler,
+                           CefRefPtr<Callback> callback,
+                           const NativeRpcRequest& request) {
+  std::string origin;
+  std::string error;
+  if (!RequiredOriginParam(request, &origin, &error)) {
+    Fail(callback, request, "invalid_params", error);
+    return true;
+  }
+  if (!handler->store_) {
+    NativeRpcSuccessRaw(callback, request, "[]");
+    return true;
+  }
+  NativeRpcSuccessRaw(callback, request,
+                      handler->store_->GetCookiePolicyJson(origin));
+  return true;
+}
+
 bool HandleSetPermission(OtfHandler* handler,
                          CefRefPtr<Callback> callback,
                          const NativeRpcRequest& request) {
@@ -532,6 +573,9 @@ bool HandleSiteDataRpc(
   }
   if (request.method == "siteData.getPermissions") {
     return HandleGetPermissions(handler, callback, request);
+  }
+  if (request.method == "siteData.getCookiePolicy") {
+    return HandleGetCookiePolicy(handler, callback, request);
   }
   if (request.method == "siteData.setPermission") {
     return HandleSetPermission(handler, callback, request);

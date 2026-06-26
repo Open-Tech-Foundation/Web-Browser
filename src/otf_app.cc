@@ -2881,6 +2881,7 @@ void OtfApp::OnContextInitialized() {
 
   CefRefPtr<OtfHandler> handler(new OtfHandler(true));
   handler->tab_manager_ = &tab_manager_;
+  handler->ApplyAlwaysOnPrivacyPreferences(CefRequestContext::GetGlobalContext());
   LOG(INFO) << "[otf] ctx 5: OtfHandler created, store="
             << (handler->store_ ? "present" : "NULL");
 

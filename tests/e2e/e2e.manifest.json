@@ -35,6 +35,7 @@
         "bookmarks.test.js",
         "workspaces.test.js",
         "cookie-tracking.test.js",
+        "cookie-privacy-policy.test.js",
         "session-cookie-persistence.test.js",
         "session-restore.test.js",
         "lazy-tabs.test.js",

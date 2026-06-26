@@ -71,6 +71,21 @@ struct BookmarkEntry {
   int64_t updated_at = 0;
 };
 
+struct CookiePolicyRecord {
+  std::string top_origin;
+  std::string cookie_origin;
+  std::string name;
+  std::string domain;
+  std::string path;
+  std::string action;
+  std::string reason;
+  int64_t first_seen_at = 0;
+  int64_t last_seen_at = 0;
+  int64_t original_expires_at = 0;
+  int64_t imposed_expires_at = 0;
+  int event_count = 0;
+};
+
 class OtfStore {
  public:
   OtfStore();
@@ -141,6 +156,11 @@ class OtfStore {
   bool SetSitePermission(const std::string& origin,
                          const std::string& permission,
                          const std::string& setting);
+  bool RecordCookiePolicyEvent(const CookiePolicyRecord& record);
+  std::vector<CookiePolicyRecord> GetCookiePolicyRecords(
+      const std::string& top_origin) const;
+  std::string GetCookiePolicyJson(const std::string& top_origin) const;
+  bool ClearCookiePolicyRecords(const std::string& top_origin);
 
   bool AddSearchHistory(const std::string& query);
   std::vector<std::string> GetSearchSuggestions(const std::string& prefix,

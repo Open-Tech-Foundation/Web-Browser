@@ -251,6 +251,11 @@ void OtfHandler::ApplyAlwaysOnPrivacyPreferences(
   val->SetBool(true);
   CefString error;
   ctx->SetPreference("enable_do_not_track", val, error);
+
+  CefRefPtr<CefValue> block_third_party = CefValue::Create();
+  block_third_party->SetBool(true);
+  ctx->SetPreference("profile.block_third_party_cookies",
+                     block_third_party, error);
 }
 
 }  // namespace otf

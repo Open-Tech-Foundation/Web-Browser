@@ -24,11 +24,29 @@ const CLEAR_METHODS = {
   permissions: 'siteData.clearPermissions',
 };
 
+const formatTime = (seconds) => {
+  const value = Number(seconds) || 0;
+  if (value <= 0) return 'Session';
+  try {
+    return new Date(value * 1000).toISOString();
+  } catch {
+    return String(value);
+  }
+};
+
+const policyLabel = (action) => ({
+  blocked_send: 'Blocked send',
+  blocked_save: 'Blocked save',
+  capped_expiry: 'Capped expiry',
+  third_party_isolated: 'Third-party isolated',
+})[action] || action || 'Policy';
+
 const SiteData = () => {
   const [origin, setOrigin] = useState('');
   const [cookies, setCookies] = useState([]);
   const [storage, setStorage] = useState(null);
   const [permissions, setPermissions] = useState({});
+  const [cookiePolicy, setCookiePolicy] = useState([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -60,6 +78,7 @@ const SiteData = () => {
       nativeRequest({ method: 'siteData.getStorage', params: { origin: targetOrigin } }),
       nativeRequest({ method: 'siteData.getPermissions', params: { origin: targetOrigin } }),
       nativeRequest({ method: 'siteData.getCrossOriginResources', params: { origin: targetOrigin } }),
+      nativeRequest({ method: 'siteData.getCookiePolicy', params: { origin: targetOrigin } }),
     ]);
     if (!requestScope.current.isCurrent(token)) return;
     setLoading(false);
@@ -73,6 +92,7 @@ const SiteData = () => {
     if (results[1].status === 'fulfilled') setStorage(results[1].value || null);
     if (results[2].status === 'fulfilled') setPermissions(results[2].value || {});
     if (results[3].status === 'fulfilled') setCrossOrigins(Array.isArray(results[3].value) ? results[3].value : []);
+    if (results[4].status === 'fulfilled') setCookiePolicy(Array.isArray(results[4].value) ? results[4].value : []);
   };
 
   const setPermission = async (perm, setting) => {
@@ -130,7 +150,7 @@ const SiteData = () => {
         </header>
 
         <section className="mb-8">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
             <button
               onClick={() => setActiveTab('cookies')}
               className={`text-left rounded-lg p-4 border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/20 ${
@@ -211,6 +231,24 @@ const SiteData = () => {
               </div>
               <div className={`text-xs mb-1 font-semibold ${activeTab === 'external' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>External</div>
               <div className="font-mono text-2xl font-bold">{crossOrigins.length}</div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('policy')}
+              className={`text-left rounded-lg p-4 border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/20 ${
+                activeTab === 'policy'
+                  ? 'border-orange-500 dark:border-orange-500 bg-orange-500/5 dark:bg-orange-500/5 shadow-sm'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
+            >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${activeTab === 'policy' ? 'bg-red-500/10 text-red-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  <path d="M9 12l2 2 4-4"/>
+                </svg>
+              </div>
+              <div className={`text-xs mb-1 font-semibold ${activeTab === 'policy' ? 'text-orange-500 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Policy</div>
+              <div className="font-mono text-2xl font-bold">{cookiePolicy.length}</div>
             </button>
           </div>
         </section>
@@ -311,6 +349,7 @@ const SiteData = () => {
                       <th className="text-left px-3 py-2 font-semibold">Domain</th>
                       <th className="text-left px-3 py-2 font-semibold">Path</th>
                       <th className="text-left px-3 py-2 font-semibold">Flags</th>
+                      <th className="text-left px-3 py-2 font-semibold">Expires</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -325,6 +364,55 @@ const SiteData = () => {
                         <td className="px-3 py-2 font-mono text-slate-500">
                           {[c.secure && 'Secure', c.httpOnly && 'HttpOnly'].filter(Boolean).join(', ') || '—'}
                         </td>
+                        <td className="px-3 py-2 font-mono text-slate-500">{formatTime(c.expiresAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === 'policy' && (
+          <section className="mb-8">
+            <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 mb-3">Cookie policy</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+              Third-party cookies are blocked. First-party cookies are allowed but capped to a maximum lifetime of 7 days.
+            </p>
+            {loading ? (
+              <div className="text-sm text-slate-400">Loading cookie policy...</div>
+            ) : cookiePolicy.length === 0 ? (
+              <div className="text-sm text-slate-400">No cookie policy actions recorded for this origin.</div>
+            ) : (
+              <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-800/60">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold">Action</th>
+                      <th className="text-left px-3 py-2 font-semibold">Cookie</th>
+                      <th className="text-left px-3 py-2 font-semibold">Origin</th>
+                      <th className="text-left px-3 py-2 font-semibold">Expiry</th>
+                      <th className="text-right px-3 py-2 font-semibold">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cookiePolicy.map((item, i) => (
+                      <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2">
+                          <div className="font-semibold">{policyLabel(item.action)}</div>
+                          <div className="text-[10px] text-slate-400">{item.reason}</div>
+                        </td>
+                        <td className="px-3 py-2 font-mono break-all">
+                          <div>{item.name || '—'}</div>
+                          <div className="text-[10px] text-slate-400">{item.domain}{item.path}</div>
+                        </td>
+                        <td className="px-3 py-2 font-mono break-all">{item.cookieOrigin || '—'}</td>
+                        <td className="px-3 py-2 font-mono">
+                          <div>Original: {formatTime(item.originalExpiresAt)}</div>
+                          <div>Imposed: {formatTime(item.imposedExpiresAt)}</div>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-right">{item.eventCount || 1}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -369,6 +369,32 @@ bool OtfStore::RunMigrations() {
   }
   Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (12);");
 
+  // Migration v13: cookie privacy policy audit trail. This stores the latest
+  // action for a cookie key plus a count so browser://sitedata can explain
+  // strict third-party blocking and first-party lifetime caps.
+  bool cookie_policy_ok =
+      Exec(
+          "CREATE TABLE IF NOT EXISTS cookie_policy_events ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "top_origin TEXT NOT NULL,"
+          "cookie_origin TEXT NOT NULL DEFAULT '',"
+          "name TEXT NOT NULL DEFAULT '',"
+          "domain TEXT NOT NULL DEFAULT '',"
+          "path TEXT NOT NULL DEFAULT '/',"
+          "action TEXT NOT NULL,"
+          "reason TEXT NOT NULL DEFAULT '',"
+          "first_seen_at INTEGER NOT NULL,"
+          "last_seen_at INTEGER NOT NULL,"
+          "original_expires_at INTEGER NOT NULL DEFAULT 0,"
+          "imposed_expires_at INTEGER NOT NULL DEFAULT 0,"
+          "event_count INTEGER NOT NULL DEFAULT 1,"
+          "UNIQUE(top_origin, cookie_origin, name, domain, path, action)"
+          ");") &&
+      Exec("CREATE INDEX IF NOT EXISTS idx_cookie_policy_top_origin "
+           "ON cookie_policy_events(top_origin, last_seen_at DESC);");
+  if (!cookie_policy_ok) return false;
+  Exec("INSERT OR IGNORE INTO schema_migrations (version) VALUES (13);");
+
   return true;
 }
 
@@ -990,6 +1016,133 @@ bool OtfStore::SetSitePermission(const std::string& origin,
   sqlite3_bind_text(stmt, 3, setting.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_int64(stmt, 4, now);
   sqlite3_bind_int64(stmt, 5, now);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+bool OtfStore::RecordCookiePolicyEvent(const CookiePolicyRecord& record) {
+  if (!db_ || record.top_origin.empty() || record.action.empty()) return false;
+  const std::lock_guard<std::mutex> lock(db_mutex_);
+  const std::string top_origin = NormalizeOrigin(record.top_origin);
+  const std::string cookie_origin = record.cookie_origin.empty()
+                                        ? ""
+                                        : NormalizeOrigin(record.cookie_origin);
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "INSERT INTO cookie_policy_events("
+      "top_origin, cookie_origin, name, domain, path, action, reason, "
+      "first_seen_at, last_seen_at, original_expires_at, imposed_expires_at, event_count"
+      ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) "
+      "ON CONFLICT(top_origin, cookie_origin, name, domain, path, action) "
+      "DO UPDATE SET "
+      "reason = excluded.reason, "
+      "last_seen_at = excluded.last_seen_at, "
+      "original_expires_at = excluded.original_expires_at, "
+      "imposed_expires_at = excluded.imposed_expires_at, "
+      "event_count = cookie_policy_events.event_count + 1;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  const int64_t now = Now();
+  const int64_t first_seen = record.first_seen_at > 0 ? record.first_seen_at : now;
+  const int64_t last_seen = record.last_seen_at > 0 ? record.last_seen_at : now;
+  const std::string path = record.path.empty() ? "/" : record.path;
+  sqlite3_bind_text(stmt, 1, top_origin.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 2, cookie_origin.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 3, record.name.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 4, record.domain.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 5, path.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 6, record.action.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt, 7, record.reason.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int64(stmt, 8, first_seen);
+  sqlite3_bind_int64(stmt, 9, last_seen);
+  sqlite3_bind_int64(stmt, 10, record.original_expires_at);
+  sqlite3_bind_int64(stmt, 11, record.imposed_expires_at);
+  const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+  sqlite3_finalize(stmt);
+  return ok;
+}
+
+std::vector<CookiePolicyRecord> OtfStore::GetCookiePolicyRecords(
+    const std::string& top_origin) const {
+  std::vector<CookiePolicyRecord> records;
+  if (!db_ || top_origin.empty()) return records;
+  const std::lock_guard<std::mutex> lock(db_mutex_);
+  const std::string norm = NormalizeOrigin(top_origin);
+  sqlite3_stmt* stmt = nullptr;
+  const char* sql =
+      "SELECT top_origin, cookie_origin, name, domain, path, action, reason, "
+      "first_seen_at, last_seen_at, original_expires_at, imposed_expires_at, event_count "
+      "FROM cookie_policy_events WHERE top_origin = ? "
+      "ORDER BY last_seen_at DESC, name ASC;";
+  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+    return records;
+  }
+  sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    CookiePolicyRecord record;
+    const auto text_at = [stmt](int index) -> std::string {
+      const unsigned char* text = sqlite3_column_text(stmt, index);
+      return text ? reinterpret_cast<const char*>(text) : "";
+    };
+    record.top_origin = text_at(0);
+    record.cookie_origin = text_at(1);
+    record.name = text_at(2);
+    record.domain = text_at(3);
+    record.path = text_at(4);
+    record.action = text_at(5);
+    record.reason = text_at(6);
+    record.first_seen_at = sqlite3_column_int64(stmt, 7);
+    record.last_seen_at = sqlite3_column_int64(stmt, 8);
+    record.original_expires_at = sqlite3_column_int64(stmt, 9);
+    record.imposed_expires_at = sqlite3_column_int64(stmt, 10);
+    record.event_count = sqlite3_column_int(stmt, 11);
+    records.push_back(std::move(record));
+  }
+  sqlite3_finalize(stmt);
+  return records;
+}
+
+std::string OtfStore::GetCookiePolicyJson(const std::string& top_origin) const {
+  const auto records = GetCookiePolicyRecords(top_origin);
+  std::string json = "[";
+  bool first = true;
+  for (const auto& record : records) {
+    if (!first) json += ",";
+    first = false;
+    json += JsonObjectBuilder()
+                .AddString("topOrigin", record.top_origin)
+                .AddString("cookieOrigin", record.cookie_origin)
+                .AddString("name", record.name)
+                .AddString("domain", record.domain)
+                .AddString("path", record.path)
+                .AddString("action", record.action)
+                .AddString("reason", record.reason)
+                .AddRaw("firstSeenAt", std::to_string(record.first_seen_at))
+                .AddRaw("lastSeenAt", std::to_string(record.last_seen_at))
+                .AddRaw("originalExpiresAt",
+                        std::to_string(record.original_expires_at))
+                .AddRaw("imposedExpiresAt",
+                        std::to_string(record.imposed_expires_at))
+                .AddRaw("eventCount", std::to_string(record.event_count))
+                .Build();
+  }
+  json += "]";
+  return json;
+}
+
+bool OtfStore::ClearCookiePolicyRecords(const std::string& top_origin) {
+  if (!db_ || top_origin.empty()) return false;
+  const std::lock_guard<std::mutex> lock(db_mutex_);
+  const std::string norm = NormalizeOrigin(top_origin);
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_,
+                         "DELETE FROM cookie_policy_events WHERE top_origin = ?;",
+                         -1, &stmt, nullptr) != SQLITE_OK) {
+    return false;
+  }
+  sqlite3_bind_text(stmt, 1, norm.c_str(), -1, SQLITE_TRANSIENT);
   const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
   sqlite3_finalize(stmt);
   return ok;
