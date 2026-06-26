@@ -414,11 +414,11 @@ jobs:
             if (Test-Path -LiteralPath $diagLog) {
               Get-Content -LiteralPath $diagLog
             } else {
-              Write-Host "(no otf-diag.log produced — crash happened before DiagLog was wired)"
+              Write-Host "(no otf-diag.log produced - crash happened before DiagLog was wired)"
             }
             exit 1
           }
-          # Browser stayed alive — clean up.
+          # Browser stayed alive - clean up.
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           Write-Host "Smoke test PASSED: otf-browser.exe ran for 10s without crashing"
 
