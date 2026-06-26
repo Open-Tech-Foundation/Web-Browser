@@ -12,8 +12,8 @@
 #include <sys/stat.h>
 
 #if defined(_WIN32)
-#include <shellapi.h>
 #include <windows.h>
+#include <shellapi.h>
 #else
 #include <fcntl.h>
 #include <sys/wait.h>
