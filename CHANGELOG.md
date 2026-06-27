@@ -6,6 +6,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+
+## [0.1.0-alpha.56] - 2026-06-27
+
 ### Added
 
 - Cookie policy rows now show parsed blocked `Set-Cookie` domain/path details and include an allow action for third-party cookie origins.
