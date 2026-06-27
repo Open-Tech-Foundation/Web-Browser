@@ -373,6 +373,7 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
   (void)frame;
 
   SanitizeContextMenu(model);
+  pending_tab_context_menu_tab_id_ = -1;
 
   if (!params->GetLinkUrl().empty()) {
     std::string link_url = params->GetLinkUrl().ToString();
@@ -387,6 +388,9 @@ void OtfHandler::OnBeforeContextMenu(CefRefPtr<CefBrowser> browser,
       }
 
       const auto tab_id_opt = ParseIntStrict(tab_id_str);
+      if (tab_id_opt) {
+        pending_tab_context_menu_tab_id_ = *tab_id_opt;
+      }
       bool is_muted = false;
       bool is_pinned = false;
       if (tab_id_opt && tab_manager_) {
@@ -560,13 +564,19 @@ bool HandleContextMenuCommand(OtfHandler* handler,
       command_id == kMenuIdTabUnpin ||
       command_id == kMenuIdTabAddToSplit) {
     const std::string link_url = params->GetLinkUrl().ToString();
-    if (link_url.rfind("tab-context-menu:", 0) == 0) {
+    int tab_id = handler->pending_tab_context_menu_tab_id_;
+    if (tab_id < 0 && link_url.rfind("tab-context-menu:", 0) == 0) {
       const auto tab_id_opt = ParseIntStrict(link_url.substr(17));
       if (!tab_id_opt) {
         return true;
       }
-      return HandleTabContextCommand(handler, command_id, *tab_id_opt);
+      tab_id = *tab_id_opt;
     }
+    handler->pending_tab_context_menu_tab_id_ = -1;
+    if (tab_id < 0) {
+      return true;
+    }
+    return HandleTabContextCommand(handler, command_id, tab_id);
   }
 
   if (command_id == kMenuIdTabNew) {

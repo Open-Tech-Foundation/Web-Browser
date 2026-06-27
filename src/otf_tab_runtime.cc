@@ -1,5 +1,7 @@
 #include "otf_tab_runtime.h"
 
+#include <algorithm>
+
 #include "include/views/cef_browser_view.h"
 #include "include/wrapper/cef_helpers.h"
 #include "otf_app.h"
@@ -145,7 +147,16 @@ void OtfHandler::CloseTabAndNotify(int tab_id, bool allow_pinned) {
       ClearImagePreviewStateForTab(tab_id);
     }
   }
-  if (app->CloseTab(tab_id, allow_pinned) < 0) {
+  std::vector<int> before_ids =
+      tab_manager_ ? tab_manager_->GetAllTabIds() : std::vector<int>{};
+  const bool existed_before =
+      std::find(before_ids.begin(), before_ids.end(), tab_id) != before_ids.end();
+  app->CloseTab(tab_id, allow_pinned);
+  std::vector<int> after_ids =
+      tab_manager_ ? tab_manager_->GetAllTabIds() : std::vector<int>{};
+  const bool exists_after =
+      std::find(after_ids.begin(), after_ids.end(), tab_id) != after_ids.end();
+  if (!existed_before || exists_after) {
     return;
   }
   if (closed_split_tab) {

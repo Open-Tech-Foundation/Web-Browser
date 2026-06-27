@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 
 - Capped HttpOnly cookies are now flushed after the 7-day expiry rewrite so login cookies remain available after browser restart.
+- The tab context menu can now close an inactive pinned tab without switching away from the current tab.
 
 ## [0.1.0-alpha.54] - 2026-06-26
 

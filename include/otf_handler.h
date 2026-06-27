@@ -185,6 +185,7 @@ class OtfHandler : public CefClient,
                             CefRefPtr<CefContextMenuParams> params,
                             int command_id,
                             EventFlags event_flags) override;
+  int pending_tab_context_menu_tab_id_ = -1;
 
   // CefRequestHandler methods:
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser> browser,
