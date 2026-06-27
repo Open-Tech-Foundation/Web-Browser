@@ -8,6 +8,7 @@ const PERMISSION_LABELS = {
   autoPictureInPicture: 'Auto Picture-in-Picture',
   images: 'Images',
   javascript: 'JavaScript',
+  thirdPartyCookies: 'Third-party cookies',
 };
 
 const PERMISSION_SETTING_ORDER = {
@@ -16,6 +17,7 @@ const PERMISSION_SETTING_ORDER = {
   autoPictureInPicture: ['block', 'allow'],
   images: ['allow', 'block'],
   javascript: ['allow', 'block'],
+  thirdPartyCookies: ['block', 'allow'],
 };
 
 const CLEAR_METHODS = {
@@ -95,20 +97,26 @@ const SiteData = () => {
     if (results[4].status === 'fulfilled') setCookiePolicy(Array.isArray(results[4].value) ? results[4].value : []);
   };
 
-  const setPermission = async (perm, setting) => {
-    setSettingBusy((s) => ({ ...s, [perm]: true }));
+  const setPermission = async (perm, setting, targetOrigin = origin) => {
+    const busyKey = `${targetOrigin}:${perm}`;
+    setSettingBusy((s) => ({ ...s, [busyKey]: true }));
     setStatus('');
     try {
       await nativeRequest({
         method: 'siteData.setPermission',
-        params: { origin, permission: perm, setting },
+        params: { origin: targetOrigin, permission: perm, setting },
       });
-      setPermissions((p) => ({ ...p, [perm]: setting }));
-      if (perm === 'javascript') setJsJustChanged(true);
+      if (targetOrigin === origin) {
+        setPermissions((p) => ({ ...p, [perm]: setting }));
+      }
+      if (perm === 'javascript' && targetOrigin === origin) setJsJustChanged(true);
+      if (perm === 'thirdPartyCookies') {
+        setStatus(`Allowed third-party cookies for ${targetOrigin}. Reload the affected page and retry the sign-in flow.`);
+      }
     } catch (err) {
       setStatus(`Failed: ${err.message}`);
     } finally {
-      setSettingBusy((s) => ({ ...s, [perm]: false }));
+      setSettingBusy((s) => ({ ...s, [busyKey]: false }));
     }
   };
 
@@ -394,27 +402,47 @@ const SiteData = () => {
                       <th className="text-left px-3 py-2 font-semibold">Origin</th>
                       <th className="text-left px-3 py-2 font-semibold">Expiry</th>
                       <th className="text-right px-3 py-2 font-semibold">Count</th>
+                      <th className="text-right px-3 py-2 font-semibold">Allow</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cookiePolicy.map((item, i) => (
-                      <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-2">
-                          <div className="font-semibold">{policyLabel(item.action)}</div>
-                          <div className="text-[10px] text-slate-400">{item.reason}</div>
-                        </td>
-                        <td className="px-3 py-2 font-mono break-all">
-                          <div>{item.name || '—'}</div>
-                          <div className="text-[10px] text-slate-400">{item.domain}{item.path}</div>
-                        </td>
-                        <td className="px-3 py-2 font-mono break-all">{item.cookieOrigin || '—'}</td>
-                        <td className="px-3 py-2 font-mono">
-                          <div>Original: {formatTime(item.originalExpiresAt)}</div>
-                          <div>Imposed: {formatTime(item.imposedExpiresAt)}</div>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-right">{item.eventCount || 1}</td>
-                      </tr>
-                    ))}
+                    {cookiePolicy.map((item, i) => {
+                      const targetOrigin = item.cookieOrigin || '';
+                      const canAllow = targetOrigin && ['blocked_save', 'blocked_send', 'third_party_isolated'].includes(item.action);
+                      const busyKey = `${targetOrigin}:thirdPartyCookies`;
+                      return (
+                        <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2">
+                            <div className="font-semibold">{policyLabel(item.action)}</div>
+                            <div className="text-[10px] text-slate-400">{item.reason}</div>
+                          </td>
+                          <td className="px-3 py-2 font-mono break-all">
+                            <div>{item.name || '—'}</div>
+                            <div className="text-[10px] text-slate-400">{item.domain}{item.path}</div>
+                          </td>
+                          <td className="px-3 py-2 font-mono break-all">{targetOrigin || '—'}</td>
+                          <td className="px-3 py-2 font-mono">
+                            <div>Original: {formatTime(item.originalExpiresAt)}</div>
+                            <div>Imposed: {formatTime(item.imposedExpiresAt)}</div>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right">{item.eventCount || 1}</td>
+                          <td className="px-3 py-2 text-right">
+                            {canAllow ? (
+                              <button
+                                type="button"
+                                disabled={settingBusy[busyKey]}
+                                onClick={() => setPermission('thirdPartyCookies', 'allow', targetOrigin)}
+                                className="px-2 py-1 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/35 border border-emerald-200 dark:border-emerald-800 disabled:opacity-50"
+                              >
+                                Allow
+                              </button>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -459,7 +487,7 @@ const SiteData = () => {
                         <td className="px-3 py-2.5">{label}</td>
                         <td className="px-3 py-2.5 text-right">
                           <button
-                            disabled={settingBusy[key]}
+                            disabled={settingBusy[`${origin}:${key}`]}
                             onClick={() => setPermission(key, next)}
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/20 disabled:opacity-50 ${
                               current === 'allow'

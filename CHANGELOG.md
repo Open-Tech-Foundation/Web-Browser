@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- Cookie policy rows now show parsed blocked `Set-Cookie` domain/path details and include an allow action for third-party cookie origins.
+
+### Changed
+
+- Third-party cookie blocking now runs through the browser's own per-origin policy filter instead of Chromium's global preference so site-data exceptions can take effect.
 
 ## [0.1.0-alpha.55] - 2026-06-27
 

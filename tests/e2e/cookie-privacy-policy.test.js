@@ -50,7 +50,7 @@ test('strict cookie policy blocks third-party cookies and caps first-party expir
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-store',
-          'set-cookie': `${firstPartyCookie}=present; Path=/; Max-Age=31536000; SameSite=Lax`,
+          'set-cookie': `${firstPartyCookie}=present; Path=/; Max-Age=31536000; SameSite=None; Secure`,
         });
         res.end('<!doctype html><title>first party set</title><main>first party set</main>');
         return;
@@ -180,6 +180,36 @@ test('strict cookie policy blocks third-party cookies and caps first-party expir
         nativeRpc('siteData.getCookiePolicy', { origin: thirdPartyOrigin }, 'cookie-policy-records'),
       );
       assert.ok(Array.isArray(policy), 'cookie policy RPC should return an array');
+
+      const allowResult = await siteDataCdp.evaluate(
+        nativeRpc(
+          'siteData.setPermission',
+          {
+            origin: thirdPartyOrigin,
+            permission: 'thirdPartyCookies',
+            setting: 'allow',
+          },
+          'cookie-policy-allow',
+        ),
+      );
+      assert.equal(allowResult, 'ok', 'third-party cookie allow permission should be saved');
+
+      await navigateFromAddressBar(browser.cdp, `${topServer.origin}/embed-check`);
+      pageCdp = await browser.connectToTarget(
+        (target) => (target.url || '').startsWith(`${topServer.origin}/embed-check`),
+        15000,
+      );
+      await waitFor(pageCdp, 'document.readyState', (state) => state === 'complete', 15000);
+      for (let i = 0; i < 60 && !thirdPartyChecks.at(-1)?.includes(firstPartyCookie); i += 1) {
+        await sleep(250);
+      }
+      pageCdp.close();
+      pageCdp = null;
+
+      assert.ok(
+        thirdPartyChecks.at(-1)?.includes(firstPartyCookie),
+        `allowed third-party request should send existing cookie, got: ${thirdPartyChecks.at(-1)}`,
+      );
     } finally {
       if (siteDataCdp) siteDataCdp.close();
       if (pageCdp) pageCdp.close();

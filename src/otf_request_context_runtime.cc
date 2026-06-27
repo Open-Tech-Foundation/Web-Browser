@@ -252,8 +252,11 @@ void OtfHandler::ApplyAlwaysOnPrivacyPreferences(
   CefString error;
   ctx->SetPreference("enable_do_not_track", val, error);
 
+  // Third-party cookie blocking is enforced by PrivacyResourceHandler so
+  // browser://sitedata can offer per-origin exceptions. Chromium's global
+  // preference would block before our allowlist has a chance to run.
   CefRefPtr<CefValue> block_third_party = CefValue::Create();
-  block_third_party->SetBool(true);
+  block_third_party->SetBool(false);
   ctx->SetPreference("profile.block_third_party_cookies",
                      block_third_party, error);
 }

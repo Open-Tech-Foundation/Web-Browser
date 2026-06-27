@@ -117,6 +117,8 @@ void RecordNamedCookiePolicy(OtfStore* store,
                              const std::string& top_origin,
                              const std::string& cookie_origin,
                              const std::string& name,
+                             const std::string& domain,
+                             const std::string& path,
                              const std::string& action,
                              const std::string& reason) {
   if (!store || top_origin.empty() || name.empty()) return;
@@ -124,7 +126,8 @@ void RecordNamedCookiePolicy(OtfStore* store,
   record.top_origin = top_origin;
   record.cookie_origin = cookie_origin;
   record.name = name;
-  record.path = "/";
+  record.domain = domain;
+  record.path = path.empty() ? "/" : path;
   record.action = action;
   record.reason = reason;
   store->RecordCookiePolicyEvent(record);
@@ -260,6 +263,26 @@ bool ParseSetCookieForRewrite(const std::string& header,
   cookie->httponly = http_only;
   cookie->same_site = same_site;
   return true;
+}
+
+void RecordSetCookiePolicy(OtfStore* store,
+                           const std::string& top_origin,
+                           const std::string& cookie_origin,
+                           const std::string& request_url,
+                           const std::string& header,
+                           const std::string& action,
+                           const std::string& reason) {
+  CefCookie cookie;
+  int64_t original_expires_at = 0;
+  if (ParseSetCookieForRewrite(header, request_url, &cookie,
+                               &original_expires_at)) {
+    RecordCookiePolicy(store, top_origin, cookie_origin, cookie, action, reason,
+                       original_expires_at, 0);
+    return;
+  }
+  RecordNamedCookiePolicy(store, top_origin, cookie_origin,
+                          CookieNameFromSetCookie(header), "", "/", action,
+                          reason);
 }
 
 class CookieRewriteTask : public CefTask {
@@ -455,11 +478,13 @@ class StrictCookieAccessFilter : public CefCookieAccessFilter {
   StrictCookieAccessFilter(OtfStore* store,
                            std::string page_origin,
                            std::string resource_origin,
-                           bool third_party)
+                           bool third_party,
+                           bool third_party_cookies_allowed)
       : store_(store),
         page_origin_(std::move(page_origin)),
         resource_origin_(std::move(resource_origin)),
-        third_party_(third_party) {}
+        third_party_(third_party),
+        third_party_cookies_allowed_(third_party_cookies_allowed) {}
 
   bool CanSendCookie(CefRefPtr<CefBrowser> browser,
                      CefRefPtr<CefFrame> frame,
@@ -468,7 +493,7 @@ class StrictCookieAccessFilter : public CefCookieAccessFilter {
     (void)browser;
     (void)frame;
     (void)request;
-    if (!third_party_) return true;
+    if (!third_party_ || third_party_cookies_allowed_) return true;
     RecordCookiePolicy(store_, page_origin_, resource_origin_, cookie,
                        "blocked_send", "third_party_cookie", 0, 0);
     return false;
@@ -482,6 +507,7 @@ class StrictCookieAccessFilter : public CefCookieAccessFilter {
     (void)frame;
     (void)response;
     if (third_party_) {
+      if (third_party_cookies_allowed_) return true;
       RecordCookiePolicy(store_, page_origin_, resource_origin_, cookie,
                          "blocked_save", "third_party_cookie", 0, 0);
       return false;
@@ -521,6 +547,7 @@ class StrictCookieAccessFilter : public CefCookieAccessFilter {
   std::string page_origin_;
   std::string resource_origin_;
   bool third_party_ = false;
+  bool third_party_cookies_allowed_ = false;
   IMPLEMENT_REFCOUNTING(StrictCookieAccessFilter);
 };
 
@@ -530,26 +557,29 @@ class PrivacyResourceHandler : public CefResourceRequestHandler {
                          OtfStore* store,
                          std::string page_origin,
                          std::string resource_origin,
-                         bool third_party)
+                         bool third_party,
+                         bool third_party_cookies_allowed)
       : inner_(inner),
         store_(store),
         page_origin_(std::move(page_origin)),
         resource_origin_(std::move(resource_origin)),
-        third_party_(third_party) {}
+        third_party_(third_party),
+        third_party_cookies_allowed_(third_party_cookies_allowed) {}
 
   CefRefPtr<CefCookieAccessFilter> GetCookieAccessFilter(
       CefRefPtr<CefBrowser> browser,
       CefRefPtr<CefFrame> frame,
       CefRefPtr<CefRequest> request) override {
     return new StrictCookieAccessFilter(store_, page_origin_, resource_origin_,
-                                        third_party_);
+                                        third_party_,
+                                        third_party_cookies_allowed_);
   }
 
   ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser,
                                    CefRefPtr<CefFrame> frame,
                                    CefRefPtr<CefRequest> request,
                                    CefRefPtr<CefCallback> callback) override {
-    if (third_party_ && request) {
+    if (third_party_ && !third_party_cookies_allowed_ && request) {
       CefRequest::HeaderMap headers;
       request->GetHeaderMap(headers);
       CefRequest::HeaderMap filtered_headers;
@@ -557,7 +587,8 @@ class PrivacyResourceHandler : public CefResourceRequestHandler {
         if (ToLowerAscii(key.ToString()) == "cookie") {
           for (const auto& name : CookieNamesFromHeader(value.ToString())) {
             RecordNamedCookiePolicy(store_, page_origin_, resource_origin_, name,
-                                    "blocked_send", "third_party_cookie");
+                                    "", "/", "blocked_send",
+                                    "third_party_cookie");
           }
         } else {
           filtered_headers.insert(std::make_pair(key, value));
@@ -567,7 +598,8 @@ class PrivacyResourceHandler : public CefResourceRequestHandler {
       if (!cookie_header.empty()) {
         for (const auto& name : CookieNamesFromHeader(cookie_header)) {
           RecordNamedCookiePolicy(store_, page_origin_, resource_origin_, name,
-                                  "blocked_send", "third_party_cookie");
+                                  "", "/", "blocked_send",
+                                  "third_party_cookie");
         }
       }
       request->SetHeaderMap(filtered_headers);
@@ -584,17 +616,20 @@ class PrivacyResourceHandler : public CefResourceRequestHandler {
                           CefRefPtr<CefRequest> request,
                           CefRefPtr<CefResponse> response) override {
     (void)frame;
-    if (third_party_ && browser && request && response) {
+    if (third_party_ && !third_party_cookies_allowed_ && browser && request &&
+        response) {
       CefResponse::HeaderMap headers;
       response->GetHeaderMap(headers);
       CefRefPtr<CefRequestContext> context =
           browser->GetHost()->GetRequestContext();
       for (const auto& [key, value] : headers) {
         if (ToLowerAscii(key.ToString()) != "set-cookie") continue;
-        const std::string name = CookieNameFromSetCookie(value.ToString());
+        const std::string header = value.ToString();
+        const std::string name = CookieNameFromSetCookie(header);
         if (name.empty()) continue;
-        RecordNamedCookiePolicy(store_, page_origin_, resource_origin_, name,
-                                "blocked_save", "third_party_cookie");
+        RecordSetCookiePolicy(store_, page_origin_, resource_origin_,
+                              request->GetURL().ToString(), header,
+                              "blocked_save", "third_party_cookie");
         CefPostDelayedTask(
             TID_UI,
             new DeleteCookieTask(context, request->GetURL().ToString(), name),
@@ -643,6 +678,7 @@ class PrivacyResourceHandler : public CefResourceRequestHandler {
   std::string page_origin_;
   std::string resource_origin_;
   bool third_party_ = false;
+  bool third_party_cookies_allowed_ = false;
   IMPLEMENT_REFCOUNTING(PrivacyResourceHandler);
 };
 
@@ -682,6 +718,7 @@ OtfHandler::GetResourceRequestHandler(
   std::string page_origin;
   std::string resource_origin;
   bool third_party = false;
+  bool third_party_cookies_allowed = false;
 
   if (store_) {
     const std::string resource_url = request->GetURL().ToString();
@@ -758,8 +795,16 @@ OtfHandler::GetResourceRequestHandler(
   }
 
   if (store_ && !page_origin.empty() && !resource_origin.empty()) {
+    if (third_party && !IsGuestTab(tab_id)) {
+      third_party_cookies_allowed =
+          store_->GetSitePermission(resource_origin, "thirdPartyCookies") ==
+              "allow" ||
+          store_->GetSitePermission(page_origin, "thirdPartyCookies") ==
+              "allow";
+    }
     return new PrivacyResourceHandler(inner, store_.get(), page_origin,
-                                      resource_origin, third_party);
+                                      resource_origin, third_party,
+                                      third_party_cookies_allowed);
   }
 
   return inner;
