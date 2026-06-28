@@ -25,8 +25,16 @@ if [[ -n "$CLANG_RES_INC" ]]; then
 fi
 
 # 1. Rust backend -> libotf_backend.a (with FFI bindings against the shim).
-echo ">> cargo build (staticlib, with-content) ..."
-( cd "$ENGINE_DIR/backend" && cargo build --release --features with-content )
+# Build with CHROMIUM'S Rust toolchain, not the system cargo: the final binary
+# also links Chromium's own Rust std, and mixing two std versions yields
+# duplicate-symbol link errors (plan.md §8 toolchain alignment). Using the same
+# toolchain makes the (still-duplicated) std symbols identical, so the linker can
+# safely merge them (see --allow-multiple-definition in //otf/BUILD.gn).
+RUST_TOOLCHAIN="$CR_SRC/third_party/rust-toolchain"
+export RUSTC="${RUSTC:-$RUST_TOOLCHAIN/bin/rustc}"
+CARGO="${CARGO:-$RUST_TOOLCHAIN/bin/cargo}"
+echo ">> cargo build (staticlib, with-content) using $CARGO ..."
+( cd "$ENGINE_DIR/backend" && "$CARGO" build --release --features with-content )
 
 # 2. gn/ninja link of the browser binary.
 echo ">> autoninja otf_browser ..."

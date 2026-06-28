@@ -60,31 +60,48 @@ OtfStatus otf_bridge_emit(OtfTabHandle, const char* /*json*/) { return 0; }
 
 #else
 // ----------------------------- content layer -------------------------------
-// TODO(content): includes such as
-//   #include "content/public/app/content_main.h"
-//   #include "content/public/browser/web_contents.h"
-//   #include "ui/views/widget/widget.h"
-// plus the OtfContentMainDelegate / OtfBrowserMainParts wiring.
+// First light (Phase 2): boot Chromium's content layer from Rust by reusing
+// content_shell's embedder scaffolding — ShellMainDelegate brings the
+// ContentClient, ContentBrowserClient, a BrowserContext and a Views window, so a
+// real browser window appears showing the startup URL. This proves the whole
+// Rust -> content stack end to end. Phase 2b swaps this scaffold for our own UI
+// WebContents + tab model + live bridge over the content/public APIs directly.
+#include "content/public/app/content_main.h"
+#include "content/shell/app/shell_main_delegate.h"
+
+namespace {
+int g_argc = 0;
+char** g_argv = nullptr;
+}  // namespace
 
 extern "C" {
 
-OtfStatus otf_browser_init(int /*argc*/, char** /*argv*/, OtfCallbacks callbacks) {
+OtfStatus otf_browser_init(int argc, char** argv, OtfCallbacks callbacks) {
   g_callbacks = callbacks;
-  // TODO(content): build content::ContentMainParams with OtfContentMainDelegate.
+  g_argc = argc;
+  g_argv = argv;
   return 0;
 }
 
 OtfStatus otf_browser_run(void) {
-  // TODO(content): content::RunBrowserProcessMain / enter the run loop.
-  return 0;
+  // Mirrors content/shell/app/shell_main.cc: the delegate must outlive
+  // ContentMain. ContentMain runs this process — the browser process blocks in
+  // the run loop until shutdown; re-exec'd child processes (renderer/gpu/...)
+  // run their logic and return. Returns the process exit code.
+  content::ShellMainDelegate delegate;
+  content::ContentMainParams params(&delegate);
+  params.argc = g_argc;
+  params.argv = const_cast<const char**>(g_argv);
+  return content::ContentMain(std::move(params));
 }
 
-void otf_browser_shutdown(void) { /* TODO(content): teardown */ }
+void otf_browser_shutdown(void) { g_callbacks = {}; }
 
-OtfStatus otf_ui_create(const char* /*url*/) { return 0; }       // TODO(content)
+// TODO(phase2b): our own UI WebContents + tab model + live bridge replace these.
+OtfStatus otf_ui_create(const char* /*url*/) { return 0; }
 OtfStatus otf_ui_set_content_bounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
 
-OtfTabHandle otf_tab_create(const char* /*url*/) { return 0; }   // TODO(content)
+OtfTabHandle otf_tab_create(const char* /*url*/) { return 0; }
 OtfStatus otf_tab_navigate(OtfTabHandle, const char*) { return 0; }
 OtfStatus otf_tab_show(OtfTabHandle) { return 0; }
 OtfStatus otf_tab_hide(OtfTabHandle) { return 0; }
