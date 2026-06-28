@@ -48,6 +48,16 @@ gclient runhooks
 # Additive integration: expose engine/ as //otf without copying.
 ln -sfn "$ENGINE_DIR" "$CHROMIUM_DIR/src/otf"
 
+# gn only loads a BUILD.gn that is reachable from the root, so the //otf target
+# is invisible until something references it. Wire it into the root gn_all group
+# (idempotent; re-applied after an upstream re-sync — see plan.md §8). gn_all is
+# testonly, which may still depend on our non-testonly target.
+ROOT_BUILD="$CHROMIUM_DIR/src/BUILD.gn"
+if ! grep -q '//otf:otf_browser' "$ROOT_BUILD"; then
+  echo ">> wiring //otf:otf_browser into root gn_all ..."
+  sed -i 's|\(^[[:space:]]*\)"//base:base_perftests",|\1"//otf:otf_browser",  # otf engine (additive)\n\1"//base:base_perftests",|' "$ROOT_BUILD"
+fi
+
 # gn build dir.
 OUT="out/otf"
 mkdir -p "$OUT"
