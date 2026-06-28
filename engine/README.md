@@ -51,10 +51,15 @@ engine/scripts/build-engine.sh         # cargo staticlib -> ninja link
         envelope → `ok`/`error`/`unknown_method` responses + event envelopes;
         `backend.rs` builds the real `OtfCallbacks` table whose FFI trampolines
         route title/url/load events into the tab model and answer JS calls.
-  - [ ] Content boot (first light): boot content from Rust via `ShellMainDelegate`
-        + `ContentMain` so a window shows the UI URL (reuses `content_shell_lib`).
+  - [x] Content boot (first light): `otf_browser` boots content from Rust via
+        `ShellMainDelegate` + `ContentMain` (reusing `content_shell_lib`) and
+        renders a real browser window. Verified end to end via CDP screenshot.
+        Toolchain aligned to Chromium's rustc so the bundled std doesn't clash.
   - [ ] Our own UI WebContents renders the React app; child-view-in-hole layering.
   - [ ] Bridge bindings injected into the UI renderer (live JS↔Rust round-trip).
+
+Run it: `out/otf/otf_browser <url>` (omit url → content_shell default). Build:
+`bun run build:engine`. Component build, so run from `out/otf` (needs the .so set).
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table,
       navigation/title/url/load events — at parity with the bridge map.
 - [ ] **Phase 4:** privacy APIs (DoH, HTTPS-only, partitioning, request filter).
