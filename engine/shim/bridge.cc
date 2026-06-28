@@ -19,7 +19,9 @@
 
 namespace {
 OtfCallbacks g_callbacks = {};
-std::atomic<uint64_t> g_next_tab{1};
+// Only the standalone stub hands out synthetic tab handles; the content path
+// gets real WebContents handles, so this is unused there (content builds -Werror).
+[[maybe_unused]] std::atomic<uint64_t> g_next_tab{1};
 }  // namespace
 
 #ifndef OTF_WITH_CONTENT
