@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 // Must match cef_log_severity_t: DEFAULT=0, VERBOSE=1, INFO=2, WARNING=3, ERROR=4
 const LEVEL_VERBOSE = 1;
@@ -600,7 +600,7 @@ export default function ConsolePanel() {
   const tabIdRef = useRef(-1);
 
   const loadLogsForTab = useCallback((tid) => {
-    if (!window.cefQuery || tid < 0) return;
+    if (!isBridgeAvailable() || tid < 0) return;
     nativeRequest({
       method: 'console.logs',
       params: { tabId: tid },
@@ -614,18 +614,10 @@ export default function ConsolePanel() {
   }, []);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
 
-    window.cefQuery({
-      request: JSON.stringify({
-        id: `console-subscribe-${Date.now()}`,
-        method: 'console.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (eventStr) => {
+    subscribe('console.subscribe', {}, (event) => {
         try {
-          const event = JSON.parse(eventStr);
           if (event.key === 'console-tab-changed') {
             // Fix race: update ref synchronously before async fetch
             tabIdRef.current = event.tabId;
@@ -642,7 +634,6 @@ export default function ConsolePanel() {
             }
           }
         } catch {}
-      },
     });
 
     nativeRequest({ method: 'tabs.active' })

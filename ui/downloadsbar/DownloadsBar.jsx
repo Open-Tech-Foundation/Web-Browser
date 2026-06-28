@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   wrapper: {
@@ -195,7 +195,7 @@ const DownloadsBar = () => {
   const [closeHovered, setCloseHovered] = useState(false);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
 
     const sync = (payload) => {
       setDownloads(Array.isArray(payload) ? payload : []);
@@ -205,22 +205,13 @@ const DownloadsBar = () => {
       .then(sync)
       .catch(() => {});
 
-    const sub = window.cefQuery({
-      request: JSON.stringify({
-        id: `downloadsbar-subscribe-${Date.now()}`,
-        method: 'downloads.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (json) => {
-        try {
-          const parsed = JSON.parse(json);
-          const ev = parsed && parsed.ok === true ? parsed.result : parsed;
-          if (ev.key === 'downloads-update') {
-            sync(ev.downloads);
-          }
-        } catch (_) {}
-      },
+    const unsub = subscribe('downloads.subscribe', {}, (parsed) => {
+      try {
+        const ev = parsed && parsed.ok === true ? parsed.result : parsed;
+        if (ev.key === 'downloads-update') {
+          sync(ev.downloads);
+        }
+      } catch (_) {}
     });
 
     const onKeyDown = (event) => {
@@ -238,7 +229,7 @@ const DownloadsBar = () => {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('blur', onBlur);
-      if (sub && typeof sub.cancel === 'function') sub.cancel();
+      unsub?.();
     };
   }, []);
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   wrapper: {
@@ -158,21 +158,12 @@ const BookmarkBar = () => {
 
     fetchInfo();
 
-    const sub = window.cefQuery({
-      request: JSON.stringify({
-        id: `bookmark-subscription-${Date.now()}`,
-        method: 'bookmarks.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (json) => {
-        try {
-          const ev = JSON.parse(json);
-          if (ev.key === 'bookmark-refresh') {
-            fetchInfo();
-          }
-        } catch (_) {}
-      },
+    const unsub = subscribe('bookmarks.subscribe', {}, (ev) => {
+      try {
+        if (ev.key === 'bookmark-refresh') {
+          fetchInfo();
+        }
+      } catch (_) {}
     });
 
     const onKeyDown = (event) => {
@@ -191,7 +182,7 @@ const BookmarkBar = () => {
       mounted = false;
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('blur', onBlur);
-      if (sub && typeof sub.cancel === 'function') sub.cancel();
+      unsub?.();
     };
   }, []);
 

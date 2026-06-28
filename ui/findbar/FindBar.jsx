@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   bar: {
@@ -116,17 +116,9 @@ const FindBar = () => {
 
   // Subscribe to CEF events (persistent)
   useEffect(() => {
-    if (!window.cefQuery) return;
-    const sub = window.cefQuery({
-      request: JSON.stringify({
-        id: `findbar-subscription-${Date.now()}`,
-        method: 'findbar.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (json) => {
+    if (!isBridgeAvailable()) return;
+    const unsub = subscribe('findbar.subscribe', {}, (ev) => {
         try {
-          const ev = JSON.parse(json);
           if (ev.key === 'find-result') {
             if ((ev.seq ?? 0) !== findSeqRef.current) return;
             setCount(ev.count ?? 0);
@@ -160,11 +152,10 @@ const FindBar = () => {
             setIsFinal(true);
           }
         } catch (e) {}
-      },
     });
     return () => {
       cancelPendingFind();
-      if (sub && typeof sub.cancel === 'function') sub.cancel();
+      unsub?.();
     };
   }, [cancelPendingFind]);
 

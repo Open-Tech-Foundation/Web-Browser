@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   root: {
@@ -204,7 +204,7 @@ const SnipViewer = () => {
           setShowPreview(false);
           setSelection(null);
           setCroppedDataUrl(null);
-        } else if (window.cefQuery) {
+        } else if (isBridgeAvailable()) {
           nativeRequest({ method: 'ui.snipPreview.hide' }).catch(() => {});
         }
       }
@@ -352,7 +352,7 @@ const SnipViewer = () => {
   };
 
   const handleClose = () => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'ui.snipPreview.hide' }).catch(() => {});
     }
   };

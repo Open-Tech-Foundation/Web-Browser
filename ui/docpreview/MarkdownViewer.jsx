@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, nativeRequest } from '../src/shared/nativeRequest';
 
 marked.setOptions({
   breaks: true,
@@ -24,7 +24,7 @@ const MarkdownViewer = ({ content }) => {
   const rowRef = useRef(null);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     nativeRequest({ method: 'settings.get' })
       .then((settings) => applyTheme(settings.appearanceMode || 'auto'))
       .catch(() => {});

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, nativeRequest } from '../src/shared/nativeRequest';
 
 const ROW_HEIGHT = 44;
 const HEADER_HEIGHT = 48;
@@ -111,7 +111,7 @@ function CsvViewer({ content, fileName }) {
   }, [appearanceMode, applyTheme]);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     nativeRequest({ method: 'settings.get' })
       .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
       .catch(() => {});

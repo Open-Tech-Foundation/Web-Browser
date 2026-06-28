@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import TextViewer from './TextViewer';
 import CsvViewer from './CsvViewer';
 import MarkdownViewer from './MarkdownViewer';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 const formatBytes = (bytes) => {
   if (bytes < 0) return '';
@@ -59,7 +59,7 @@ const DocPreview = () => {
   const handleClose = () => {
     const sourceTabId = previewTabIdRef.current;
     resetPreviewState();
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'docPreview.close',
         params: sourceTabId >= 0 ? { tabId: sourceTabId } : {},
@@ -68,7 +68,7 @@ const DocPreview = () => {
   };
 
   const handleDownload = () => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'docPreview.download',
         params: { url },
@@ -79,7 +79,7 @@ const DocPreview = () => {
   };
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
 
     const applyLoadDoc = (ev) => {
       if (!ev || ev.key !== 'load-doc') return;
@@ -128,21 +128,12 @@ const DocPreview = () => {
 
     window.__otfApplyDocPreview = applyLoadDoc;
 
-    const sub = window.cefQuery({
-      request: JSON.stringify({
-        id: `doc-preview-subscription-${Date.now()}`,
-        method: 'docPreview.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (json) => {
-        try {
-          const ev = JSON.parse(json);
-          if (ev && ev.key === 'load-doc') {
-            applyLoadDoc(ev);
-          }
-        } catch (_) {}
-      },
+    const unsub = subscribe('docPreview.subscribe', {}, (ev) => {
+      try {
+        if (ev && ev.key === 'load-doc') {
+          applyLoadDoc(ev);
+        }
+      } catch (_) {}
     });
 
     let retryTimer = null;
@@ -158,7 +149,7 @@ const DocPreview = () => {
     };
     const refresh = () => {
       if (hasSnapshotRef.current) return;
-      if (!window.cefQuery) return;
+      if (!isBridgeAvailable()) return;
       nativeRequest({ method: 'docPreview.refresh' })
         .then((ev) => {
           if (ev && ev.key === 'load-doc') {
@@ -187,7 +178,7 @@ const DocPreview = () => {
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('keydown', onKeyDown);
       if (retryTimer) clearTimeout(retryTimer);
-      if (sub && sub.cancel) sub.cancel();
+      unsub?.();
       window.__otfApplyDocPreview = null;
     };
   }, []);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 const ImagePreview = () => {
   const [url, setUrl] = useState('');
@@ -68,7 +68,7 @@ const ImagePreview = () => {
   };
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
 
     // Apply a load-image event snapshot. C++ owns authoritative tab state
     // (url, current page, page count), so we treat every event as a full
@@ -133,16 +133,8 @@ const ImagePreview = () => {
     // rely on it for tab-switch updates — the C++ side calls this directly.
     window.__otfApplyImagePreview = applyLoadImage;
 
-    const sub = window.cefQuery({
-      request: JSON.stringify({
-        id: `image-preview-subscription-${Date.now()}`,
-        method: 'imagePreview.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (json) => {
+    const unsub = subscribe('imagePreview.subscribe', {}, (ev) => {
         try {
-          const ev = JSON.parse(json);
           if (ev && ev.key === 'load-image') {
             applyLoadImage(ev);
           } else if (ev && (ev.key === 'image-preview-download-progress' || ev.key === 'tiff-download-progress')) {
@@ -167,7 +159,6 @@ const ImagePreview = () => {
             }
           }
         } catch (_) {}
-      },
     });
 
     // The dedicated preview tab's BrowserView may be hidden by CEF when
@@ -186,7 +177,7 @@ const ImagePreview = () => {
     };
     const refresh = () => {
       if (hasSnapshotRef.current) return;
-      if (!window.cefQuery) return;
+      if (!isBridgeAvailable()) return;
       nativeRequest({
         method: 'imagePreview.refresh',
         params: withPreviewTabParams(),
@@ -206,7 +197,7 @@ const ImagePreview = () => {
     setTimeout(refresh, 0);
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && window.cefQuery) {
+      if (event.key === 'Escape' && isBridgeAvailable()) {
         event.preventDefault();
         nativeRequest({
           method: 'imagePreview.close',
@@ -234,7 +225,7 @@ const ImagePreview = () => {
       applyLoadImageRef.current = null;
       hasSnapshotRef.current = false;
       previewTabIdRef.current = -1;
-      if (sub && typeof sub.cancel === 'function') sub.cancel();
+      unsub?.();
     };
   }, []);
 
@@ -305,7 +296,7 @@ const ImagePreview = () => {
         });
     };
 
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'imagePreview.getSize',
         params: withPreviewTabParams({ url }),
@@ -341,7 +332,7 @@ const ImagePreview = () => {
         return;
       }
     }
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     let cancelled = false;
     let toastTimer = null;
     setIsDecoding(true);
@@ -408,7 +399,7 @@ const ImagePreview = () => {
     const isTiff = isTiffPreview;
     const isRemote = url.startsWith('http://') || url.startsWith('https://');
     if (!isTiff && !isRemote) { setThumbnails([]); return; }
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     let cancelled = false;
     const nonces = [];
     const results = new Array(pageCount).fill(null);
@@ -448,7 +439,7 @@ const ImagePreview = () => {
     setIsTiffPreview(false);
     decodeNonceRef.current = 0;
     previewTabIdRef.current = -1;
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'imagePreview.close',
         params: sourceTabId >= 0 ? { tabId: sourceTabId } : {},
@@ -543,7 +534,7 @@ const ImagePreview = () => {
   };
 
   const handleImageLoad = (e) => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     const width = e.target.naturalWidth || 0;
     const height = e.target.naturalHeight || 0;
     nativeRequest({
@@ -576,7 +567,7 @@ const ImagePreview = () => {
   };
 
   const setInfoVisible = (visible) => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     nativeRequest({
       method: 'imagePreview.setInfoVisible',
       params: withPreviewTabParams({ visible }),
@@ -590,7 +581,7 @@ const ImagePreview = () => {
   };
 
   const handleSave = () => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'imagePreview.download',
         params: withPreviewTabParams({ url }),

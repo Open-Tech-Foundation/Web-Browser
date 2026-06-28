@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { nativeRequest } from '../src/shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
 const S = {
   wrapper: {
@@ -52,27 +52,16 @@ const ZoomBar = () => {
   const [zoomPercent, setZoomPercent] = useState(100);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
-    const sub = window.cefQuery({
-      request: JSON.stringify({
-        id: `zoombar-subscription-${Date.now()}`,
-        method: 'ui.zoomBar.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (json) => {
-        try {
-          const ev = JSON.parse(json);
-          if (ev.key === 'zoom-restore') {
-            setTabId(ev.tabId ?? -1);
-            setZoomPercent(ev.zoomPercent ?? 100);
-          }
-        } catch (_) {}
-      },
+    if (!isBridgeAvailable()) return;
+    const unsub = subscribe('ui.zoomBar.subscribe', {}, (ev) => {
+      try {
+        if (ev.key === 'zoom-restore') {
+          setTabId(ev.tabId ?? -1);
+          setZoomPercent(ev.zoomPercent ?? 100);
+        }
+      } catch (_) {}
     });
-    return () => {
-      if (sub && typeof sub.cancel === 'function') sub.cancel();
-    };
+    return () => unsub?.();
   }, []);
 
   useEffect(() => {
