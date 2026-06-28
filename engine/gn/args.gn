@@ -1,0 +1,19 @@
+# gn args for the otf dev build (copied to out/otf/args.gn by bootstrap).
+#
+# Optimised for the dev loop, not release (plan.md §9):
+#   * component build  -> fast incremental links after the huge first build.
+#   * Rust enabled      -> our staticlib + Chromium's own Rust.
+#   * no remote exec    -> self-contained local build.
+
+is_debug = false
+symbol_level = 1
+is_component_build = true
+
+enable_rust = true
+
+use_remoteexec = false
+use_siso = true
+
+# Content layer only — we never pull in the //chrome layer.
+# (content_shell targets remain available as a reference binary.)
+blink_symbol_level = 0

@@ -1,0 +1,42 @@
+# gn target for the otf browser binary (plan.md §8).
+#
+# Placed into the Chromium checkout as //otf/BUILD.gn by scripts/bootstrap-chromium.sh
+# (which symlinks engine/ -> chromium/src/otf). Additive only: no upstream
+# Chromium files are edited, so rebasing stays cheap.
+#
+# Build flow (see scripts/build-engine.sh):
+#   1. cargo builds engine/backend -> libotf_backend.a (staticlib, bindgen on
+#      shim/bridge.h).
+#   2. this target compiles the shim + entry point, defines OTF_WITH_CONTENT,
+#      links libotf_backend.a, and pulls in the content layer.
+
+import("//build/config/ui.gni")
+
+# Path to the cargo-produced staticlib; overridable from args.gn.
+declare_args() {
+  otf_backend_lib_dir = rebase_path("//otf/backend/target/release", root_build_dir)
+}
+
+executable("otf_browser") {
+  sources = [
+    "shim/bridge.cc",
+    "shim/bridge.h",
+    "shim/otf_main.cc",
+  ]
+
+  defines = [ "OTF_WITH_CONTENT" ]
+
+  deps = [
+    "//content/public/app",
+    "//content/public/browser",
+    "//content/public/common",
+    "//ui/views",
+    "//url",
+  ]
+
+  # Link the Rust backend staticlib.
+  lib_dirs = [ otf_backend_lib_dir ]
+  libs = [ "otf_backend" ]
+
+  configs += [ "//build/config/compiler:rtti" ]
+}

@@ -1,0 +1,21 @@
+[package]
+name = "otf-backend"
+version = "0.1.0"
+edition = "2021"
+description = "Headless control/backend brain for the otf browser (drives Chromium content via the C++ shim)."
+
+[lib]
+# Linked into the browser binary by the gn target. cdylib is handy for the
+# standalone host harness; rlib for unit tests.
+crate-type = ["staticlib", "rlib"]
+
+[build-dependencies]
+bindgen = "0.70"
+
+[dependencies]
+
+[features]
+# When enabled, the crate assumes it is linked against the real content-layer
+# shim. Off by default so `cargo test` runs the pure backend logic with no
+# Chromium tree present (plan.md §9 standalone harness).
+with-content = []
