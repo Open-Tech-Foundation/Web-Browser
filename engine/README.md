@@ -7,9 +7,10 @@ this backend must reproduce.
 
 ```
 engine/
+  BUILD.gn     additive gn target -> //otf:otf_browser in the Chromium tree
   shim/        hand-written C++ shim + the C FFI header (bridge.h)
   backend/     Rust control brain (staticlib): tab model, bridge dispatch
-  gn/          additive gn target (BUILD.gn) + dev args.gn  -> //otf in chromium
+  gn/          dev args.gn (copied into out/otf by bootstrap)
   scripts/     bootstrap (fetch latest Chromium) + build
 ```
 
