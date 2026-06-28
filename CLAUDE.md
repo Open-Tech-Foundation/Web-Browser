@@ -2,84 +2,88 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Migration in progress.** This browser is being moved off CEF onto a Rust
+> backend driving Chromium's **content** layer via a thin C++ shim. The CEF C++
+> host has been removed. Source of truth: `plan.md` (architecture) and
+> `MIGRATION-bridge-map.md` (the UI↔backend bridge contract). The new backend
+> lives in `engine/` — see `engine/README.md` for its status and dev loop.
+
 ## Commands
 
 ```bash
-bun run setup          # Install/prepare all dependencies (run once after clone)
-bun run dev            # Start Vite dev server + launch browser with HMR
+bun run setup          # Fetch + configure the Chromium checkout (engine/scripts/bootstrap-chromium.sh)
+bun run dev            # Start Vite dev server + launch the engine browser with HMR
 bun run build:ui       # Build React/Vite assets into build/Release/ui
-bun run build:cpp      # CMake + Ninja build of the C++ engine
-bun run build          # build:ui then build:cpp
+bun run build:engine   # cargo staticlib -> gn/ninja link of the otf_browser binary
+bun run build          # build:ui then build:engine
 
-bun run test:cpp       # Build and run all C++ unit tests via ctest
+bun run test:engine    # Standalone Rust backend tests (no Chromium needed)
 bun run test:js        # Run JS unit tests (search.test.js)
 bun run test:e2e       # Run all e2e test suites
-bun run test           # test:cpp + test:js
+bun run test           # test:engine + test:js
 
 # Run a single e2e test file:
 scripts/run-e2e.sh tests/e2e/findbar.test.js
 
 # Run a named e2e group (ui / state / media / permissions / security):
 bun scripts/run-e2e-suite.js --group ui
-
-# Run a specific test by name:
-bun scripts/run-e2e-suite.js --test findbar
 ```
 
-**After any C++ change**, run `bun run build:cpp` to verify compilation before anything else.
+**Fast inner loop:** `cd engine/backend && cargo test` exercises the backend
+logic without a Chromium tree. The full browser needs the Chromium checkout
+(`bun run setup`, one-time multi-hour build).
 
 ## Architecture
 
-This is a desktop browser built on **CEF (Chromium Embedded Framework)**. There are two distinct processes and two distinct rendering contexts:
+One Rust process is the control brain; Chromium's content layer owns the event
+loop. The UI is a React app rendered by Chromium as its own WebContents.
 
-### C++ process (`src/`)
-- `otf_handler.cc` — the single large handler (~6500 lines). Implements all CEF callbacks: tab lifecycle, navigation, downloads, find, context menus, keyboard shortcuts, resource requests. Also contains the `OtfMessageRouterHandler` inner class that handles all `cefQuery` RPC calls from the UI.
-- `otf_app.cc` — `CefApp` subclass; process startup, scheme registration, render-process message routing.
-- `otf_browser_shell.h` / `otf_app.h` — `TabManager` (maps tab IDs ↔ CEF browsers) and `OtfApp` interface.
-- `otf_store.cc` — SQLite-backed persistence (settings, history, bookmarks, workspace sessions, downloads).
-- `otf_page_policy.cc` — Content security policy injection into frames.
-- `otf_devtools_bridge.cc` — Routes async CDP responses back to per-call cefQuery callbacks.
-- `otf_popup_overlay.cc` — Manages floating overlay browsers (blocked-popup prompt, QR, clear-site-data, etc.).
+### Engine (`engine/`)
+- `shim/bridge.h` — the single, stable C FFI boundary (lifecycle, UI surface,
+  tabs, async JS↔Rust bridge, content callbacks). `bindgen` turns it into Rust.
+- `shim/bridge.cc` — thin C++ shim over content (standalone stub + `OTF_WITH_CONTENT`).
+- `backend/` — Rust staticlib: tab model, navigation, bridge dispatch, privacy
+  orchestration. Authoritative for all browser/tab state.
+- `gn/` — additive `//otf` gn target + dev args; symlinked into the Chromium tree.
 
-### React UI (`ui/src/`)
-The UI runs in the **app-shell browser** (`ui_browser_`), a CEF browser whose view ID is `kUiBrowserViewId`. It is a completely separate browser from the content tabs.
+### React UI (`ui/`)
+The UI renders in a content WebContents, separate from the page tabs.
+- `ui/src/App.jsx` — Root: owns tab/workspace state via `useReducer`, subscribes
+  to backend push events.
+- `ui/src/shared/bridge.js` — **the only seam to the backend.** `call(method,
+  params)` for RPC and `subscribe(method, params, onEvent)` for event streams,
+  over a swappable transport (`setTransport`). No UI code talks to the backend
+  any other way.
+- `ui/src/components/` — `AddressBar`, `TabStrip`, `WorkspaceSwitcher`, etc.
+- Overlay apps (`ui/findbar/`, `ui/console/`, `ui/zoombar/`, `ui/src/appmenu/`,
+  `ui/src/settings/`, …) each render in their own overlay WebContents with their
+  own `*.subscribe` stream.
 
-- `App.jsx` — Root: owns tab/workspace state via `useReducer`, runs the persistent `subscribe-events` cefQuery subscription that receives all push events from C++.
-- `components/` — `AddressBar`, `TabStrip`, `WorkspaceSwitcher`, `SecurityIconButton`.
-- `findbar/FindBar.jsx` — Runs in its own CEF browser (`findbar_browser_`), has its own `findbar-subscribe` persistent subscription.
-- Feature popups (`appmenu/`, `settings/`, `bookmarks/`, etc.) each run in their own overlay browser and have their own `subscribe`/`restore` cefQuery subscriptions.
-
-### IPC model
-**JS → C++**: `window.cefQuery({ request: '<verb>:<payload>' })` — synchronous RPC with `onSuccess`/`onFailure` callbacks. No built-in cancellation or sequencing.
-
-**C++ → JS**: `SendEvent(json)` calls `callback->Success(json)` on a stored persistent subscription callback. Events carry a `key` field. Each overlay browser has its own subscription.
-
-**Key subscriptions:**
-| Subscription | Who uses it |
-|---|---|
-| `subscribe-events` | `App.jsx` — tab/workspace state, shortcuts |
-| `findbar-subscribe` | `FindBar.jsx` — find results |
-| `zoombar-subscribe` | Zoom indicator |
-| `downloads-subscribe` | Downloads overlay |
-| `certificate-subscribe` | Certificate overlay |
-| `bookmark-subscribe` | Bookmark popup |
-| `image-preview-subscribe` | Image preview tab |
+### IPC model (async — see MIGRATION-bridge-map.md)
+- **JS → backend:** `bridge.call(method, params)` → Promise. Wire envelope
+  `{ id, method, params }` ↔ `{ id, ok, result | error }`.
+- **backend → JS:** event push over a persistent `subscribe`, each event an
+  object keyed by `key`. Reserved shortcuts arrive as `{ key: 'shortcut', value }`.
+- ~130 RPC methods across namespaces (`tabs.*`, `navigation.*`, `ui.*`, …) and
+  ~35 event keys; the full surface is in `MIGRATION-bridge-map.md`.
 
 ### Content security architecture
-- `browser://` scheme is the internal page scheme (newtab, settings, history, bookmarks, etc.).
-- `tab-context-menu:<tabId>` is a synthetic link URL used by `TabStrip` to trigger native right-click menus without a separate IPC call.
-- `OtfPagePolicy` injects CSP headers/meta into page frames.
-- The `ui_browser_` and content tab browsers are entirely separate CEF browser instances; they do not share a frame tree.
+- `browser://` is the internal page scheme (newtab, settings, history, …).
+- Only internal UI frames may call the bridge; web content is denied (a small
+  content-permission whitelist excepted). Reproduced in the shim's input router.
 
 ### Test layout
-- `tests/native/` — C++ unit tests (tab manager, URL policy, JSON bridge, store). Built and run via `bun run test:cpp`.
-- `tests/e2e/` — Playwright-style JS tests driving the real browser binary via CDP. Manifest at `tests/e2e/e2e.manifest.json` groups tests into `ui`, `state`, `media`, `permissions`, `security`. E2e tests must use synthetic mouse/keyboard events — never JS `.click()` or direct cefQuery shortcuts.
+- `engine/backend` — Rust unit tests (`cargo test`).
+- `tests/e2e/` — JS tests driving the real browser binary via CDP. Use synthetic
+  mouse/keyboard events — never JS `.click()` or direct bridge shortcuts.
 - `ui/src/shared/search.test.js` — URL resolution unit tests.
 
 ## Conventions
 
-- C++20; `PascalCase` for classes/methods, `snake_case` for locals, `kName` for constants.
+- Rust backend; C++ shim is thin C++20. Keep the shim FFI surface broad/stable so
+  Rust-only changes skip the C++ recompile.
+- C++: `PascalCase` classes/methods, `snake_case` locals, `kName` constants.
 - React components in `PascalCase` filenames; shared JS helpers under `ui/src/shared/`.
-- C++ is authoritative for all browser/tab state; React only mirrors it.
+- The Rust backend is authoritative for all browser/tab state; React only mirrors it.
 - Commit style: `feat:`, `fix:`, `refactor:`, `test:`, `chore:` — short subject, no Co-Authored-By lines.
 - Never commit without explicit user approval; never push.

@@ -128,7 +128,7 @@ const ImagePreview = () => {
     };
     applyLoadImageRef.current = applyLoadImage;
 
-    // Expose for direct push from C++ (SwitchTab). CEF may cancel the
+    // Expose for direct push from C++ (SwitchTab). The engine may cancel the
     // persistent subscription when the BrowserView is hidden, so we can't
     // rely on it for tab-switch updates — the C++ side calls this directly.
     window.__otfApplyImagePreview = applyLoadImage;
@@ -161,7 +161,7 @@ const ImagePreview = () => {
         } catch (_) {}
     });
 
-    // The dedicated preview tab's BrowserView may be hidden by CEF when
+    // The dedicated preview tab's native view may be hidden by the engine when
     // the user switches tabs; on switch-back, the persistent subscription
     // may have been cancelled or the renderer may have been reloaded. Pull
     // a fresh snapshot whenever we become visible so the page is never

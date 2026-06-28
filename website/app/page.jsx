@@ -466,7 +466,7 @@ export default function HomePage() {
               {
                 name: "HTTPS-Only Mode",
                 plain: "Every navigation is upgraded to HTTPS automatically. If a site does not support HTTPS, you are warned before loading.",
-                tech: "Upgrades all navigations to HTTPS via CEF request handler. HTTP navigations are blocked and redirected to browser://insecure-blocked with the original URL shown. Blocked page warns about password, message, and credit card exposure risks.",
+                tech: "Upgrades all navigations to HTTPS via the engine's request handler. HTTP navigations are blocked and redirected to browser://insecure-blocked with the original URL shown. Blocked page warns about password, message, and credit card exposure risks.",
               },
               {
                 name: "Pop-Up & Download Manager",
@@ -476,7 +476,7 @@ export default function HomePage() {
               {
                 name: "Service Workers Disabled",
                 plain: "Prevents background scripts that can persist across sessions, cache sensitive data, and enable push-based tracking.",
-                tech: "Service Worker API disabled at the CEF engine level via --disable-features=ServiceWorker and reinforced by page policy removal of navigator.serviceWorker. Constructor interface objects on Window.prototype remain present but are inert.",
+                tech: "Service Worker API disabled at the engine level via --disable-features=ServiceWorker and reinforced by page policy removal of navigator.serviceWorker. Constructor interface objects on Window.prototype remain present but are inert.",
               },
             ].map((feature) => (
               <div
@@ -524,7 +524,7 @@ export default function HomePage() {
               {
                 name: "Private Tabs & Guest Sessions",
                 plain: "Browse without leaving any trace. Private tabs use ephemeral storage. Guest sessions fully isolate bookmarks, history, and permissions.",
-                tech: "Private tabs use a separate CEF request context with in-memory-only storage. Guest sessions lock bookmarks, browsing history, downloads, workspace switching, and site permissions. Closing the last guest tab ends the session automatically.",
+                tech: "Private tabs use a separate request context with in-memory-only storage. Guest sessions lock bookmarks, browsing history, downloads, workspace switching, and site permissions. Closing the last guest tab ends the session automatically.",
                 tag: "user",
               },
               {

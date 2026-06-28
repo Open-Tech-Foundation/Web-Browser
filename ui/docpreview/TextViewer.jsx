@@ -97,7 +97,7 @@ export default function TextViewer({ content, mimeType, fileName }) {
         theme="vs-dark"
         loading={<LoadingFallback />}
         beforeMount={(monaco) => {
-          // Suppress worker errors in CEF's custom scheme environment
+          // Suppress worker errors in the engine's custom scheme environment
           try {
             const origGetWorker = monaco?.editor?.getWorker;
             if (origGetWorker) {

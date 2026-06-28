@@ -215,7 +215,7 @@ const DocPreview = () => {
 
     if (isPdf) {
       // Render the PDF in a SAME-ORIGIN iframe (contentUrl is
-      // browser://doc-preview/content/…, same origin as this page) so CEF's
+      // browser://doc-preview/content/…, same origin as this page) so the engine's
       // built-in PDF viewer takes over *inside* the preview app. Navigating the
       // whole overlay to the content URL instead would replace this React app —
       // dropping the title bar/close button and the load-doc subscription, and

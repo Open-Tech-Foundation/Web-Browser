@@ -27,7 +27,7 @@ pub enum Reply {
 }
 
 /// Route a method to its namespace handler. Returns None if unknown so the
-/// caller can answer with `unknown_method`, matching the CEF dispatcher.
+/// caller can answer with `unknown_method`, matching the previous dispatcher.
 pub fn dispatch(call: &Call) -> Option<Reply> {
     let namespace = call.method.split('.').next().unwrap_or("");
     match namespace {

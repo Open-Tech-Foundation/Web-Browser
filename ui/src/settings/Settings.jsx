@@ -149,7 +149,7 @@ const Settings = () => {
   const toggleClearItem = (key) => setClearItems((p) => ({ ...p, [key]: !p[key] }));
 
   const [appearanceMode, setAppearanceMode] = useState('auto');
-  const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '', cef: '' });
+  const [versionInfo, setVersionInfo] = useState({ browser: '', chromium: '' });
 
   const clearDataSize = React.useMemo(() => {
     let total = 0;
@@ -1298,13 +1298,9 @@ const Settings = () => {
                         <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Browser Version</div>
                         <div className="text-main font-mono text-sm">{versionInfo.browser || '—'}</div>
                       </div>
-                      <div className="py-4 border-b border-main">
+                      <div className="py-4">
                         <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">Chromium Version</div>
                         <div className="text-main font-mono text-sm">{versionInfo.chromium || '—'}</div>
-                      </div>
-                      <div className="py-4">
-                        <div className="text-muted text-[10px] font-bold uppercase tracking-[0.1em] mb-1.5">CEF Version</div>
-                        <div className="text-main font-mono text-sm break-all leading-relaxed">{versionInfo.cef || '—'}</div>
                       </div>
                     </div>
                   </section>

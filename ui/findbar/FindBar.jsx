@@ -114,7 +114,7 @@ const FindBar = () => {
     }
   }, []);
 
-  // Subscribe to CEF events (persistent)
+  // Subscribe to backend events (persistent)
   useEffect(() => {
     if (!isBridgeAvailable()) return;
     const unsub = subscribe('findbar.subscribe', {}, (ev) => {

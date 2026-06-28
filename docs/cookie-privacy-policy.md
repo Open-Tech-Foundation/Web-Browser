@@ -1,6 +1,6 @@
 # Cookie Privacy Policy
 
-OTF Browser applies a strict cookie privacy policy at the CEF network layer.
+OTF Browser applies a strict cookie privacy policy at the Chromium network layer.
 The policy is intentionally simple and user-visible:
 
 - Third-party cookies are blocked outright.
@@ -20,10 +20,8 @@ Blocking is enforced in multiple layers:
 
 - Chromium's `profile.block_third_party_cookies` preference is enabled for
   every request context.
-- `CefCookieAccessFilter::CanSendCookie` returns `false` for third-party
-  cookies when CEF exposes the cookie callback.
-- `CefCookieAccessFilter::CanSaveCookie` returns `false` for third-party
-  response cookies when CEF exposes the cookie callback.
+- The network layer's cookie-access callbacks deny sending third-party cookies.
+- The same callbacks deny saving third-party response cookies.
 - Resource-request fallback logic strips outgoing third-party `Cookie` headers
   and deletes third-party `Set-Cookie` results observed on response headers.
 
@@ -61,4 +59,4 @@ Clearing cookies for an origin also clears its recorded cookie-policy actions.
 
 Cookie policy actions are recorded in the existing `browser.db` SQLite database
 in `cookie_policy_events`. The records are audit metadata only; cookie
-enforcement is performed by CEF request/cookie callbacks.
+enforcement is performed by the network-layer request/cookie callbacks.

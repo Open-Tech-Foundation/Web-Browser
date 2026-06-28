@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { isBridgeAvailable, subscribe, nativeRequest } from '../src/shared/nativeRequest';
 
-// Must match cef_log_severity_t: DEFAULT=0, VERBOSE=1, INFO=2, WARNING=3, ERROR=4
+// Must match Chromium log severity: DEFAULT=0, VERBOSE=1, INFO=2, WARNING=3, ERROR=4
 const LEVEL_VERBOSE = 1;
 const LEVEL_INFO = 2;
 const LEVEL_WARNING = 3;
