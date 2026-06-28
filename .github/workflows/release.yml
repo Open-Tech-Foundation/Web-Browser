@@ -98,7 +98,7 @@ jobs:
       # download (and the CDN dependency at release time). The cache key
       # bumps automatically whenever CEF_VERSION changes.
       - name: Cache CEF SDK
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: third_party/cef
           key: cef-linux64-${{ hashFiles('CEF_VERSION', 'CEF_SHA256') }}
@@ -341,7 +341,7 @@ jobs:
           echo "C:\vips\vips-dev-8.17\bin" >> $env:GITHUB_PATH
 
       - name: Cache CEF SDK
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: third_party/cef
           key: cef-win64-${{ hashFiles('CEF_VERSION', 'CEF_SHA256_WIN64') }}
