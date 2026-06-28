@@ -43,8 +43,18 @@ engine/scripts/build-engine.sh         # cargo staticlib -> ninja link
 
 - [x] **Phase 1 skeleton:** shim header + stub, Rust staticlib, bindgen wiring,
       gn target, bootstrap/build scripts. `cargo test` green.
-- [ ] **Phase 2:** boot content from Rust, UI WebContents renders the React app,
-      async JS↔Rust bridge live, child-view-in-hole layering.
+- [~] **Phase 2 (in progress):**
+  - [x] Build actually links: bindgen points at Chromium's libclang + clang
+        resource headers; `//otf:otf_browser` wired into the root `gn_all` so gn
+        loads it. First full build (stub shim) validates the toolchain.
+  - [x] Rust bridge transport live: `bridge.rs` parses the `{id,method,params}`
+        envelope → `ok`/`error`/`unknown_method` responses + event envelopes;
+        `backend.rs` builds the real `OtfCallbacks` table whose FFI trampolines
+        route title/url/load events into the tab model and answer JS calls.
+  - [ ] Content boot (first light): boot content from Rust via `ShellMainDelegate`
+        + `ContentMain` so a window shows the UI URL (reuses `content_shell_lib`).
+  - [ ] Our own UI WebContents renders the React app; child-view-in-hole layering.
+  - [ ] Bridge bindings injected into the UI renderer (live JS↔Rust round-trip).
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table,
       navigation/title/url/load events — at parity with the bridge map.
 - [ ] **Phase 4:** privacy APIs (DoH, HTTPS-only, partitioning, request filter).
