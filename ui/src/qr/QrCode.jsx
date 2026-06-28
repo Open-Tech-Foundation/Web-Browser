@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import Popup, { usePopupRestore } from '../components/Popup';
-import { getNativeSettings } from '../shared/nativeRequest';
+import { isBridgeAvailable, getNativeSettings } from '../shared/nativeRequest';
 
 const stripUtmParams = (rawUrl) => {
   try {
@@ -46,7 +46,7 @@ const QrCodeViewer = () => {
   }, [appearanceMode]);
 
   useEffect(() => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     getNativeSettings()
       .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
       .catch(() => {});

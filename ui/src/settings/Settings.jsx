@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as Icons from './Icons';
 import { resolveUrl, looksLikeDirectUrl } from '../shared/search';
-import { nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, nativeRequest } from '../shared/nativeRequest';
 
 const humanizeSize = (bytes) => {
   if (!bytes || bytes === 0) return '0 B';
@@ -233,7 +233,7 @@ const Settings = () => {
   }, [tabId]);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'tabs.currentContext' })
         .then((context) => setTabId(context.tabId))
         .catch(() => {});
@@ -241,7 +241,7 @@ const Settings = () => {
   }, []);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'settings.versionInfo' })
         .then((info) => setVersionInfo(info))
         .catch(() => {});
@@ -249,7 +249,7 @@ const Settings = () => {
   }, []);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'settings.get' })
         .then((settings) => {
           setSelectedEngine(settings.searchEngine || '');
@@ -322,7 +322,7 @@ const Settings = () => {
   const allEngines = [...engines, ...customEngines.map(e => ({ id: e.id, name: e.name, custom: true }))];
 
   const saveSettings = (updates) => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'settings.set',
         params: {
@@ -366,7 +366,7 @@ const Settings = () => {
   };
 
   const handleReset = () => {
-    if (!window.cefQuery || resetBusy) {
+    if (!isBridgeAvailable() || resetBusy) {
       return;
     }
 
@@ -395,7 +395,7 @@ const Settings = () => {
   };
 
   const handleRestart = () => {
-    if (!window.cefQuery || restartBusy) {
+    if (!isBridgeAvailable() || restartBusy) {
       return;
     }
 
@@ -408,7 +408,7 @@ const Settings = () => {
   };
 
   const openInternalPage = (url) => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
       return;
     }
@@ -1041,7 +1041,7 @@ const Settings = () => {
                         </p>
                         <button
                           onClick={() => {
-                            if (window.cefQuery) {
+                            if (isBridgeAvailable()) {
                               nativeRequest({ method: 'settings.restart' }).catch(() => {});
                             }
                           }}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import SearchHero from './SearchHero';
 import QuickLinks from './QuickLinks';
-import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const PrivateBadge = () => (
   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 dark:bg-violet-500/20 border border-violet-300 dark:border-violet-500/40 shadow-sm animate-in fade-in duration-500">
@@ -49,7 +49,7 @@ const NewTab = () => {
   }, [appearanceMode]);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       getNativeSettings()
         .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
         .catch(() => {});
@@ -62,7 +62,7 @@ const NewTab = () => {
   }, []);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'tabs.currentContext' })
         .then((context) => {
           setTabId(context.tabId);

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, subscribe, nativeRequest } from '../shared/nativeRequest';
 
 // Shared frame for any overlay backed by otf::PopupOverlay on the C++
 // side. Wires up the contract that every popup needs:
@@ -70,25 +70,15 @@ const Popup = ({ name, title, children, className = '', closeOnBlur = false, onC
 // busy spinners, success badges — so a reopened popup starts fresh.
 export const usePopupRestore = (name, onRestore) => {
   useEffect(() => {
-    if (!window.cefQuery) return;
-    window.cefQuery({
-      request: JSON.stringify({
-        id: `popup-restore-${name}`,
-        method: 'ui.popup.restoreSubscribe',
-        params: { name },
-      }),
-      persistent: true,
-      onSuccess: (response) => {
-        try {
-          const msg = JSON.parse(response);
-          if (msg && msg.key === 'popup-restore' && msg.name === name) {
-            let payload = {};
-            try { payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : (msg.payload || {}); } catch (_) {}
-            onRestore(payload);
-          }
-        } catch (_) {}
-      },
-      onFailure: () => {},
+    if (!isBridgeAvailable()) return;
+    subscribe('ui.popup.restoreSubscribe', { name }, (msg) => {
+      try {
+        if (msg && msg.key === 'popup-restore' && msg.name === name) {
+          let payload = {};
+          try { payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : (msg.payload || {}); } catch (_) {}
+          onRestore(payload);
+        }
+      } catch (_) {}
     });
     // No cleanup — the subscription lives for the popup's lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps

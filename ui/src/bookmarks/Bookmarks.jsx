@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 export default function Bookmarks() {
   const [items, setItems] = useState([]);
@@ -36,7 +36,7 @@ export default function Bookmarks() {
   }, [appearanceMode]);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       getNativeSettings()
         .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
         .catch(() => {});

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, nativeRequest } from '../shared/nativeRequest';
 
 const GlobeIcon = ({ isPrivate }) => (
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${isPrivate ? 'text-violet-300' : 'text-muted'}`}>
@@ -9,7 +9,7 @@ const GlobeIcon = ({ isPrivate }) => (
 
 const QuickLink = ({ name, url, faviconUrl, onRemove, isPrivate }) => {
   const handleClick = () => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'navigation.current', params: { url } }).catch(() => {});
     }
   };
@@ -51,7 +51,7 @@ const QuickLinks = ({ isPrivate }) => {
   const [linkToRemove, setLinkToRemove] = useState(null);
 
   const fetchLinks = () => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'bookmarks.list' })
         .then((bookmarks) => setLinks(Array.isArray(bookmarks) ? bookmarks : []))
         .catch(() => setLinks([]));
@@ -69,7 +69,7 @@ const QuickLinks = ({ isPrivate }) => {
     let url = newUrl.trim();
     if (!url.startsWith('http')) url = 'https://' + url;
     
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'bookmarks.add',
         params: { url, title: newName },
@@ -89,7 +89,7 @@ const QuickLinks = ({ isPrivate }) => {
   };
 
   const confirmRemove = () => {
-    if (window.cefQuery && linkToRemove) {
+    if (isBridgeAvailable() && linkToRemove) {
       nativeRequest({ method: 'bookmarks.remove', params: { id: linkToRemove } })
         .then(() => {
           fetchLinks();

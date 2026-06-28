@@ -3,7 +3,7 @@ import AddressBar from './components/AddressBar';
 import TabStrip from './components/TabStrip';
 import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import { resolveUrl } from './shared/search';
-import { getNativeSettings, nativeRequest } from './shared/nativeRequest';
+import { isBridgeAvailable, subscribe, getNativeSettings, nativeRequest } from './shared/nativeRequest';
 import './styles/App.css';
 
 const BROWSER_SCHEME = {
@@ -138,7 +138,7 @@ const App = () => {
   }, [appearanceMode]);
 
   const refreshWorkspaces = () => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     nativeRequest({ method: 'workspaces.list' })
       .then((list) => {
         dispatch({ type: 'SET_WORKSPACES', payload: Array.isArray(list) ? list : [] });
@@ -152,7 +152,7 @@ const App = () => {
   // React tabs list needs a full refetch because the previous tabs belong
   // to a different workspace and were filtered out by tabs.list.
   const refreshWorkspaceTabs = () => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     nativeRequest({ method: 'tabs.list' })
       .then((items) => {
         const tabs = Array.isArray(items) ? items.map(normalizeTab) : [];
@@ -167,7 +167,7 @@ const App = () => {
   };
 
   const fetchTabMemory = (tabId) => {
-    if (!window.cefQuery || tabId == null) return;
+    if (!isBridgeAvailable() || tabId == null) return;
     nativeRequest({ method: 'tabs.memory', params: { tabId } })
       .then((bytes) => {
         if (bytes > 0) {
@@ -178,7 +178,7 @@ const App = () => {
   };
 
   const refreshSplitState = () => {
-    if (!window.cefQuery) return;
+    if (!isBridgeAvailable()) return;
     nativeRequest({ method: 'tabs.splitState' })
       .then((split) => {
         dispatch({
@@ -198,7 +198,7 @@ const App = () => {
     if (initialized.current) return;
     initialized.current = true;
 
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       refreshWorkspaces();
       refreshSplitState();
       nativeRequest({ method: 'session.isGuest' })
@@ -214,16 +214,8 @@ const App = () => {
         .catch(() => {});
 
       // Subscribe to real-time events from the browser engine
-      window.cefQuery({
-        request: JSON.stringify({
-          id: `ui-events-subscription-${Date.now()}`,
-          method: 'ui.events.subscribe',
-          params: {},
-        }),
-        persistent: true,
-        onSuccess: (eventStr) => {
+      subscribe('ui.events.subscribe', {}, (event) => {
           try {
-            const event = JSON.parse(eventStr);
             if (event.key === 'new-tab') {
               const tabData = normalizeTab(event.tab || {});
               dispatch({
@@ -311,8 +303,7 @@ const App = () => {
             console.error("Failed to parse browser event:", e);
           }
         },
-        onFailure: (code, msg) => console.error("Event subscription failed:", msg)
-      });
+        (err) => console.error("Event subscription failed:", err?.message || err));
 
       // Sync initial state with the C++ backend
       nativeRequest({ method: 'tabs.list' })
@@ -341,7 +332,7 @@ const App = () => {
   const handleNavigate = (input) => {
     if (state.activeTabId !== null) {
       // Save raw user input as search history for address bar suggestions.
-      if (input && window.cefQuery && !guestSession) {
+      if (input && isBridgeAvailable() && !guestSession) {
         nativeRequest({
           method: 'search.history.add',
           params: { query: input },

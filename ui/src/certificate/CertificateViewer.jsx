@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, subscribe, getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const CertificateViewer = () => {
   const [certData, setCertData] = useState(null);
@@ -8,13 +8,13 @@ const CertificateViewer = () => {
   const [tabId, setTabId] = useState(-1);
 
   const handleClose = () => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({ method: 'ui.certificate.hide' }).catch(() => {});
     }
   };
 
   const loadCertificate = useCallback((nextTabId) => {
-    if (!window.cefQuery || nextTabId < 0) {
+    if (!isBridgeAvailable() || nextTabId < 0) {
       setLoading(false);
       setError('No certificate available for current tab');
       setCertData(null);
@@ -81,33 +81,24 @@ const CertificateViewer = () => {
     window.addEventListener('blur', onBlur);
     window.addEventListener('keydown', onKeyDown);
 
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       // Get initial settings for theme
       getNativeSettings()
         .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
         .catch(() => {});
 
-      window.cefQuery({
-        request: JSON.stringify({
-          id: `certificate-subscription-${Date.now()}`,
-          method: 'ui.certificate.subscribe',
-          params: {},
-        }),
-        persistent: true,
-        onSuccess: (response) => {
-          try {
-            const event = JSON.parse(response);
-            if (event.key === 'certificate-restore') {
-              const nextTabId = Number.parseInt(event.tabId ?? '', 10);
-              setTabId(Number.isInteger(nextTabId) ? nextTabId : -1);
-              loadCertificate(Number.isInteger(nextTabId) ? nextTabId : -1);
-            } else if (event.key === 'settings-changed') {
-              setAppearanceMode(event.settings?.appearanceMode || 'auto');
-            }
-          } catch (e) {
-            setError('Failed to parse certificate data');
-            setLoading(false);
+      subscribe('ui.certificate.subscribe', {}, (event) => {
+        try {
+          if (event.key === 'certificate-restore') {
+            const nextTabId = Number.parseInt(event.tabId ?? '', 10);
+            setTabId(Number.isInteger(nextTabId) ? nextTabId : -1);
+            loadCertificate(Number.isInteger(nextTabId) ? nextTabId : -1);
+          } else if (event.key === 'settings-changed') {
+            setAppearanceMode(event.settings?.appearanceMode || 'auto');
           }
+        } catch (e) {
+          setError('Failed to parse certificate data');
+          setLoading(false);
         }
       });
     }

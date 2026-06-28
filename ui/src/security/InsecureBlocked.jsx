@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useState } from 'react';
-import { getNativeSettings } from '../shared/nativeRequest';
+import { isBridgeAvailable, getNativeSettings } from '../shared/nativeRequest';
 
 const InsecureBlocked = () => {
   const [appearanceMode, setAppearanceMode] = useState('auto');
@@ -20,7 +20,7 @@ const InsecureBlocked = () => {
   };
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       getNativeSettings()
         .then((settings) => {
           const mode = settings.appearanceMode || 'auto';

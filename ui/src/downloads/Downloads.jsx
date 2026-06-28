@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, subscribe, getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const SUPPORTED_IMAGE_FORMATS = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP', 'ICO', 'SVG', 'AVIF', 'TIFF'];
 
@@ -56,7 +56,7 @@ export default function Downloads() {
   }, [appearanceMode]);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       getNativeSettings()
         .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
         .catch(() => {});
@@ -88,24 +88,15 @@ export default function Downloads() {
   useEffect(() => {
     load();
     // Subscribe to download updates
-    window.cefQuery?.({
-      request: JSON.stringify({
-        id: `downloads-rpc-subscribe-${Date.now()}`,
-        method: 'downloads.subscribe',
-        params: {},
-      }),
-      persistent: true,
-      onSuccess: (response) => {
-        try {
-          const parsed = JSON.parse(response);
-          const event = parsed && parsed.ok === true ? parsed.result : parsed;
-          if (event.key === 'downloads-update' && event.downloads) {
-            setDownloads(event.downloads);
-          } else if (event.key === 'downloads-refresh') {
-            load();
-          }
-        } catch (e) {}
-      }
+    subscribe('downloads.subscribe', {}, (parsed) => {
+      try {
+        const event = parsed && parsed.ok === true ? parsed.result : parsed;
+        if (event.key === 'downloads-update' && event.downloads) {
+          setDownloads(event.downloads);
+        } else if (event.key === 'downloads-refresh') {
+          load();
+        }
+      } catch (e) {}
     });
   }, [load]);
 

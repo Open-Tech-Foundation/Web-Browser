@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const formatTime = (timestamp) => {
   if (!timestamp) return '';
@@ -59,7 +59,7 @@ export default function History() {
   }, [appearanceMode]);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       getNativeSettings()
         .then((settings) => setAppearanceMode(settings.appearanceMode || 'auto'))
         .catch(() => {});

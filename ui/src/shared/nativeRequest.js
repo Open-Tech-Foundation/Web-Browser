@@ -1,64 +1,26 @@
-let nextRequestId = 1;
+// Back-compat facade over the transport-agnostic bridge (see ./bridge.js).
+//
+// Historically the UI called `nativeRequest({ method, params })` directly against
+// `window.cefQuery`. That logic now lives in the bridge; this module keeps the
+// existing call sites working while the backend transport is swapped underneath.
+// New code may import from ./bridge directly.
 
-const isRpcRequest = (request) =>
-  request && typeof request === 'object' && typeof request.method === 'string';
+import { call, subscribe, isBridgeAvailable, setTransport } from './bridge';
 
-export const nativeRequest = (request, options = {}) => new Promise((resolve, reject) => {
-  if (!window.cefQuery) {
-    reject(new Error('Native bridge unavailable'));
-    return;
+// Re-exported so call sites can stay transport-agnostic without importing two modules.
+export { subscribe, isBridgeAvailable, setTransport };
+
+export const nativeRequest = (request) => {
+  if (!request || typeof request.method !== 'string') {
+    return Promise.reject(new Error('nativeRequest requires { method }'));
   }
+  return call(request.method, request.params || {});
+};
 
-  const rpc = isRpcRequest(request);
-  const rpcId = rpc ? `ui-${nextRequestId++}` : '';
-  const wireRequest = rpc
-    ? JSON.stringify({
-        id: rpcId,
-        method: request.method,
-        params: request.params || {},
-      })
-    : request;
+export const getNativeSettings = () => call('settings.get');
 
-  window.cefQuery({
-    request: wireRequest,
-    onSuccess: (response) => {
-      if (rpc) {
-        let envelope;
-        try {
-          envelope = JSON.parse(response);
-        } catch (_) {
-          reject(new Error(`Invalid native RPC response for ${request.method}`));
-          return;
-        }
-        if (!envelope || envelope.id !== rpcId || typeof envelope.ok !== 'boolean') {
-          reject(new Error(`Malformed native RPC response for ${request.method}`));
-          return;
-        }
-        if (!envelope.ok) {
-          reject(new Error(envelope.error?.message || `Native RPC failed: ${request.method}`));
-          return;
-        }
-        resolve(envelope.result);
-        return;
-      }
-      if (!options.parseJson) {
-        resolve(response);
-        return;
-      }
-      try {
-        resolve(JSON.parse(response));
-      } catch (err) {
-        reject(new Error(`Invalid native JSON response for ${request}`));
-      }
-    },
-    onFailure: (code, message) => {
-      reject(new Error(message || `Native request failed (${code})`));
-    },
-  });
-});
-
-export const getNativeSettings = () => nativeRequest({ method: 'settings.get' });
-
+// Client-side request versioning: the bridge has no native cancellation, so
+// callers stamp in-flight work and drop responses that arrive after a newer one.
 export const createNativeRequestScope = () => {
   let version = 0;
   return {

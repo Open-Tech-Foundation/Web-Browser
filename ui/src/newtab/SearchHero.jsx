@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { resolveUrl } from '../shared/search';
-import { getNativeSettings, nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, getNativeSettings, nativeRequest } from '../shared/nativeRequest';
 
 const stateByTab = {};
 
@@ -70,7 +70,7 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
   }, [tabId]);
 
   useEffect(() => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       getNativeSettings()
         .then((s) => {
           setCustomEngines(s.customSearchEngines || []);
@@ -87,7 +87,7 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
   }, []);
 
   const fetchSuggestions = useCallback((value) => {
-    if (isGuest || !value || !value.trim() || !window.cefQuery) {
+    if (isGuest || !value || !value.trim() || !isBridgeAvailable()) {
       setSuggestions([]);
       return;
     }
@@ -111,7 +111,7 @@ const SearchHero = ({ tabId, isPrivate, isGuest }) => {
   const doNavigate = useCallback((input) => {
     setSuggestions([]);
     setSelectedIdx(-1);
-    if (window.cefQuery && !isGuest) {
+    if (isBridgeAvailable() && !isGuest) {
       nativeRequest({
         method: 'search.history.add',
         params: { query: input },

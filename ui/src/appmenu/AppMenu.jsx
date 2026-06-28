@@ -1,5 +1,5 @@
 import React from 'react';
-import { nativeRequest } from '../shared/nativeRequest';
+import { isBridgeAvailable, nativeRequest } from '../shared/nativeRequest';
 
 const AppMenu = () => {
   const [guestSession, setGuestSession] = React.useState(false);
@@ -34,7 +34,7 @@ const AppMenu = () => {
   };
 
   const handleNavigate = (url) => {
-    if (window.cefQuery) {
+    if (isBridgeAvailable()) {
       nativeRequest({
         method: 'navigation.newTab',
         params: { url },
@@ -48,12 +48,12 @@ const AppMenu = () => {
 
   React.useEffect(() => {
     const onBlur = () => {
-      if (window.cefQuery) {
+      if (isBridgeAvailable()) {
         hideAppMenu();
       }
     };
     const onKeyDown = (e) => {
-      if (e.key === 'Escape' && window.cefQuery) {
+      if (e.key === 'Escape' && isBridgeAvailable()) {
         hideAppMenu();
       }
     };
