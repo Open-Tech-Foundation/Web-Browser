@@ -12,17 +12,8 @@ x86/
 # Dependencies
 third_party/
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
-CMakeScripts/
-cmake_install.cmake
-install_manifest.txt
-Makefile
-_CPack_Packages/
-CPackConfig.cmake
-CPackSourceConfig.cmake
-*.cmake
+# Rust / engine
+target/
 
 # IDEs and Editors
 .vscode/
@@ -54,7 +45,7 @@ yarn-debug.log*
 yarn-error.log*
 bun-debug.log*
 
-# CEF / Chromium specific (if generated in root)
+# Native build artifacts (if generated in root)
 *.log
 *.pyd
 *.so

@@ -5,7 +5,7 @@
 # Environment variables read at build time:
 #   VERSION    — package version (the release tag without the leading 'v')
 #   STAGE_DIR  — directory holding the already-built and stripped otf-browser
-#                tree (binary + libcef.so + locales/ + chrome-sandbox + .pak
+#                tree (binary + shared libs + locales/ + chrome-sandbox + .pak
 #                resources + ui/). Copied verbatim into /opt/otf-browser.
 
 name: otf-browser
@@ -16,16 +16,16 @@ section: web
 priority: optional
 maintainer: "Open Tech Foundation <noreply@opentechf.org>"
 description: |
-  OTF Browser is a privacy-focused web browser built on the
-  Chromium Embedded Framework. Bundled with hardened fingerprinting
-  defenses and a minimal native UI.
+  OTF Browser is a privacy-focused web browser built on Chromium's
+  content layer with a Rust backend. Bundled with hardened
+  fingerprinting defenses and a minimal native UI.
 vendor: Open Tech Foundation
 homepage: https://browser.opentechf.org/
 license: AGPL-3.0
 
 contents:
-  # Drop the whole built tree under /opt — CEF needs libcef.so, locales/, the
-  # *.pak resources and chrome-sandbox to live beside otf-browser.
+  # Drop the whole built tree under /opt — the content build needs its shared
+  # libs, locales/, *.pak resources and chrome-sandbox beside otf-browser.
   - src: ${STAGE_DIR}/
     dst: /opt/otf-browser/
     type: tree
@@ -59,8 +59,8 @@ scripts:
   # unless the user passes --no-sandbox.
   postinstall: packaging/postinstall.sh
 
-# Per-format runtime dependencies. We bundle libcef.so itself, but the
-# Chromium-derived code links against the host's GTK/NSS/etc. at runtime.
+# Per-format runtime dependencies. We bundle the Chromium shared libs, but the
+# code links against the host's GTK/NSS/etc. at runtime.
 overrides:
   deb:
     depends:

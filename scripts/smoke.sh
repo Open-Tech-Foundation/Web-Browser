@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BROWSER_BIN="${BROWSER_BIN:-./build/Release/otf-browser}"
+BROWSER_BIN="${BROWSER_BIN:-../chromium/src/out/otf/otf_browser}"
 
 if [[ ! -x "$BROWSER_BIN" ]]; then
   echo "Missing browser binary: $BROWSER_BIN" >&2

@@ -480,7 +480,7 @@ export async function launchDevBrowser(options = {}) {
   const profileRoot = options.profileRoot ||
     await mkdtemp(path.join(os.tmpdir(), 'otf-browser-test-profile-'));
   const tempHome = options.homeDir || path.join(profileRoot, 'home');
-  const userDataDir = options.userDataDir || path.join(profileRoot, 'cef_user_data');
+  const userDataDir = options.userDataDir || path.join(profileRoot, 'otf_user_data');
 
   try {
     if (options.settings) {
