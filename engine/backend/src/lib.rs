@@ -43,4 +43,38 @@ mod tests {
         assert_eq!(b.active_tab(), Some(c));
         assert_eq!(b.tab_count(), 1);
     }
+
+    #[test]
+    fn content_events_update_model_and_emit() {
+        let mut b = Backend::new_for_test();
+        let id = b.open_tab("https://example.com");
+
+        let title_ev = b.on_title_changed(id, "Example").expect("known tab");
+        let url_ev = b.on_url_changed(id, "https://example.com/page").expect("known tab");
+        let load_ev = b.on_load_state(id, false).expect("known tab");
+
+        let tab = b.tab(id).unwrap();
+        assert_eq!(tab.title, "Example");
+        assert_eq!(tab.url, "https://example.com/page");
+        assert!(!tab.loading);
+
+        // Each sink returns the UI event envelope keyed for the bridge.
+        for (env, key) in [
+            (&title_ev, "tabTitleChanged"),
+            (&url_ev, "tabUrlChanged"),
+            (&load_ev, "tabLoadStateChanged"),
+        ] {
+            let v: serde_json::Value = serde_json::from_str(env).unwrap();
+            assert_eq!(v["key"], key);
+            assert_eq!(v["tabId"], id);
+        }
+    }
+
+    #[test]
+    fn content_events_for_unknown_tab_are_ignored() {
+        let mut b = Backend::new_for_test();
+        assert!(b.on_title_changed(999, "nope").is_none());
+        assert!(b.on_url_changed(999, "nope").is_none());
+        assert!(b.on_load_state(999, true).is_none());
+    }
 }
