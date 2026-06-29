@@ -9,7 +9,6 @@ OtfContentRendererClient::~OtfContentRendererClient() = default;
 
 void OtfContentRendererClient::RenderFrameCreated(
     content::RenderFrame* render_frame) {
-  ShellContentRendererClient::RenderFrameCreated(render_frame);
   // Self-owned: deletes itself in OnDestruct() when the frame goes away.
   new OtfBridgeRenderFrameObserver(render_frame);
 }

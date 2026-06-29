@@ -8,6 +8,7 @@
 #include "build/build_config.h"
 #include "content/shell/common/shell_switches.h"
 #include "otf/shim/otf_content_browser_client.h"
+#include "otf/shim/otf_content_client.h"
 #include "otf/shim/otf_content_renderer_client.h"
 
 namespace otf {
@@ -54,6 +55,11 @@ std::optional<int> OtfMainDelegate::BasicStartupComplete() {
   return ShellMainDelegate::BasicStartupComplete();
 }
 
+content::ContentClient* OtfMainDelegate::CreateContentClient() {
+  content_client_ = std::make_unique<OtfContentClient>();
+  return content_client_.get();
+}
+
 content::ContentBrowserClient* OtfMainDelegate::CreateContentBrowserClient() {
   // Store in the base's member (our client derives from ShellContentBrowserClient)
   // so ShellMainDelegate's own uses of browser_client_ keep working and lifetime
@@ -63,8 +69,8 @@ content::ContentBrowserClient* OtfMainDelegate::CreateContentBrowserClient() {
 }
 
 content::ContentRendererClient* OtfMainDelegate::CreateContentRendererClient() {
-  renderer_client_ = std::make_unique<OtfContentRendererClient>();
-  return renderer_client_.get();
+  otf_renderer_client_ = std::make_unique<OtfContentRendererClient>();
+  return otf_renderer_client_.get();
 }
 
 }  // namespace otf
