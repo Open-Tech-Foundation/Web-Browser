@@ -21,7 +21,7 @@ class WebContents;
 
 namespace otf {
 
-class OtfWindow;
+class OtfPlatformWindow;
 
 class OtfBrowserMainParts : public content::ShellBrowserMainParts {
  public:
@@ -46,7 +46,7 @@ class OtfBrowserMainParts : public content::ShellBrowserMainParts {
   void OnWindowClosed();
 
   std::unique_ptr<content::WebContents> ui_contents_;
-  std::unique_ptr<OtfWindow> window_;
+  std::unique_ptr<OtfPlatformWindow> window_;
   base::OnceClosure quit_closure_;
 
   base::WeakPtrFactory<OtfBrowserMainParts> weak_factory_{this};

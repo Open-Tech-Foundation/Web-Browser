@@ -84,11 +84,18 @@ executable("otf_browser") {
     "shim/otf_main.cc",
     "shim/otf_main_delegate.cc",
     "shim/otf_main_delegate.h",
+    "shim/otf_platform_window.h",
     "shim/otf_tab_host.cc",
     "shim/otf_tab_host.h",
-    "shim/otf_window.cc",
-    "shim/otf_window.h",
   ]
+
+  # The OtfPlatformWindow backend is platform-conditional: one translation unit
+  # defines OtfPlatformWindow::Create/Get per OS. Desktop (Linux/Windows/CrOS)
+  # uses the aura/views implementation; macOS (Cocoa) and Android (surface) get
+  # their own files here as they land.
+  if (use_aura) {
+    sources += [ "shim/otf_window_aura.cc" ]
+  }
 
   defines = [ "OTF_WITH_CONTENT" ]
 

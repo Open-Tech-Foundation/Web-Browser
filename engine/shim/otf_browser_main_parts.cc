@@ -9,7 +9,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/filename_util.h"
-#include "otf/shim/otf_window.h"
+#include "otf/shim/otf_platform_window.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
@@ -51,7 +51,7 @@ void OtfBrowserMainParts::InitializeMessageLoopContext() {
   ui_contents_->GetController().LoadURLWithParams(
       content::NavigationController::LoadURLParams(ResolveStartupURL()));
 
-  window_ = std::make_unique<OtfWindow>(
+  window_ = OtfPlatformWindow::Create(
       ui_contents_.get(),
       gfx::Size(kDefaultWindowWidth, kDefaultWindowHeight),
       base::BindOnce(&OtfBrowserMainParts::OnWindowClosed,

@@ -5,7 +5,7 @@
   "description": "Privacy browser on Chromium's content layer with a Rust backend",
   "scripts": {
     "dev": "fuser -k 3000/tcp || true; (cd ui && bun x vite --port 3000 --strictPort &) && bun x wait-on http://localhost:3000 && bun run dev:browser; fuser -k 3000/tcp || true",
-    "dev:browser": "OTF_DEV_MODE=1 ../chromium/src/out/otf/otf_browser --no-sandbox --ozone-platform=x11 http://localhost:3000/",
+    "dev:browser": "OTF_DEV_MODE=1 ../chromium/src/out/otf/otf_browser --no-sandbox http://localhost:3000/",
     "build": "bun run build:ui && bun run build:engine",
     "build:ui": "bun x vite build ui",
     "build:engine": "engine/scripts/build-engine.sh",

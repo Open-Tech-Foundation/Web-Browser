@@ -12,9 +12,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "otf/shim/otf_browser_context.h"
-#include "otf/shim/otf_window.h"
-#include "ui/aura/window.h"
+#include "otf/shim/otf_platform_window.h"
 #include "ui/base/page_transition_types.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 namespace otf {
@@ -91,27 +91,6 @@ content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
   return raw;
 }
 
-aura::Window* OtfTabHost::HostWindow() {
-  // otf's own top-level window hosts the UI; page tabs are parented into it.
-  OtfWindow* window = OtfWindow::Get();
-  return window ? window->GetNativeWindow() : nullptr;
-}
-
-gfx::Rect OtfTabHost::ContentBounds() {
-  if (content_bounds_) {
-    return *content_bounds_;
-  }
-  // Default: the UI window's client area minus the fixed chrome strip on top.
-  constexpr int kChromeHeight = 65;
-  aura::Window* host = HostWindow();
-  if (!host) {
-    return gfx::Rect();
-  }
-  const gfx::Size size = host->bounds().size();
-  return gfx::Rect(0, kChromeHeight, size.width(),
-                   std::max(0, size.height() - kChromeHeight));
-}
-
 OtfStatus OtfTabHost::Create(OtfTabHandle id, const std::string& url) {
   content::WebContents* wc = EnsureContents(id);
   if (!wc) {
@@ -136,13 +115,13 @@ OtfStatus OtfTabHost::Navigate(OtfTabHandle id, const std::string& url) {
 }
 
 OtfStatus OtfTabHost::Show(OtfTabHandle id) {
+  OtfPlatformWindow* window = OtfPlatformWindow::Get();
   // Hide the previously active tab's view, if any and different.
   if (active_ && active_ != id) {
     if (content::WebContents* prev = Find(active_)) {
-      if (aura::Window* prev_view = prev->GetNativeView()) {
-        prev_view->Hide();
+      if (window) {
+        window->HideTab(prev);
       }
-      prev->WasHidden();
     }
   }
   active_ = id;
@@ -151,26 +130,17 @@ OtfStatus OtfTabHost::Show(OtfTabHandle id) {
   if (!wc) {
     return 0;  // model-only tab (never navigated): nothing to paint.
   }
-  aura::Window* host = HostWindow();
-  aura::Window* view = wc->GetNativeView();
-  if (host && view) {
-    if (view->parent() != host) {
-      host->AddChild(view);
-    }
-    view->SetBounds(ContentBounds());
-    view->Show();
-    host->StackChildAtTop(view);
+  if (window) {
+    window->ShowTab(wc);
   }
-  wc->WasShown();
   return 0;
 }
 
 OtfStatus OtfTabHost::Hide(OtfTabHandle id) {
   if (content::WebContents* wc = Find(id)) {
-    if (aura::Window* view = wc->GetNativeView()) {
-      view->Hide();
+    if (OtfPlatformWindow* window = OtfPlatformWindow::Get()) {
+      window->HideTab(wc);
     }
-    wc->WasHidden();
   }
   return 0;
 }
@@ -181,8 +151,8 @@ OtfStatus OtfTabHost::Close(OtfTabHandle id) {
     return 0;
   }
   if (auto* wc = it->second.contents.get()) {
-    if (aura::Window* view = wc->GetNativeView()) {
-      view->Hide();
+    if (OtfPlatformWindow* window = OtfPlatformWindow::Get()) {
+      window->HideTab(wc);
     }
   }
   tabs_.erase(it);  // destroys observer, then WebContents.
@@ -225,13 +195,8 @@ OtfStatus OtfTabHost::GoForward(OtfTabHandle id) {
 }
 
 void OtfTabHost::SetContentBounds(int32_t x, int32_t y, int32_t w, int32_t h) {
-  content_bounds_ = gfx::Rect(x, y, w, h);
-  if (active_) {
-    if (content::WebContents* wc = Find(active_)) {
-      if (aura::Window* view = wc->GetNativeView()) {
-        view->SetBounds(*content_bounds_);
-      }
-    }
+  if (OtfPlatformWindow* window = OtfPlatformWindow::Get()) {
+    window->SetContentBounds(gfx::Rect(x, y, w, h));
   }
 }
 

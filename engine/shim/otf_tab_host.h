@@ -1,24 +1,20 @@
 // Browser-side implementation of the Tabs interface (bridge.h OtfTabsApi).
 //
-// Owns the content::WebContents for each caller-assigned tab id and hosts the
-// active one inside the UI window (parented below the chrome). Content events
-// (title/url/load) flow back to the Rust backend via the OtfCallbacks observer,
-// keyed by the same tab id the caller assigned.
+// Owns the content::WebContents for each caller-assigned tab id; the active one
+// is shown through OtfPlatformWindow (the cross-OS window seam), so this class
+// holds no toolkit types. Content events (title/url/load) flow back to the Rust
+// backend via the OtfCallbacks observer, keyed by the same tab id the caller
+// assigned.
 
 #ifndef OTF_ENGINE_SHIM_OTF_TAB_HOST_H_
 #define OTF_ENGINE_SHIM_OTF_TAB_HOST_H_
 
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
 
 #include "otf/shim/bridge.h"
-#include "ui/gfx/geometry/rect.h"
 
-namespace aura {
-class Window;
-}
 namespace base {
 template <typename T>
 class NoDestructor;
@@ -72,13 +68,10 @@ class OtfTabHost {
 
   content::WebContents* Find(OtfTabHandle id);
   content::WebContents* EnsureContents(OtfTabHandle id);
-  aura::Window* HostWindow();
-  gfx::Rect ContentBounds();
 
   OtfCallbacks callbacks_ = {};
   std::map<OtfTabHandle, TabEntry> tabs_;
   OtfTabHandle active_ = 0;
-  std::optional<gfx::Rect> content_bounds_;
 };
 
 }  // namespace otf
