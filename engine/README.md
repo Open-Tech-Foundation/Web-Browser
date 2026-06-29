@@ -60,8 +60,16 @@ engine/scripts/build-engine.sh         # cargo staticlib -> ninja link
         otf's Content{Browser,Renderer}Client + a RenderFrameObserver that
         installs `window.otf` via gin. The real React chrome now boots against
         the Rust backend (workspaces/tabs come from the backend, not CEF).
-  - [ ] Our own UI WebContents renders the React app; child-view-in-hole layering
-        (today the UI loads in content_shell's window; tabs aren't hosted yet).
+  - [x] Clean grouped FFI: the Rust→Chromium surface is grouped interface tables
+        (`OtfLifecycleApi`/`OtfUiApi`/`OtfTabsApi`/`OtfBridgeApi`) aggregated into a
+        versioned `OtfApi` returned by `otf_api()`; Rust drives it via a safe
+        `ffi::Api` facade. New areas (cookies/network/gpu) slot in cleanly.
+  - [x] Tabs render real pages: `otf_tab_host.cc` hosts a `content::WebContents`
+        per tab (caller-assigned ids), parented into the UI window below the
+        chrome; `navigation.tab`/back/forward/reload/stop + title/url/load events
+        are live. Verified via CDP (a navigated tab renders in its own target).
+  - [ ] Our own UI WebContents/window (still content_shell's Shell); confirm the
+        in-window tab placement on a real display; window-resize reflow.
 
 Run it: `out/otf/otf_browser <url>` (omit url → content_shell default). Build:
 `bun run build:engine`. Component build, so run from `out/otf` (needs the .so set).
