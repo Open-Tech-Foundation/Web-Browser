@@ -20,3 +20,9 @@ serde_json = "1"
 # shim. Off by default so `cargo test` runs the pure backend logic with no
 # Chromium tree present (plan.md §9 standalone harness).
 with-content = []
+
+# Set ONLY by the in-tree gn rust_static_library build (//otf:otf_backend), never
+# via cargo. Switches the FFI module's bindings source from build.rs/OUT_DIR to
+# the gn rust_bindgen target (//otf:otf_bridge_bindgen) imported via the Chromium
+# prelude. Declared here so cargo's unexpected_cfgs lint recognizes the flag.
+in-tree = []

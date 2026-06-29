@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 bun run setup          # Fetch + configure the Chromium checkout (engine/scripts/bootstrap-chromium.sh)
 bun run dev            # Start Vite dev server + launch the engine browser with HMR
 bun run build:ui       # Build React/Vite assets into build/Release/ui
-bun run build:engine   # cargo staticlib -> gn/ninja link of the otf_browser binary
+bun run build:engine   # gn/ninja build of otf_browser (in-tree rust_static_library + shim)
 bun run build          # build:ui then build:engine
 
 bun run test:engine    # Standalone Rust backend tests (no Chromium needed)

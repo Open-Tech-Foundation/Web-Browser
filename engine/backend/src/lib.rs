@@ -8,6 +8,20 @@
 #[cfg(feature = "with-content")]
 mod ffi {
     #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
+
+    // The bindgen-generated `extern "C"` decls for shim/bridge.h. Two build paths
+    // produce the same surface:
+    //   * in-tree gn (`in-tree` feature): the //otf:otf_bridge_bindgen
+    //     rust_bindgen target generates them; pull it in via the Chromium prelude
+    //     and re-export so the rest of this module sees `OtfApi`, `otf_api`, etc.
+    //   * standalone cargo (`with-content` only): build.rs writes them to OUT_DIR
+    //     and we include the file directly.
+    #[cfg(feature = "in-tree")]
+    chromium::import! { "//otf:otf_bridge_bindgen"; }
+    #[cfg(feature = "in-tree")]
+    pub use otf_bridge_bindgen::*;
+
+    #[cfg(not(feature = "in-tree"))]
     include!(concat!(env!("OUT_DIR"), "/bridge_bindings.rs"));
 
     use std::os::raw::{c_char, c_int};

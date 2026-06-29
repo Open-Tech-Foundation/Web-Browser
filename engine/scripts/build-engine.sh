@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Build the otf browser binary: cargo staticlib -> gn/ninja link.
+# Build the otf browser binary.
+#
+# The Rust backend is now built IN-TREE by gn (//otf:otf_backend, a
+# rust_static_library) alongside the C++ shim, so this is a single ninja
+# invocation — no separate cargo staticlib step, no bindgen toolchain env, and
+# no Rust-std duplicate-symbol hack. cargo is only used for the standalone
+# `cargo test` inner loop (see `bun run test:engine`).
+#
 # Run engine/scripts/bootstrap-chromium.sh first.
 set -euo pipefail
 
@@ -13,31 +20,7 @@ OUT="${OUT:-out/otf}"
 
 export PATH="$DEPOT_TOOLS:$PATH"
 
-# bindgen runs against the shim header on the with-content path. It needs
-# Chromium's bundled libclang plus that clang's builtin resource headers
-# (stddef.h / stdint.h live there, not on the system include path). Point both
-# at the in-tree toolchain so the build is self-contained.
-CR_SRC="$CHROMIUM_DIR/src"
-export LIBCLANG_PATH="${LIBCLANG_PATH:-$CR_SRC/third_party/rust-toolchain/lib}"
-CLANG_RES_INC="$(ls -d "$CR_SRC/third_party/llvm-build/Release+Asserts/lib/clang"/*/include 2>/dev/null | head -1)"
-if [[ -n "$CLANG_RES_INC" ]]; then
-  export BINDGEN_EXTRA_CLANG_ARGS="-isystem $CLANG_RES_INC ${BINDGEN_EXTRA_CLANG_ARGS:-}"
-fi
-
-# 1. Rust backend -> libotf_backend.a (with FFI bindings against the shim).
-# Build with CHROMIUM'S Rust toolchain, not the system cargo: the final binary
-# also links Chromium's own Rust std, and mixing two std versions yields
-# duplicate-symbol link errors (plan.md §8 toolchain alignment). Using the same
-# toolchain makes the (still-duplicated) std symbols identical, so the linker can
-# safely merge them (see --allow-multiple-definition in //otf/BUILD.gn).
-RUST_TOOLCHAIN="$CR_SRC/third_party/rust-toolchain"
-export RUSTC="${RUSTC:-$RUST_TOOLCHAIN/bin/rustc}"
-CARGO="${CARGO:-$RUST_TOOLCHAIN/bin/cargo}"
-echo ">> cargo build (staticlib, with-content) using $CARGO ..."
-( cd "$ENGINE_DIR/backend" && "$CARGO" build --release --features with-content )
-
-# 2. gn/ninja link of the browser binary.
-echo ">> autoninja otf_browser ..."
+echo ">> autoninja otf_browser (builds //otf:otf_bridge_bindgen + :otf_backend + the shim) ..."
 ( cd "$CHROMIUM_DIR/src" && autoninja -C "$OUT" otf_browser )
 
 echo ""

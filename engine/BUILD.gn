@@ -4,13 +4,16 @@
 # (which symlinks engine/ -> chromium/src/otf). Additive only: no upstream
 # Chromium files are edited, so rebasing stays cheap.
 #
-# Build flow (see scripts/build-engine.sh):
-#   1. cargo builds engine/backend -> libotf_backend.a (staticlib, bindgen on
-#      shim/bridge.h).
-#   2. this target compiles the shim + entry point, defines OTF_WITH_CONTENT,
-#      links libotf_backend.a, and pulls in the content layer.
+# Build flow:
+#   1. rust_bindgen turns shim/bridge.h into Rust FFI decls.
+#   2. rust_static_library builds engine/backend in-tree (sharing Chromium's
+#      Rust std and vendored crates) into the otf_backend rlib.
+#   3. this target compiles the shim + entry point, defines OTF_WITH_CONTENT,
+#      links otf_backend, and pulls in the content layer.
 
 import("//build/config/ui.gni")
+import("//build/rust/rust_bindgen.gni")
+import("//build/rust/rust_static_library.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 
 # The JS<->Rust bridge transport interface (renderer <-> browser). Generates the
@@ -19,13 +22,43 @@ mojom("otf_mojom") {
   sources = [ "shim/otf_bridge.mojom" ]
 }
 
-# Cargo writes libotf_backend.a outside the Chromium tree (engine/ is symlinked
-# in as //otf). A -L pointing out through that symlink doesn't resolve at link
-# time, so copy the staticlib into the build dir and link it from there — a
-# self-contained, location-robust path.
-copy("otf_backend_staticlib") {
-  sources = [ "//otf/backend/target/release/libotf_backend.a" ]
-  outputs = [ "$target_out_dir/libotf_backend.a" ]
+# bindgen the FFI header (shim/bridge.h) into Rust `extern "C"` decls, in-tree.
+# Replaces the cargo build.rs bindgen on the with-content path. The allowlist
+# mirrors build.rs so the generated surface is identical (the otf_api() entry
+# point + the Otf* interface tables/handles). bridge.h only pulls <stddef.h>/
+# <stdint.h>, so no C `deps` are needed.
+rust_bindgen("otf_bridge_bindgen") {
+  header = "shim/bridge.h"
+  bindgen_flags = [
+    "allowlist-function=otf_.*",
+    "allowlist-type=Otf.*",
+  ]
+}
+
+# The Rust control brain, built in-tree so it shares Chromium's Rust std (one
+# std, no bundled-copy duplicate -> no --allow-multiple-definition link hack) and
+# pulls vendored crates from //third_party/rust. cargo is kept only for the
+# standalone `cargo test` inner loop (engine/backend, with-content off).
+#
+# The `in-tree` feature switches the backend's FFI module from the cargo
+# build.rs/OUT_DIR bindings to the rust_bindgen target above (see backend/src/lib.rs).
+rust_static_library("otf_backend") {
+  crate_root = "backend/src/lib.rs"
+  edition = "2021"
+  allow_unsafe = true
+  sources = [
+    "backend/src/backend.rs",
+    "backend/src/bridge.rs",
+    "backend/src/lib.rs",
+  ]
+  features = [
+    "with-content",
+    "in-tree",
+  ]
+  deps = [
+    ":otf_bridge_bindgen",
+    "//third_party/rust/serde_json/v1:lib",
+  ]
 }
 
 executable("otf_browser") {
@@ -58,7 +91,7 @@ executable("otf_browser") {
   # bridge clients add gin/v8/blink (renderer JS bindings), mojo, and content's
   # public browser/renderer APIs.
   deps = [
-    ":otf_backend_staticlib",
+    ":otf_backend",
     ":otf_mojom",
     "//base",
     "//content/public/app",
@@ -87,21 +120,10 @@ executable("otf_browser") {
     data_deps += [ "//components/crash/core/app:chrome_crashpad_handler" ]
   }
 
-  # Link the Rust backend staticlib from its copied-in location. `libs` only
-  # adds `-lotf_backend` to the link command — it does NOT make ninja treat the
-  # .a as an input, so a Rust-only change (new .a, unchanged shim) would not
-  # relink. Declaring it in `inputs` adds the dependency edge so every staticlib
-  # rebuild relinks otf_browser.
-  lib_dirs = [ target_out_dir ]
-  libs = [ "otf_backend" ]
-  inputs = [ "$target_out_dir/libotf_backend.a" ]
-
-  # Our cargo staticlib bundles Rust std, and the binary also links Chromium's
-  # own Rust std. Built with the same toolchain (see build-engine.sh) those std
-  # symbols are identical, so allow the linker to merge the duplicates instead of
-  # erroring. TODO(phase3): drop this by building the backend as an in-tree
-  # rust_static_library that shares Chromium's std (no bundled copy).
-  ldflags = [ "-Wl,--allow-multiple-definition" ]
+  # The Rust backend is the in-tree rust_static_library `:otf_backend` (in deps).
+  # gn tracks it as a real dependency edge and links it sharing Chromium's Rust
+  # std, so the old copy/lib_dirs/inputs and --allow-multiple-definition hacks
+  # are gone.
 
   # Build -fno-rtti like the rest of content (the default no_rtti config). The
   # shim subclasses content/content_shell polymorphic types (ShellMainDelegate,

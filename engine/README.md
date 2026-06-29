@@ -35,7 +35,7 @@ cd engine/backend && cargo test
 
 # full browser (one-time multi-hour, ~100GB+):
 engine/scripts/bootstrap-chromium.sh   # fetch LATEST chromium + gn gen
-engine/scripts/build-engine.sh         # cargo staticlib -> ninja link
+engine/scripts/build-engine.sh         # single ninja build (in-tree rust + shim)
 ../chromium/src/out/otf/otf_browser
 ```
 
@@ -68,8 +68,16 @@ engine/scripts/build-engine.sh         # cargo staticlib -> ninja link
         per tab (caller-assigned ids), parented into the UI window below the
         chrome; `navigation.tab`/back/forward/reload/stop + title/url/load events
         are live. Verified via CDP (a navigated tab renders in its own target).
-  - [ ] Our own UI WebContents/window (still content_shell's Shell); confirm the
-        in-window tab placement on a real display; window-resize reflow.
+  - [x] In-tree Rust backend: the staticlib is now a gn `rust_static_library`
+        (`//otf:otf_backend`) with `rust_bindgen` (`//otf:otf_bridge_bindgen`) on
+        bridge.h, depending on vendored `//third_party/rust/serde_json/v1`. It
+        shares Chromium's single Rust std, so the cargo staticlib copy, the
+        manual `-lotf_backend`/`inputs` wiring, and `--allow-multiple-definition`
+        are all gone. cargo stays only for the standalone `cargo test` loop (the
+        backend's `ffi` module switches binding source via the `in-tree` feature).
+  - [ ] Our own embedder/window: replace content_shell's scaffold (testonly)
+        with otf's ContentBrowserClient + BrowserContext + main parts + window;
+        session persistence/restore. Then SQLite history persistence.
 
 Run it: `out/otf/otf_browser <url>` (omit url → content_shell default). Build:
 `bun run build:engine`. Component build, so run from `out/otf` (needs the .so set).

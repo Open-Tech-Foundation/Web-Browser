@@ -24,6 +24,7 @@ pub struct Backend {
 }
 
 impl Backend {
+    #[cfg(test)]
     pub fn new_for_test() -> Self {
         Backend { next_id: 1, ..Default::default() }
     }
@@ -82,7 +83,9 @@ impl Backend {
         true
     }
 
+    #[cfg(test)]
     pub fn tab_count(&self) -> usize { self.tabs.len() }
+    #[cfg(test)]
     pub fn active_tab(&self) -> Option<TabId> { self.active }
     pub fn tab(&self, id: TabId) -> Option<&Tab> { self.tabs.iter().find(|t| t.id == id) }
 
