@@ -42,16 +42,17 @@ impl Backend {
             // user_data carries `self` back into the C callbacks; `backend` lives
             // on run()'s stack across the (blocking) run loop, so the pointer
             // stays valid for the whole content lifetime.
+            let api = crate::ffi::Api::get();
             let callbacks = ffi_glue::callbacks_for(self as *mut Backend);
-            crate::ffi::otf_browser_init(_argc, _argv, callbacks);
-            crate::ffi::otf_ui_create(c"browser://shell".as_ptr());
+            api.init(_argc, _argv, callbacks);
+            api.ui_create(c"browser://shell".as_ptr());
         }
     }
 
     fn enter_run_loop(&mut self) -> c_int {
         #[cfg(feature = "with-content")]
-        unsafe {
-            return crate::ffi::otf_browser_run();
+        {
+            return crate::ffi::Api::get().run();
         }
         #[cfg(not(feature = "with-content"))]
         0
@@ -293,7 +294,7 @@ mod ffi_glue {
     /// Push a `{ key, ... }` event envelope back to the UI surface (target 0).
     unsafe fn emit(envelope: String) {
         if let Ok(c) = CString::new(envelope) {
-            crate::ffi::otf_bridge_emit(0, c.as_ptr());
+            crate::ffi::Api::get().bridge_emit(0, c.as_ptr());
         }
     }
 
@@ -306,7 +307,7 @@ mod ffi_glue {
         let outcome = backend.on_js_call(c_str(request_json));
         if let Some(response) = outcome.response {
             if let Ok(c) = CString::new(response) {
-                crate::ffi::otf_bridge_respond(reply_id, c.as_ptr());
+                crate::ffi::Api::get().bridge_respond(reply_id, c.as_ptr());
             }
         }
         // No response -> deferred (answered later) or a subscription. Any pushed

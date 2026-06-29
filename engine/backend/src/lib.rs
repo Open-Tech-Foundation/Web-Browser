@@ -9,6 +9,89 @@
 mod ffi {
     #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
     include!(concat!(env!("OUT_DIR"), "/bridge_bindings.rs"));
+
+    use std::os::raw::{c_char, c_int};
+
+    /// Safe facade over the grouped C interface table (bridge.h `OtfApi`).
+    ///
+    /// Fetches the immutable, process-wide table from `otf_api()` once and
+    /// forwards each call to the matching sub-interface's function pointer, so
+    /// the backend writes `Api::get().tab_create(url)` instead of dereferencing
+    /// raw vtables. The grouping (lifecycle / ui / tabs / bridge) mirrors the C
+    /// side one-to-one; new areas (cookies, network, gpu, …) get new methods
+    /// here as they land.
+    #[derive(Clone, Copy)]
+    pub struct Api {
+        raw: *const OtfApi,
+    }
+
+    impl Api {
+        pub fn get() -> Api {
+            Api { raw: unsafe { otf_api() } }
+        }
+
+        fn root(&self) -> &OtfApi {
+            unsafe { &*self.raw }
+        }
+        fn lifecycle(&self) -> &OtfLifecycleApi {
+            unsafe { &*self.root().lifecycle }
+        }
+        fn ui(&self) -> &OtfUiApi {
+            unsafe { &*self.root().ui }
+        }
+        fn tabs(&self) -> &OtfTabsApi {
+            unsafe { &*self.root().tabs }
+        }
+        fn bridge(&self) -> &OtfBridgeApi {
+            unsafe { &*self.root().bridge }
+        }
+
+        // --- lifecycle ---
+        /// # Safety: `argv` must be a valid `argc`-length C string array.
+        pub unsafe fn init(
+            &self,
+            argc: c_int,
+            argv: *mut *mut c_char,
+            callbacks: OtfCallbacks,
+        ) -> OtfStatus {
+            (self.lifecycle().init.unwrap())(argc, argv, callbacks)
+        }
+        pub fn run(&self) -> OtfStatus {
+            unsafe { (self.lifecycle().run.unwrap())() }
+        }
+
+        // --- ui ---
+        /// # Safety: `url` must be a valid NUL-terminated C string.
+        pub unsafe fn ui_create(&self, url: *const c_char) -> OtfStatus {
+            (self.ui().create.unwrap())(url)
+        }
+
+        // --- tabs ---
+        /// # Safety: `url` must be a valid NUL-terminated C string.
+        pub unsafe fn tab_create(&self, url: *const c_char) -> OtfTabHandle {
+            (self.tabs().create.unwrap())(url)
+        }
+        /// # Safety: `url` must be a valid NUL-terminated C string.
+        pub unsafe fn tab_navigate(&self, tab: OtfTabHandle, url: *const c_char) -> OtfStatus {
+            (self.tabs().navigate.unwrap())(tab, url)
+        }
+        pub fn tab_show(&self, tab: OtfTabHandle) -> OtfStatus {
+            unsafe { (self.tabs().show.unwrap())(tab) }
+        }
+        pub fn tab_close(&self, tab: OtfTabHandle) -> OtfStatus {
+            unsafe { (self.tabs().close.unwrap())(tab) }
+        }
+
+        // --- bridge ---
+        /// # Safety: `json` must be a valid NUL-terminated C string.
+        pub unsafe fn bridge_respond(&self, reply_id: u64, json: *const c_char) -> OtfStatus {
+            (self.bridge().respond.unwrap())(reply_id, json)
+        }
+        /// # Safety: `json` must be a valid NUL-terminated C string.
+        pub unsafe fn bridge_emit(&self, target: OtfTabHandle, json: *const c_char) -> OtfStatus {
+            (self.bridge().emit.unwrap())(target, json)
+        }
+    }
 }
 
 mod backend;

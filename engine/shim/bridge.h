@@ -5,6 +5,17 @@
 //   * C++:  bridge.cc implements it over the content layer.
 //   * Rust: bindgen turns it into `extern "C"` declarations, wrapped safely.
 //
+// Shape (plan.md): the Rust->Chromium surface is a set of *grouped interfaces*,
+// each a struct of function pointers for one logical area (lifecycle, UI, tabs,
+// bridge; future: cookies, network, gpu, …). A single exported entry point,
+// `otf_api()`, returns an immutable, versioned table aggregating them. This keeps
+// the surface broad/stable and discoverable: Rust calls `api->tabs->create(...)`
+// rather than a flat soup of free functions, and new areas slot in as new
+// sub-interfaces without disturbing existing ones.
+//
+// The reverse direction (Chromium -> Rust: content events + bridge requests) is
+// the `OtfCallbacks` observer table, handed to `lifecycle->init`.
+//
 // Rules (plan.md):
 //   * Keep this surface BROAD and STABLE early so Rust-only changes don't force
 //     a C++ recompile / full relink.
@@ -23,26 +34,26 @@ extern "C" {
 #endif
 
 // ---------------------------------------------------------------------------
-// Handles
+// Handles & status
 // ---------------------------------------------------------------------------
 // Opaque to Rust. A tab is a content::WebContents on the browser thread.
 typedef uint64_t OtfTabHandle;       // 0 == invalid
 typedef int32_t OtfStatus;           // 0 == ok, negative == error code
 
 // ---------------------------------------------------------------------------
-// Callbacks: shim -> Rust (content events + bridge requests from JS)
+// Observer: Chromium -> Rust (content events + bridge requests from JS)
 // ---------------------------------------------------------------------------
-// `user_data` is the opaque pointer passed to otf_browser_init; it carries the
+// `user_data` is the opaque pointer passed to lifecycle->init; it carries the
 // Rust backend instance back into these C callbacks.
 typedef struct OtfCallbacks {
   void* user_data;
 
   // A JS -> Rust bridge call arrived from a UI/tab WebContents. `request_json`
   // is the wire envelope { id, method, params }. Rust handles it asynchronously
-  // and replies later via otf_bridge_respond(reply_id, ...).
+  // and replies later via bridge->respond(reply_id, ...).
   void (*on_js_call)(void* user_data, uint64_t reply_id, const char* request_json);
 
-  // Content lifecycle signals (plan.md §3). `value_json` is UTF-8 JSON.
+  // Content lifecycle signals (plan.md §3). Strings are UTF-8.
   void (*on_title_changed)(void* user_data, OtfTabHandle tab, const char* title);
   void (*on_url_changed)(void* user_data, OtfTabHandle tab, const char* url);
   void (*on_load_state)(void* user_data, OtfTabHandle tab, int32_t is_loading);
@@ -55,37 +66,71 @@ typedef struct OtfCallbacks {
 } OtfCallbacks;
 
 // ---------------------------------------------------------------------------
-// Lifecycle
+// Interface: Lifecycle — process boot/run/shutdown
 // ---------------------------------------------------------------------------
-// Boots the content layer. Chromium owns the event loop natively after this
-// call returns control via the run loop; otf_browser_run blocks until shutdown.
-OtfStatus otf_browser_init(int argc, char** argv, OtfCallbacks callbacks);
-OtfStatus otf_browser_run(void);        // enters Chromium's run loop (blocks)
-void      otf_browser_shutdown(void);
+typedef struct OtfLifecycleApi {
+  // Boots the content layer; `callbacks` is the Chromium -> Rust observer.
+  OtfStatus (*init)(int argc, char** argv, OtfCallbacks callbacks);
+  // Enters Chromium's run loop; blocks until shutdown. Returns the exit code.
+  OtfStatus (*run)(void);
+  void      (*shutdown)(void);
+} OtfLifecycleApi;
 
 // ---------------------------------------------------------------------------
-// UI surface (the React app, hosted as its own WebContents)
+// Interface: Ui — the React app, hosted as its own WebContents
 // ---------------------------------------------------------------------------
-OtfStatus otf_ui_create(const char* url);
-// Position of the "hole" the active tab's native view is parented into.
-OtfStatus otf_ui_set_content_bounds(int32_t x, int32_t y, int32_t w, int32_t h);
+typedef struct OtfUiApi {
+  OtfStatus (*create)(const char* url);
+  // Position of the "hole" the active tab's native view is parented into.
+  OtfStatus (*set_content_bounds)(int32_t x, int32_t y, int32_t w, int32_t h);
+} OtfUiApi;
 
 // ---------------------------------------------------------------------------
-// Tabs (content::WebContents managed on one thread)
+// Interface: Tabs — content::WebContents managed on the browser thread
 // ---------------------------------------------------------------------------
-OtfTabHandle otf_tab_create(const char* url);
-OtfStatus    otf_tab_navigate(OtfTabHandle tab, const char* url);
-OtfStatus    otf_tab_show(OtfTabHandle tab);     // parent native view into the hole
-OtfStatus    otf_tab_hide(OtfTabHandle tab);
-OtfStatus    otf_tab_close(OtfTabHandle tab);
+typedef struct OtfTabsApi {
+  OtfTabHandle (*create)(const char* url);   // 0 on failure
+  OtfStatus    (*navigate)(OtfTabHandle tab, const char* url);
+  OtfStatus    (*show)(OtfTabHandle tab);     // parent native view into the hole
+  OtfStatus    (*hide)(OtfTabHandle tab);
+  OtfStatus    (*close)(OtfTabHandle tab);
+  OtfStatus    (*reload)(OtfTabHandle tab);
+  OtfStatus    (*stop)(OtfTabHandle tab);
+  OtfStatus    (*go_back)(OtfTabHandle tab);
+  OtfStatus    (*go_forward)(OtfTabHandle tab);
+} OtfTabsApi;
 
 // ---------------------------------------------------------------------------
-// Bridge: Rust -> JS
+// Interface: Bridge — Rust -> JS (responses + pushed events)
 // ---------------------------------------------------------------------------
-// Reply to an on_js_call (response envelope { id, ok, result|error }).
-OtfStatus otf_bridge_respond(uint64_t reply_id, const char* response_json);
-// Push an event to a subscribed surface ({ key, ... }). target==0 -> UI surface.
-OtfStatus otf_bridge_emit(OtfTabHandle target, const char* event_json);
+typedef struct OtfBridgeApi {
+  // Reply to an on_js_call (response envelope { id, ok, result|error }).
+  OtfStatus (*respond)(uint64_t reply_id, const char* response_json);
+  // Push an event to a subscribed surface ({ key, ... }). target==0 -> UI.
+  OtfStatus (*emit)(OtfTabHandle target, const char* event_json);
+} OtfBridgeApi;
+
+// ---------------------------------------------------------------------------
+// Aggregate: the versioned table of all Rust -> Chromium interfaces
+// ---------------------------------------------------------------------------
+// Returned by otf_api(). Immutable and process-wide. `version` lets the Rust
+// side guard against ABI drift; new interfaces (cookies, network, gpu, …) are
+// added as additional pointers at the end without breaking older fields.
+typedef struct OtfApi {
+  uint32_t version;                 // == OTF_API_VERSION at build time
+
+  const OtfLifecycleApi* lifecycle;
+  const OtfUiApi*        ui;
+  const OtfTabsApi*      tabs;
+  const OtfBridgeApi*    bridge;
+  // TODO(phase4): const OtfCookiesApi* cookies; const OtfNetworkApi* network;
+  //               const OtfGpuApi* gpu; …
+} OtfApi;
+
+#define OTF_API_VERSION 1u
+
+// The single exported symbol. Returns the immutable interface table.
+const OtfApi* otf_api(void);
 
 #ifdef __cplusplus
 }  // extern "C"

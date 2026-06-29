@@ -7,10 +7,9 @@
 //   * OTF_WITH_CONTENT: the real implementation over the content layer, compiled
 //     by the gn target inside the Chromium checkout.
 //
-// Phase 1 scope: the content-mode functions are scaffolded with the integration
-// points marked TODO(content). They are filled in as Phases 2-3 land (UI surface,
-// tab model, router). Keeping both modes behind one header preserves the stable
-// FFI boundary either way.
+// Either way the surface is the grouped interface table from bridge.h: each
+// area (lifecycle, ui, tabs, bridge) is a struct of function pointers, and
+// otf_api() returns the immutable aggregate.
 
 #include "bridge.h"
 
@@ -26,46 +25,56 @@ OtfCallbacks g_callbacks = {};
 
 #ifndef OTF_WITH_CONTENT
 // ----------------------------- standalone stub -----------------------------
-extern "C" {
+namespace {
 
-OtfStatus otf_browser_init(int /*argc*/, char** /*argv*/, OtfCallbacks callbacks) {
+OtfStatus StubInit(int /*argc*/, char** /*argv*/, OtfCallbacks callbacks) {
   g_callbacks = callbacks;
   std::fprintf(stderr, "[otf-shim] init (standalone stub)\n");
   return 0;
 }
-
-OtfStatus otf_browser_run(void) {
+OtfStatus StubRun(void) {
   std::fprintf(stderr, "[otf-shim] run (standalone stub: no event loop)\n");
   return 0;
 }
+void StubShutdown(void) { g_callbacks = {}; }
 
-void otf_browser_shutdown(void) { g_callbacks = {}; }
-
-OtfStatus otf_ui_create(const char* url) {
-  std::fprintf(stderr, "[otf-shim] ui_create(%s)\n", url ? url : "");
+OtfStatus StubUiCreate(const char* url) {
+  std::fprintf(stderr, "[otf-shim] ui.create(%s)\n", url ? url : "");
   return 0;
 }
-OtfStatus otf_ui_set_content_bounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
+OtfStatus StubUiSetContentBounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
 
-OtfTabHandle otf_tab_create(const char* /*url*/) { return g_next_tab.fetch_add(1); }
-OtfStatus otf_tab_navigate(OtfTabHandle, const char*) { return 0; }
-OtfStatus otf_tab_show(OtfTabHandle) { return 0; }
-OtfStatus otf_tab_hide(OtfTabHandle) { return 0; }
-OtfStatus otf_tab_close(OtfTabHandle) { return 0; }
+OtfTabHandle StubTabCreate(const char* /*url*/) { return g_next_tab.fetch_add(1); }
+OtfStatus StubTabNavigate(OtfTabHandle, const char*) { return 0; }
+OtfStatus StubTabShow(OtfTabHandle) { return 0; }
+OtfStatus StubTabHide(OtfTabHandle) { return 0; }
+OtfStatus StubTabClose(OtfTabHandle) { return 0; }
+OtfStatus StubTabReload(OtfTabHandle) { return 0; }
+OtfStatus StubTabStop(OtfTabHandle) { return 0; }
+OtfStatus StubTabGoBack(OtfTabHandle) { return 0; }
+OtfStatus StubTabGoForward(OtfTabHandle) { return 0; }
 
-OtfStatus otf_bridge_respond(uint64_t /*reply_id*/, const char* /*json*/) { return 0; }
-OtfStatus otf_bridge_emit(OtfTabHandle, const char* /*json*/) { return 0; }
+OtfStatus StubBridgeRespond(uint64_t, const char*) { return 0; }
+OtfStatus StubBridgeEmit(OtfTabHandle, const char*) { return 0; }
 
-}  // extern "C"
+const OtfLifecycleApi kLifecycle = {StubInit, StubRun, StubShutdown};
+const OtfUiApi kUi = {StubUiCreate, StubUiSetContentBounds};
+const OtfTabsApi kTabs = {StubTabCreate,  StubTabNavigate, StubTabShow,
+                          StubTabHide,    StubTabClose,    StubTabReload,
+                          StubTabStop,    StubTabGoBack,   StubTabGoForward};
+const OtfBridgeApi kBridge = {StubBridgeRespond, StubBridgeEmit};
+const OtfApi kApi = {OTF_API_VERSION, &kLifecycle, &kUi, &kTabs, &kBridge};
+
+}  // namespace
+
+extern "C" const OtfApi* otf_api(void) { return &kApi; }
 
 #else
 // ----------------------------- content layer -------------------------------
 // First light (Phase 2): boot Chromium's content layer from Rust by reusing
-// content_shell's embedder scaffolding — ShellMainDelegate brings the
-// ContentClient, ContentBrowserClient, a BrowserContext and a Views window, so a
-// real browser window appears showing the startup URL. This proves the whole
-// Rust -> content stack end to end. Phase 2b swaps this scaffold for our own UI
-// WebContents + tab model + live bridge over the content/public APIs directly.
+// content_shell's embedder scaffolding (OtfMainDelegate). The bridge interface
+// (Rust <-> JS) is live; the tabs interface is being filled in with real
+// WebContents in Phase 2c — until then its ops are no-ops.
 #include "content/public/app/content_main.h"
 #include "otf/shim/otf_bridge_host.h"
 #include "otf/shim/otf_main_delegate.h"
@@ -73,11 +82,9 @@ OtfStatus otf_bridge_emit(OtfTabHandle, const char* /*json*/) { return 0; }
 namespace {
 int g_argc = 0;
 char** g_argv = nullptr;
-}  // namespace
 
-extern "C" {
-
-OtfStatus otf_browser_init(int argc, char** argv, OtfCallbacks callbacks) {
+// --- Lifecycle ---
+OtfStatus LifecycleInit(int argc, char** argv, OtfCallbacks callbacks) {
   g_callbacks = callbacks;
   g_argc = argc;
   g_argv = argv;
@@ -88,13 +95,13 @@ OtfStatus otf_browser_init(int argc, char** argv, OtfCallbacks callbacks) {
   return 0;
 }
 
-OtfStatus otf_browser_run(void) {
+OtfStatus LifecycleRun(void) {
   // Mirrors content/shell/app/shell_main.cc: the delegate must outlive
   // ContentMain. OtfMainDelegate reuses content_shell's embedder scaffolding but
   // installs otf's browser/renderer clients so the bridge interface is exposed
   // to every frame. ContentMain runs this process — the browser process blocks
-  // in the run loop until shutdown; re-exec'd child processes (renderer/gpu/...)
-  // run their logic and return. Returns the process exit code.
+  // in the run loop until shutdown; re-exec'd child processes run their logic
+  // and return. Returns the process exit code.
   otf::OtfMainDelegate delegate;
   content::ContentMainParams params(&delegate);
   params.argc = g_argc;
@@ -102,27 +109,43 @@ OtfStatus otf_browser_run(void) {
   return content::ContentMain(std::move(params));
 }
 
-void otf_browser_shutdown(void) { g_callbacks = {}; }
+void LifecycleShutdown(void) { g_callbacks = {}; }
 
-// TODO(phase2b): our own UI WebContents + tab model + live bridge replace these.
-OtfStatus otf_ui_create(const char* /*url*/) { return 0; }
-OtfStatus otf_ui_set_content_bounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
+// --- Ui --- (TODO(phase2c): own UI WebContents + content hole)
+OtfStatus UiCreate(const char* /*url*/) { return 0; }
+OtfStatus UiSetContentBounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
 
-OtfTabHandle otf_tab_create(const char* /*url*/) { return 0; }
-OtfStatus otf_tab_navigate(OtfTabHandle, const char*) { return 0; }
-OtfStatus otf_tab_show(OtfTabHandle) { return 0; }
-OtfStatus otf_tab_hide(OtfTabHandle) { return 0; }
-OtfStatus otf_tab_close(OtfTabHandle) { return 0; }
+// --- Tabs --- (TODO(phase2c): real WebContents hosted in the window)
+OtfTabHandle TabCreate(const char* /*url*/) { return 0; }
+OtfStatus TabNavigate(OtfTabHandle, const char*) { return 0; }
+OtfStatus TabShow(OtfTabHandle) { return 0; }
+OtfStatus TabHide(OtfTabHandle) { return 0; }
+OtfStatus TabClose(OtfTabHandle) { return 0; }
+OtfStatus TabReload(OtfTabHandle) { return 0; }
+OtfStatus TabStop(OtfTabHandle) { return 0; }
+OtfStatus TabGoBack(OtfTabHandle) { return 0; }
+OtfStatus TabGoForward(OtfTabHandle) { return 0; }
 
-OtfStatus otf_bridge_respond(uint64_t reply_id, const char* json) {
+// --- Bridge --- (Rust -> JS, live)
+OtfStatus BridgeRespond(uint64_t reply_id, const char* json) {
   otf::OtfBridgeHost::Get().Respond(reply_id, json ? json : "");
   return 0;
 }
-OtfStatus otf_bridge_emit(OtfTabHandle /*target*/, const char* json) {
+OtfStatus BridgeEmit(OtfTabHandle /*target*/, const char* json) {
   otf::OtfBridgeHost::Get().Emit(json ? json : "");
   return 0;
 }
 
-}  // extern "C"
+const OtfLifecycleApi kLifecycle = {LifecycleInit, LifecycleRun,
+                                    LifecycleShutdown};
+const OtfUiApi kUi = {UiCreate, UiSetContentBounds};
+const OtfTabsApi kTabs = {TabCreate, TabNavigate, TabShow,   TabHide,    TabClose,
+                          TabReload, TabStop,      TabGoBack, TabGoForward};
+const OtfBridgeApi kBridge = {BridgeRespond, BridgeEmit};
+const OtfApi kApi = {OTF_API_VERSION, &kLifecycle, &kUi, &kTabs, &kBridge};
+
+}  // namespace
+
+extern "C" const OtfApi* otf_api(void) { return &kApi; }
 
 #endif  // OTF_WITH_CONTENT
