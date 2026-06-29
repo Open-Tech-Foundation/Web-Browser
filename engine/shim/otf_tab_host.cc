@@ -12,8 +12,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/shell/browser/shell.h"
-#include "content/shell/browser/shell_browser_context.h"
-#include "content/shell/browser/shell_content_browser_client.h"
+#include "otf/shim/otf_browser_context.h"
 #include "ui/aura/window.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
@@ -66,15 +65,22 @@ content::WebContents* OtfTabHost::Find(OtfTabHandle id) {
   return it == tabs_.end() ? nullptr : it->second.contents.get();
 }
 
+// The BrowserContext (profile) backing all page tabs. otf's own context,
+// replacing content_shell's. Process-lifetime for now (created lazily on the
+// first tab, intentionally never destroyed); ownership moves to
+// OtfBrowserMainParts once the own-window work lands, which also lets the UI
+// surface share this same context.
+// TODO(phase2b): own the context in OtfBrowserMainParts and tear it down on exit.
+static content::BrowserContext* PageBrowserContext() {
+  static base::NoDestructor<OtfBrowserContext> context(/*off_the_record=*/false);
+  return context.get();
+}
+
 content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
   if (auto* existing = Find(id)) {
     return existing;
   }
-  auto* client = content::ShellContentBrowserClient::Get();
-  if (!client || !client->browser_context()) {
-    return nullptr;
-  }
-  content::WebContents::CreateParams params(client->browser_context());
+  content::WebContents::CreateParams params(PageBrowserContext());
   std::unique_ptr<content::WebContents> contents =
       content::WebContents::Create(params);
   content::WebContents* raw = contents.get();

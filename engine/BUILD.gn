@@ -69,6 +69,8 @@ executable("otf_browser") {
   sources = [
     "shim/bridge.cc",
     "shim/bridge.h",
+    "shim/otf_browser_context.cc",
+    "shim/otf_browser_context.h",
     "shim/otf_bridge_host.cc",
     "shim/otf_bridge_host.h",
     "shim/otf_bridge_render_frame_observer.cc",
@@ -94,6 +96,8 @@ executable("otf_browser") {
     ":otf_backend",
     ":otf_mojom",
     "//base",
+    "//components/keyed_service/content",
+    "//components/keyed_service/core",
     "//content/public/app",
     "//content/public/browser",
     "//content/public/renderer",
