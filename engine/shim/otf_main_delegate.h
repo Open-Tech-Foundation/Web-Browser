@@ -5,6 +5,8 @@
 #ifndef OTF_ENGINE_SHIM_OTF_MAIN_DELEGATE_H_
 #define OTF_ENGINE_SHIM_OTF_MAIN_DELEGATE_H_
 
+#include <optional>
+
 #include "content/shell/app/shell_main_delegate.h"
 
 namespace otf {
@@ -15,6 +17,7 @@ class OtfMainDelegate : public content::ShellMainDelegate {
   ~OtfMainDelegate() override;
 
   // content::ContentMainDelegate:
+  std::optional<int> BasicStartupComplete() override;
   content::ContentBrowserClient* CreateContentBrowserClient() override;
   content::ContentRendererClient* CreateContentRendererClient() override;
 };
