@@ -2,11 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Migration in progress.** This browser is being moved off CEF onto a Rust
-> backend driving Chromium's **content** layer via a thin C++ shim. The CEF C++
-> host has been removed. Source of truth: `plan.md` (architecture) and
-> `MIGRATION-bridge-map.md` (the UI↔backend bridge contract). The new backend
-> lives in `engine/` — see `engine/README.md` for its status and dev loop.
+> **Migration status.** This browser runs on a Rust backend driving Chromium's
+> **content** layer via a thin C++ shim. CEF is gone, and as of the de-Shell
+> (branch `feat/rust-content-backend`) **content_shell is gone too**: otf has its
+> own embedder (ContentMainDelegate/ContentBrowserClient/RendererClient +
+> BrowserMainParts), its own BrowserContext, its own top-level window (behind the
+> cross-OS `OtfPlatformWindow` seam), and its own resource pack (`otf.pak`); the
+> binary is no longer `testonly`. Cross-OS is a first-class goal — keep all
+> toolkit code behind `OtfPlatformWindow`. Ozone defaults to Wayland (X11
+> fallback). Source of truth: `plan.md` (architecture) and `MIGRATION-bridge-map.md`
+> (the UI↔backend bridge contract). The backend lives in `engine/` — see
+> `engine/README.md` for status and the dev loop.
 
 ## Commands
 

@@ -43,7 +43,7 @@ engine/scripts/build-engine.sh         # single ninja build (in-tree rust + shim
 
 - [x] **Phase 1 skeleton:** shim header + stub, Rust staticlib, bindgen wiring,
       gn target, bootstrap/build scripts. `cargo test` green.
-- [~] **Phase 2 (in progress):**
+- [x] **Phase 2 (UI surface + bridge + own embedder) — done:**
   - [x] Build actually links: bindgen points at Chromium's libclang + clang
         resource headers; `//otf:otf_browser` wired into the root `gn_all` so gn
         loads it. First full build (stub shim) validates the toolchain.
@@ -75,14 +75,31 @@ engine/scripts/build-engine.sh         # single ninja build (in-tree rust + shim
         manual `-lotf_backend`/`inputs` wiring, and `--allow-multiple-definition`
         are all gone. cargo stays only for the standalone `cargo test` loop (the
         backend's `ffi` module switches binding source via the `in-tree` feature).
-  - [ ] Our own embedder/window: replace content_shell's scaffold (testonly)
-        with otf's ContentBrowserClient + BrowserContext + main parts + window;
-        session persistence/restore. Then SQLite history persistence.
+  - [x] Cross-OS window seam: `OtfPlatformWindow` (otf_platform_window.h) is the
+        only interface the shim uses for the OS window; all aura/views code lives
+        in the desktop backend `otf_window_aura.cc` (selected by `use_aura` in
+        BUILD.gn). macOS (Cocoa) / Android (surface) add their own backend file.
+        Ozone defaults to **Wayland** when a compositor is present, else X11.
+  - [x] **content_shell fully dropped — own embedder, no `testonly`.** otf now
+        boots on its own `content::ContentMainDelegate` / `ContentBrowserClient` /
+        `ContentRendererClient` / `BrowserMainParts`, its own `BrowserContext`
+        (shared by UI + tabs) and its own top-level window, with its own resource
+        pack (`otf.pak`, a `repack()` target). The binary links zero content_shell
+        libs. Verified on Wayland: boots, UI renders, no crashes.
 
-Run it: `out/otf/otf_browser <url>` (omit url → content_shell default). Build:
-`bun run build:engine`. Component build, so run from `out/otf` (needs the .so set).
-- [ ] **Phase 3:** full tab model, input router + reserved-shortcut table,
-      navigation/title/url/load events — at parity with the bridge map.
+Run it: `out/otf/otf_browser <url>` (omit url → `browser://newtab`). Build:
+`bun run build:engine` (single ninja: rust_bindgen + rust_static_library + shim +
+otf.pak). Component build, so run from `out/otf` (needs the .so set). Wayland is
+auto-selected; force a backend with `--ozone-platform=x11|wayland`.
+
+- [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
+      RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
+      bridge map. Plus: re-wire a DevTools http handler (dropped with Shell),
+      window-resize reflow, gate the bridge to `browser://` frames (security).
+- [ ] **Foundation for app features:** SQLite for history/bookmarks + session
+      persistence/restore (back/forward UX builds on this).
 - [ ] **Phase 4:** privacy APIs (DoH, HTTPS-only, partitioning, request filter).
+- [ ] **Cross-OS:** Windows (shares Desktop Aura), then macOS (Cocoa backend),
+      then Android (surface) — only the OtfPlatformWindow backend changes.
 
-`TODO(content)` / `TODO(phaseN)` mark the integration points still to fill in.
+`TODO(...)` markers in the shim flag the integration points still to fill in.

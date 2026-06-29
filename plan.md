@@ -151,33 +151,41 @@ gn/ninja (master)
 
 ## 10. Phased Roadmap
 
-**Phase 0 — Foundations**
-- Fetch + build vanilla Chromium (`content_shell` as reference).
-- Pin toolchain; get `is_component_build` dev config working.
+**Phase 0 — Foundations** ✅
+- Vanilla Chromium (M151), pinned toolchain, `is_component_build` dev config.
 
-**Phase 1 — Shim + Rust skeleton**
-- Thin C++ shim over content; clean C header.
-- `bindgen` bindings; Rust `staticlib`; custom gn target links it.
-- Boot Chromium from Rust; open one hardcoded tab in windowed mode.
+**Phase 1 — Shim + Rust skeleton** ✅
+- Thin C++ shim; clean grouped C header (`OtfApi`). bindgen bindings; **in-tree**
+  `rust_static_library` (shares Chromium's std). Boot Chromium from Rust; window.
 
-**Phase 2 — UI surface + bridge**
-- UI WebContents renders a React page.
-- Async JS↔Rust bridge (calls + events).
-- Child-view-in-hole layering; resize handling.
+**Phase 2 — UI surface + bridge + own embedder** ✅
+- UI WebContents renders React; async JS↔Rust Mojo bridge (calls+events).
+- Tabs host real `WebContents` (child-view-in-hole layering).
+- **Dropped content_shell entirely:** otf's own ContentMainDelegate /
+  ContentBrowserClient / RendererClient / BrowserMainParts / BrowserContext /
+  window / `otf.pak`; binary no longer `testonly`.
+- Cross-OS window seam (`OtfPlatformWindow`); Ozone defaults to Wayland (X11 fallback).
 
-**Phase 3 — Browser core**
-- Tab model in Rust (create/close/switch, show/hide native views).
-- Router + reserved-shortcut table.
-- Navigation, title/url/load-state events to UI.
+**Phase 3 — Browser core** (next)
+- Full tab-model parity; input router + reserved-shortcut table; RPC breadth
+  (most namespaces still resolve `Deferred`).
+- Re-wire DevTools http handler; window-resize reflow; gate bridge to `browser://`
+  frames (security). **SQLite for history/bookmarks + session persistence/restore**
+  — the data foundation app features (back/forward UX, history, bookmarks) build on.
 
 **Phase 4 — Privacy layer**
-- Wire Chromium privacy APIs from Rust (DoH, HTTPS-only, partitioning, request filtering, telemetry-off).
+- Wire Chromium privacy APIs from Rust (DoH, HTTPS-only, partitioning, request
+  filtering, telemetry-off) as new grouped FFI sub-interfaces (Cookies/Network/…).
 
 **Phase 5 — Hardening + rebase drill**
-- Nested-loop / focus / IME edge cases.
-- Do one full Chromium rebase early to validate the additive-file strategy.
+- Nested-loop / focus / IME edge cases; Vulkan-on-Wayland GPU path.
+- One full Chromium rebase to validate the additive-file strategy.
 
-**Later (post-v1):** extensions, auto-update, mobile.
+**Cross-OS track** (parallel, behind `OtfPlatformWindow`)
+- Linux ✅ (X11+Wayland). Windows (shares Desktop Aura) → macOS (Cocoa backend)
+  → Android (surface model). Only the OtfPlatformWindow backend changes per OS.
+
+**Later (post-v1):** extensions, auto-update.
 
 ---
 
