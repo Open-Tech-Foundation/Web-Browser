@@ -11,8 +11,8 @@
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/shell/browser/shell.h"
 #include "otf/shim/otf_browser_context.h"
+#include "otf/shim/otf_window.h"
 #include "ui/aura/window.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
@@ -92,12 +92,9 @@ content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
 }
 
 aura::Window* OtfTabHost::HostWindow() {
-  auto& windows = content::Shell::windows();
-  if (windows.empty()) {
-    return nullptr;
-  }
-  // The first Shell hosts the UI; its native window is our top-level container.
-  return windows.front()->window();
+  // otf's own top-level window hosts the UI; page tabs are parented into it.
+  OtfWindow* window = OtfWindow::Get();
+  return window ? window->GetNativeWindow() : nullptr;
 }
 
 gfx::Rect OtfTabHost::ContentBounds() {

@@ -71,6 +71,8 @@ executable("otf_browser") {
     "shim/bridge.h",
     "shim/otf_browser_context.cc",
     "shim/otf_browser_context.h",
+    "shim/otf_browser_main_parts.cc",
+    "shim/otf_browser_main_parts.h",
     "shim/otf_bridge_host.cc",
     "shim/otf_bridge_host.h",
     "shim/otf_bridge_render_frame_observer.cc",
@@ -84,6 +86,8 @@ executable("otf_browser") {
     "shim/otf_main_delegate.h",
     "shim/otf_tab_host.cc",
     "shim/otf_tab_host.h",
+    "shim/otf_window.cc",
+    "shim/otf_window.h",
   ]
 
   defines = [ "OTF_WITH_CONTENT" ]
@@ -106,11 +110,14 @@ executable("otf_browser") {
     "//content/shell:pak",
     "//gin",
     "//mojo/public/cpp/bindings",
+    "//net",
     "//sandbox",
     "//third_party/blink/public:blink_headers",
     "//ui/aura",
     "//ui/base",
     "//ui/gfx/geometry",
+    "//ui/views",
+    "//ui/views/controls/webview",
     "//url",
     "//v8",
   ]
