@@ -122,40 +122,139 @@ impl Backend {
 
     // --- bridge ------------------------------------------------------------
 
-    /// Handle an inbound JS bridge request. `Some` is a response to send now;
-    /// `None` means the call was routed to the content layer (answered later).
-    pub fn on_js_call(&mut self, request_json: &str) -> Option<String> {
-        bridge::handle_request(request_json)
+    /// Handle an inbound JS bridge request against the authoritative tab model.
+    /// Stateful tab methods mutate the model and yield the UI events to push;
+    /// everything else falls back to the stateless router (boot stubs, unknown).
+    pub fn on_js_call(&mut self, request_json: &str) -> CallOutcome {
+        let parsed: serde_json::Value = match serde_json::from_str(request_json) {
+            Ok(v) => v,
+            Err(_) => {
+                return CallOutcome::reply(bridge::error_response(
+                    "",
+                    "bad_request",
+                    "malformed request envelope",
+                ))
+            }
+        };
+        let id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let method = parsed.get("method").and_then(|v| v.as_str()).unwrap_or("");
+        let params = parsed.get("params").cloned().unwrap_or(serde_json::Value::Null);
+        let tab_id = || params.get("tabId").and_then(|v| v.as_u64());
+
+        match method {
+            // The UI's event stream opening: no RPC reply, replay current state.
+            "ui.events.subscribe" => CallOutcome::events(self.replay_events()),
+
+            // Reads that must reflect live state (the stateless boot stubs can't).
+            "tabs.list" => {
+                let tabs: Vec<serde_json::Value> =
+                    self.tabs.iter().map(Self::tab_json).collect();
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(tabs)))
+            }
+            "tabs.active" => {
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(self.active)))
+            }
+
+            // Tab lifecycle: mutate the model and push the matching events.
+            "navigation.newTab" => {
+                let url = params
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("browser://newtab")
+                    .to_owned();
+                let new_id = self.open_tab(&url);
+                let events = vec![
+                    self.new_tab_event(new_id),
+                    bridge::event("active-tab-changed", serde_json::json!({ "id": new_id })),
+                ];
+                CallOutcome {
+                    response: Some(bridge::ok_response(id, serde_json::json!({ "tabId": new_id }))),
+                    events,
+                }
+            }
+            "tabs.switch" => {
+                let mut events = Vec::new();
+                if let Some(tid) = tab_id() {
+                    if self.tab(tid).is_some() {
+                        self.active = Some(tid);
+                        events.push(bridge::event(
+                            "active-tab-changed",
+                            serde_json::json!({ "id": tid }),
+                        ));
+                    }
+                }
+                CallOutcome {
+                    response: Some(bridge::ok_response(id, serde_json::json!(true))),
+                    events,
+                }
+            }
+            "tabs.close" => {
+                let mut events = Vec::new();
+                if let Some(tid) = tab_id() {
+                    if self.close_tab(tid) {
+                        events.push(bridge::event("tab-closed", serde_json::json!({ "id": tid })));
+                        if let Some(active) = self.active {
+                            events.push(bridge::event(
+                                "active-tab-changed",
+                                serde_json::json!({ "id": active }),
+                            ));
+                        }
+                    }
+                }
+                CallOutcome {
+                    response: Some(bridge::ok_response(id, serde_json::json!(true))),
+                    events,
+                }
+            }
+
+            _ => CallOutcome::maybe_reply(bridge::handle_request(request_json)),
+        }
     }
 
-    /// When the UI opens its event stream (`ui.events.subscribe`), replay the
-    /// current model as `new-tab` events so the freshly loaded React chrome
-    /// populates from authoritative state. Returns the envelopes to emit (empty
-    /// for any other call). Subscriptions themselves have no RPC response.
-    pub fn replay_for_subscribe(&self, request_json: &str) -> Vec<String> {
-        let method = serde_json::from_str::<serde_json::Value>(request_json)
-            .ok()
-            .and_then(|v| v.get("method").and_then(|m| m.as_str()).map(str::to_owned));
-        if method.as_deref() != Some("ui.events.subscribe") {
-            return Vec::new();
+    /// Replay the current model to a freshly subscribed UI: a `new-tab` per tab
+    /// plus the active-tab marker, so the chrome populates from authoritative
+    /// state without a separate fetch.
+    fn replay_events(&self) -> Vec<String> {
+        let mut events: Vec<String> =
+            self.tabs.iter().map(|t| self.new_tab_event(t.id)).collect();
+        if let Some(active) = self.active {
+            events.push(bridge::event("active-tab-changed", serde_json::json!({ "id": active })));
         }
-        self.tabs
-            .iter()
-            .map(|t| {
-                bridge::event(
-                    "new-tab",
-                    serde_json::json!({
-                        "tab": {
-                            "id": t.id,
-                            "url": t.url,
-                            "title": t.title,
-                            "loading": t.loading,
-                        },
-                        "parentTabId": -1,
-                    }),
-                )
-            })
-            .collect()
+        events
+    }
+
+    fn new_tab_event(&self, id: TabId) -> String {
+        let tab = self.tab(id).map(Self::tab_json).unwrap_or(serde_json::Value::Null);
+        bridge::event("new-tab", serde_json::json!({ "tab": tab, "parentTabId": -1 }))
+    }
+
+    fn tab_json(t: &Tab) -> serde_json::Value {
+        serde_json::json!({
+            "id": t.id,
+            "url": t.url,
+            "title": t.title,
+            "loading": t.loading,
+        })
+    }
+}
+
+/// Outcome of an inbound JS call: an optional RPC response plus any UI events to
+/// push as a side effect (the trampoline sends the response, then emits events).
+pub struct CallOutcome {
+    pub response: Option<String>,
+    pub events: Vec<String>,
+}
+
+impl CallOutcome {
+    fn reply(response: String) -> Self {
+        CallOutcome { response: Some(response), events: Vec::new() }
+    }
+    fn maybe_reply(response: Option<String>) -> Self {
+        CallOutcome { response, events: Vec::new() }
+    }
+    fn events(events: Vec<String>) -> Self {
+        CallOutcome { response: None, events }
     }
 }
 
@@ -204,15 +303,15 @@ mod ffi_glue {
         request_json: *const c_char,
     ) {
         let backend = as_backend(user_data);
-        let request = c_str(request_json);
-        if let Some(response) = backend.on_js_call(request) {
+        let outcome = backend.on_js_call(c_str(request_json));
+        if let Some(response) = outcome.response {
             if let Ok(c) = CString::new(response) {
                 crate::ffi::otf_bridge_respond(reply_id, c.as_ptr());
             }
         }
-        // None -> deferred; the content layer responds later via the shim.
-        // A subscription opening also replays current state as pushed events.
-        for ev in backend.replay_for_subscribe(request) {
+        // No response -> deferred (answered later) or a subscription. Any pushed
+        // events (tab lifecycle, subscribe replay) are emitted to the UI surface.
+        for ev in outcome.events {
             emit(ev);
         }
     }

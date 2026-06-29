@@ -81,9 +81,14 @@ executable("otf_browser") {
     data_deps += [ "//components/crash/core/app:chrome_crashpad_handler" ]
   }
 
-  # Link the Rust backend staticlib from its copied-in location.
+  # Link the Rust backend staticlib from its copied-in location. `libs` only
+  # adds `-lotf_backend` to the link command — it does NOT make ninja treat the
+  # .a as an input, so a Rust-only change (new .a, unchanged shim) would not
+  # relink. Declaring it in `inputs` adds the dependency edge so every staticlib
+  # rebuild relinks otf_browser.
   lib_dirs = [ target_out_dir ]
   libs = [ "otf_backend" ]
+  inputs = [ "$target_out_dir/libotf_backend.a" ]
 
   # Our cargo staticlib bundles Rust std, and the binary also links Chromium's
   # own Rust std. Built with the same toolchain (see build-engine.sh) those std

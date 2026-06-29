@@ -50,8 +50,8 @@ fn boot_stub(method: &str) -> Option<Reply> {
             "appearanceMode": "auto",
         }),
         "workspaces.list" => json!([{ "id": 1, "name": "Default", "active": true }]),
-        "tabs.list" => json!([]),
-        "tabs.active" => json!(1),
+        // tabs.list / tabs.active are answered against live state in
+        // Backend::on_js_call, not here (this router has no model access).
         "tabs.splitState" => json!({
             "enabled": false,
             "leftTabId": -1,

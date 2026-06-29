@@ -78,21 +78,76 @@ mod tests {
         assert!(b.on_load_state(999, true).is_none());
     }
 
+    fn event_keys(events: &[String]) -> Vec<String> {
+        events
+            .iter()
+            .map(|e| {
+                serde_json::from_str::<serde_json::Value>(e).unwrap()["key"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect()
+    }
+
     #[test]
-    fn subscribe_replays_current_tabs_as_new_tab_events() {
+    fn subscribe_replays_current_tabs_then_active_marker() {
         let mut b = Backend::new_for_test();
         let id = b.open_tab("https://example.com");
 
-        let events = b.replay_for_subscribe(r#"{"id":"s1","method":"ui.events.subscribe"}"#);
-        assert_eq!(events.len(), 1);
-        let v: serde_json::Value = serde_json::from_str(&events[0]).unwrap();
-        assert_eq!(v["key"], "new-tab");
-        assert_eq!(v["tab"]["id"], id);
-        assert_eq!(v["tab"]["url"], "https://example.com");
+        let outcome = b.on_js_call(r#"{"id":"s1","method":"ui.events.subscribe"}"#);
+        assert!(outcome.response.is_none(), "subscriptions have no RPC reply");
+        assert_eq!(event_keys(&outcome.events), ["new-tab", "active-tab-changed"]);
+        let first: serde_json::Value = serde_json::from_str(&outcome.events[0]).unwrap();
+        assert_eq!(first["tab"]["id"], id);
+        assert_eq!(first["tab"]["url"], "https://example.com");
+    }
 
-        // Non-subscription calls replay nothing.
-        assert!(b
-            .replay_for_subscribe(r#"{"id":"x","method":"tabs.list"}"#)
-            .is_empty());
+    #[test]
+    fn new_tab_adds_to_model_and_emits_events() {
+        let mut b = Backend::new_for_test();
+        let outcome = b.on_js_call(r#"{"id":"7","method":"navigation.newTab","params":{}}"#);
+
+        assert_eq!(b.tab_count(), 1);
+        let resp: serde_json::Value = serde_json::from_str(&outcome.response.unwrap()).unwrap();
+        assert_eq!(resp["ok"], true);
+        let new_id = resp["result"]["tabId"].as_u64().unwrap();
+        assert_eq!(b.active_tab(), Some(new_id));
+        assert_eq!(event_keys(&outcome.events), ["new-tab", "active-tab-changed"]);
+    }
+
+    #[test]
+    fn switch_tab_updates_active_and_emits() {
+        let mut b = Backend::new_for_test();
+        let a = b.open_tab("https://a.test");
+        let _b = b.open_tab("https://b.test");
+
+        let req = format!(r#"{{"id":"1","method":"tabs.switch","params":{{"tabId":{a}}}}}"#);
+        let outcome = b.on_js_call(&req);
+        assert_eq!(b.active_tab(), Some(a));
+        assert_eq!(event_keys(&outcome.events), ["active-tab-changed"]);
+    }
+
+    #[test]
+    fn close_tab_removes_and_emits_closed_plus_new_active() {
+        let mut b = Backend::new_for_test();
+        let a = b.open_tab("https://a.test");
+        let z = b.open_tab("https://b.test"); // active
+
+        let req = format!(r#"{{"id":"1","method":"tabs.close","params":{{"tabId":{z}}}}}"#);
+        let outcome = b.on_js_call(&req);
+        assert_eq!(b.tab_count(), 1);
+        assert_eq!(b.active_tab(), Some(a));
+        assert_eq!(event_keys(&outcome.events), ["tab-closed", "active-tab-changed"]);
+    }
+
+    #[test]
+    fn tabs_list_reflects_live_model() {
+        let mut b = Backend::new_for_test();
+        b.open_tab("https://a.test");
+        b.open_tab("https://b.test");
+        let outcome = b.on_js_call(r#"{"id":"1","method":"tabs.list","params":{}}"#);
+        let resp: serde_json::Value = serde_json::from_str(&outcome.response.unwrap()).unwrap();
+        assert_eq!(resp["result"].as_array().unwrap().len(), 2);
     }
 }
