@@ -51,7 +51,73 @@ const cefTransport = {
   },
 };
 
-let transport = cefTransport;
+// --- otf transport (Rust/content backend over the Mojo bridge) ---------------
+// Single bidirectional channel: window.otf.postMessage(wire) sends a request or
+// subscription upstream; the browser pushes every response/event back through
+// window.__otfReceive(wire). The shim (otf_bridge_render_frame_observer.cc)
+// installs window.otf; we install the receiver. Responses ({ id, ok }) resolve
+// the matching pending request; events ({ key }) fan out to all subscribers,
+// which each filter by key — matching the CEF transport's per-stream contract.
+const otfTransport = (() => {
+  const pending = new Map(); // request id -> { resolve }
+  const subscribers = new Set(); // onMessage callbacks
+  let receiverInstalled = false;
+
+  const ensureReceiver = () => {
+    if (receiverInstalled || typeof window === 'undefined') return;
+    receiverInstalled = true;
+    window.__otfReceive = (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw);
+      } catch (_) {
+        return;
+      }
+      if (msg && typeof msg.ok === 'boolean' && 'id' in msg) {
+        const waiter = pending.get(msg.id);
+        if (waiter) {
+          pending.delete(msg.id);
+          waiter.resolve(raw);
+        }
+        return;
+      }
+      // Event: deliver the raw envelope string to every active subscriber.
+      for (const onMessage of subscribers) onMessage(raw);
+    };
+  };
+
+  return {
+    isAvailable: () => typeof window !== 'undefined' && !!window.otf,
+    request(wire) {
+      ensureReceiver();
+      let id;
+      try {
+        ({ id } = JSON.parse(wire));
+      } catch (_) {
+        return Promise.reject(new Error('Invalid request envelope'));
+      }
+      return new Promise((resolve) => {
+        pending.set(id, { resolve });
+        window.otf.postMessage(wire);
+      });
+    },
+    subscribe(wire, onMessage, onError) {
+      ensureReceiver();
+      subscribers.add(onMessage);
+      try {
+        window.otf.postMessage(wire);
+      } catch (e) {
+        if (onError) onError(e);
+      }
+      return () => subscribers.delete(onMessage);
+    },
+  };
+})();
+
+// Pick the backend that's actually present. The Rust/content build injects
+// window.otf; legacy CEF builds expose window.cefQuery.
+let transport =
+  typeof window !== 'undefined' && window.otf ? otfTransport : cefTransport;
 
 // Swap the live transport (used at the Rust cutover). Passing nothing restores CEF.
 export const setTransport = (next) => {

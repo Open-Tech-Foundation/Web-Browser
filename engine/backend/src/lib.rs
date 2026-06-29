@@ -77,4 +77,22 @@ mod tests {
         assert!(b.on_url_changed(999, "nope").is_none());
         assert!(b.on_load_state(999, true).is_none());
     }
+
+    #[test]
+    fn subscribe_replays_current_tabs_as_new_tab_events() {
+        let mut b = Backend::new_for_test();
+        let id = b.open_tab("https://example.com");
+
+        let events = b.replay_for_subscribe(r#"{"id":"s1","method":"ui.events.subscribe"}"#);
+        assert_eq!(events.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&events[0]).unwrap();
+        assert_eq!(v["key"], "new-tab");
+        assert_eq!(v["tab"]["id"], id);
+        assert_eq!(v["tab"]["url"], "https://example.com");
+
+        // Non-subscription calls replay nothing.
+        assert!(b
+            .replay_for_subscribe(r#"{"id":"x","method":"tabs.list"}"#)
+            .is_empty());
+    }
 }

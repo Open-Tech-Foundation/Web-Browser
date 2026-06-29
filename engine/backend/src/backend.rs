@@ -127,6 +127,36 @@ impl Backend {
     pub fn on_js_call(&mut self, request_json: &str) -> Option<String> {
         bridge::handle_request(request_json)
     }
+
+    /// When the UI opens its event stream (`ui.events.subscribe`), replay the
+    /// current model as `new-tab` events so the freshly loaded React chrome
+    /// populates from authoritative state. Returns the envelopes to emit (empty
+    /// for any other call). Subscriptions themselves have no RPC response.
+    pub fn replay_for_subscribe(&self, request_json: &str) -> Vec<String> {
+        let method = serde_json::from_str::<serde_json::Value>(request_json)
+            .ok()
+            .and_then(|v| v.get("method").and_then(|m| m.as_str()).map(str::to_owned));
+        if method.as_deref() != Some("ui.events.subscribe") {
+            return Vec::new();
+        }
+        self.tabs
+            .iter()
+            .map(|t| {
+                bridge::event(
+                    "new-tab",
+                    serde_json::json!({
+                        "tab": {
+                            "id": t.id,
+                            "url": t.url,
+                            "title": t.title,
+                            "loading": t.loading,
+                        },
+                        "parentTabId": -1,
+                    }),
+                )
+            })
+            .collect()
+    }
 }
 
 /// FFI trampolines: build the C callback table and marshal content events back
@@ -174,12 +204,17 @@ mod ffi_glue {
         request_json: *const c_char,
     ) {
         let backend = as_backend(user_data);
-        if let Some(response) = backend.on_js_call(c_str(request_json)) {
+        let request = c_str(request_json);
+        if let Some(response) = backend.on_js_call(request) {
             if let Ok(c) = CString::new(response) {
                 crate::ffi::otf_bridge_respond(reply_id, c.as_ptr());
             }
         }
         // None -> deferred; the content layer responds later via the shim.
+        // A subscription opening also replays current state as pushed events.
+        for ev in backend.replay_for_subscribe(request) {
+            emit(ev);
+        }
     }
 
     unsafe extern "C" fn on_title_changed(

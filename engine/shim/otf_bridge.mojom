@@ -1,0 +1,26 @@
+// Mojo interface for the JS <-> Rust bridge (plan.md §5, Phase 2b).
+//
+// This is the renderer <-> browser transport that backs the UI's
+// ui/src/shared/bridge.js. The UI frame talks to BridgeHost (renderer ->
+// browser); the browser pushes responses and events back over BridgeClient
+// (browser -> renderer). Both carry opaque JSON wire strings — the envelope
+// protocol lives in JS/Rust, not in Mojo, so the surface stays tiny and stable.
+module otf.mojom;
+
+// Implemented in the renderer. The browser calls this to hand a wire message
+// (an RPC response { id, ok, ... } or a pushed event { key, ... }) back to JS,
+// where window.__otfReceive routes it.
+interface BridgeClient {
+  Deliver(string message_json);
+};
+
+// Implemented in the browser (OtfBridgeHost). The UI renderer frame calls this.
+interface BridgeHost {
+  // Register the renderer-side client so the browser can push back to this
+  // frame. Called once when window.otf is installed.
+  Connect(pending_remote<BridgeClient> client);
+
+  // A JS bridge request envelope { id, method, params }. The response (if any)
+  // comes back asynchronously via BridgeClient.Deliver.
+  Call(string request_json);
+};

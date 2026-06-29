@@ -37,9 +37,38 @@ pub enum Reply {
     Deferred,
 }
 
+/// Minimal real answers for the handful of methods the React UI awaits during
+/// boot, so its chrome can render against the Rust backend (Phase 2b). The full
+/// ~130-method surface is filled in module-by-module in Phase 3; until then
+/// everything else in a known namespace resolves as `Deferred`.
+fn boot_stub(method: &str) -> Option<Reply> {
+    let value = match method {
+        "session.isGuest" => json!(false),
+        "settings.get" => json!({
+            "searchEngine": "",
+            "customSearchEngines": [],
+            "appearanceMode": "auto",
+        }),
+        "workspaces.list" => json!([{ "id": 1, "name": "Default", "active": true }]),
+        "tabs.list" => json!([]),
+        "tabs.active" => json!(1),
+        "tabs.splitState" => json!({
+            "enabled": false,
+            "leftTabId": -1,
+            "rightTabId": -1,
+            "activeTabId": -1,
+        }),
+        _ => return None,
+    };
+    Some(Reply::Ok(value))
+}
+
 /// Route a method to its namespace handler. Returns None if unknown so the
 /// caller can answer with `unknown_method`, matching the previous dispatcher.
 pub fn dispatch(call: &Call) -> Option<Reply> {
+    if let Some(reply) = boot_stub(call.method) {
+        return Some(reply);
+    }
     let namespace = call.method.split('.').next().unwrap_or("");
     match namespace {
         "tabs" | "navigation" | "workspaces" | "split" => Some(Reply::Deferred),
@@ -126,8 +155,18 @@ mod tests {
 
     #[test]
     fn known_method_defers() {
-        // Routed to content -> no synchronous response.
-        assert!(handle_request(r#"{"id":"7","method":"tabs.list","params":{}}"#).is_none());
+        // Routed to content -> no synchronous response (a non-boot-stub method).
+        assert!(handle_request(r#"{"id":"7","method":"tabs.duplicate","params":{}}"#).is_none());
+    }
+
+    #[test]
+    fn boot_stubs_answer_synchronously() {
+        let resp = handle_request(r#"{"id":"9","method":"workspaces.list","params":{}}"#)
+            .expect("boot stub responds");
+        let v: Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["id"], "9");
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["result"][0]["active"], true);
     }
 
     #[test]

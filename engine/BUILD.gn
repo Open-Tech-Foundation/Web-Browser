@@ -11,6 +11,13 @@
 #      links libotf_backend.a, and pulls in the content layer.
 
 import("//build/config/ui.gni")
+import("//mojo/public/tools/bindings/mojom.gni")
+
+# The JS<->Rust bridge transport interface (renderer <-> browser). Generates the
+# C++ bindings the shim's browser/renderer clients use.
+mojom("otf_mojom") {
+  sources = [ "shim/otf_bridge.mojom" ]
+}
 
 # Cargo writes libotf_backend.a outside the Chromium tree (engine/ is symlinked
 # in as //otf). A -L pointing out through that symlink doesn't resolve at link
@@ -29,20 +36,40 @@ executable("otf_browser") {
   sources = [
     "shim/bridge.cc",
     "shim/bridge.h",
+    "shim/otf_bridge_host.cc",
+    "shim/otf_bridge_host.h",
+    "shim/otf_bridge_render_frame_observer.cc",
+    "shim/otf_bridge_render_frame_observer.h",
+    "shim/otf_content_browser_client.cc",
+    "shim/otf_content_browser_client.h",
+    "shim/otf_content_renderer_client.cc",
+    "shim/otf_content_renderer_client.h",
     "shim/otf_main.cc",
+    "shim/otf_main_delegate.cc",
+    "shim/otf_main_delegate.h",
   ]
 
   defines = [ "OTF_WITH_CONTENT" ]
 
   # Mirrors content/shell:content_shell so ShellMainDelegate has its clients,
-  # resources (content_shell.pak) and V8 snapshot available at runtime.
+  # resources (content_shell.pak) and V8 snapshot available at runtime. The
+  # bridge clients add gin/v8/blink (renderer JS bindings), mojo, and content's
+  # public browser/renderer APIs.
   deps = [
     ":otf_backend_staticlib",
+    ":otf_mojom",
+    "//base",
     "//content/public/app",
+    "//content/public/browser",
+    "//content/public/renderer",
     "//content/shell:content_shell_app",
     "//content/shell:content_shell_lib",
     "//content/shell:pak",
+    "//gin",
+    "//mojo/public/cpp/bindings",
     "//sandbox",
+    "//third_party/blink/public:blink_headers",
+    "//v8",
   ]
 
   data_deps = [
@@ -65,5 +92,8 @@ executable("otf_browser") {
   # rust_static_library that shares Chromium's std (no bundled copy).
   ldflags = [ "-Wl,--allow-multiple-definition" ]
 
-  configs += [ "//build/config/compiler:rtti" ]
+  # Build -fno-rtti like the rest of content (the default no_rtti config). The
+  # shim subclasses content/content_shell polymorphic types (ShellMainDelegate,
+  # RenderFrameObserver, the mojo/gin bases), which are compiled without RTTI and
+  # export no typeinfo; enabling RTTI here would emit undefined typeinfo refs.
 }

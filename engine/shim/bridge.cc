@@ -67,7 +67,8 @@ OtfStatus otf_bridge_emit(OtfTabHandle, const char* /*json*/) { return 0; }
 // Rust -> content stack end to end. Phase 2b swaps this scaffold for our own UI
 // WebContents + tab model + live bridge over the content/public APIs directly.
 #include "content/public/app/content_main.h"
-#include "content/shell/app/shell_main_delegate.h"
+#include "otf/shim/otf_bridge_host.h"
+#include "otf/shim/otf_main_delegate.h"
 
 namespace {
 int g_argc = 0;
@@ -80,15 +81,21 @@ OtfStatus otf_browser_init(int argc, char** argv, OtfCallbacks callbacks) {
   g_callbacks = callbacks;
   g_argc = argc;
   g_argv = argv;
+  // The bridge host lives in the browser process and marshals JS calls to Rust.
+  // Child processes also run this init but never bind a renderer-side receiver,
+  // so wiring the callbacks unconditionally is harmless.
+  otf::OtfBridgeHost::Get().SetCallbacks(callbacks);
   return 0;
 }
 
 OtfStatus otf_browser_run(void) {
   // Mirrors content/shell/app/shell_main.cc: the delegate must outlive
-  // ContentMain. ContentMain runs this process — the browser process blocks in
-  // the run loop until shutdown; re-exec'd child processes (renderer/gpu/...)
+  // ContentMain. OtfMainDelegate reuses content_shell's embedder scaffolding but
+  // installs otf's browser/renderer clients so the bridge interface is exposed
+  // to every frame. ContentMain runs this process — the browser process blocks
+  // in the run loop until shutdown; re-exec'd child processes (renderer/gpu/...)
   // run their logic and return. Returns the process exit code.
-  content::ShellMainDelegate delegate;
+  otf::OtfMainDelegate delegate;
   content::ContentMainParams params(&delegate);
   params.argc = g_argc;
   params.argv = const_cast<const char**>(g_argv);
@@ -107,8 +114,14 @@ OtfStatus otf_tab_show(OtfTabHandle) { return 0; }
 OtfStatus otf_tab_hide(OtfTabHandle) { return 0; }
 OtfStatus otf_tab_close(OtfTabHandle) { return 0; }
 
-OtfStatus otf_bridge_respond(uint64_t /*reply_id*/, const char* /*json*/) { return 0; }
-OtfStatus otf_bridge_emit(OtfTabHandle, const char* /*json*/) { return 0; }
+OtfStatus otf_bridge_respond(uint64_t reply_id, const char* json) {
+  otf::OtfBridgeHost::Get().Respond(reply_id, json ? json : "");
+  return 0;
+}
+OtfStatus otf_bridge_emit(OtfTabHandle /*target*/, const char* json) {
+  otf::OtfBridgeHost::Get().Emit(json ? json : "");
+  return 0;
+}
 
 }  // extern "C"
 

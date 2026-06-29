@@ -55,8 +55,13 @@ engine/scripts/build-engine.sh         # cargo staticlib -> ninja link
         `ShellMainDelegate` + `ContentMain` (reusing `content_shell_lib`) and
         renders a real browser window. Verified end to end via CDP screenshot.
         Toolchain aligned to Chromium's rustc so the bundled std doesn't clash.
-  - [ ] Our own UI WebContents renders the React app; child-view-in-hole layering.
-  - [ ] Bridge bindings injected into the UI renderer (live JS↔Rust round-trip).
+  - [x] Bridge bindings injected into the UI renderer (live JS↔Rust round-trip):
+        a Mojo interface (`otf::mojom::BridgeHost`/`BridgeClient`) wired through
+        otf's Content{Browser,Renderer}Client + a RenderFrameObserver that
+        installs `window.otf` via gin. The real React chrome now boots against
+        the Rust backend (workspaces/tabs come from the backend, not CEF).
+  - [ ] Our own UI WebContents renders the React app; child-view-in-hole layering
+        (today the UI loads in content_shell's window; tabs aren't hosted yet).
 
 Run it: `out/otf/otf_browser <url>` (omit url → content_shell default). Build:
 `bun run build:engine`. Component build, so run from `out/otf` (needs the .so set).
