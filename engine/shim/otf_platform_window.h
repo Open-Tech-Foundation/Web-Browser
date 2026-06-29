@@ -40,6 +40,12 @@ class OtfPlatformWindow {
   // The single process window, or nullptr before Create() / after close.
   static OtfPlatformWindow* Get();
 
+  // Brings up the process windowing environment (e.g. screen, window-manager
+  // state, ViewsDelegate on desktop aura). Must be called once, after the UI
+  // toolkit is ready and before any WebContents is created (content registers
+  // display observers that require a display::Screen). Idempotent.
+  static void InitToolkit();
+
   virtual ~OtfPlatformWindow() = default;
 
   // Page-tab hosting. ShowTab attaches `tab`'s view into the content region

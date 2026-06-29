@@ -29,6 +29,10 @@ class OtfBrowserContext : public content::BrowserContext {
 
   ~OtfBrowserContext() override;
 
+  // The process's active (non-incognito) context, or nullptr before one is
+  // created. Owned by OtfBrowserMainParts; shared by the UI and all page tabs.
+  static OtfBrowserContext* Get();
+
   // content::BrowserContext:
   base::FilePath GetPath() const override;
   std::unique_ptr<content::ZoomLevelDelegate> CreateZoomLevelDelegate(

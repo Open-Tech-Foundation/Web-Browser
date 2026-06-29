@@ -11,17 +11,28 @@
 #include <utility>
 
 #include "base/memory/raw_ptr.h"
+#include "base/no_destructor.h"
 #include "build/build_config.h"
 #include "content/public/browser/web_contents.h"
 #include "otf/shim/otf_platform_window.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/views/buildflags.h"
 #include "ui/views/controls/webview/webview.h"
+#include "ui/views/views_delegate.h"
+#include "ui/views/widget/desktop_aura/desktop_screen.h"
+#include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
+#include "ui/wm/core/wm_state.h"
+
+#if BUILDFLAG(ENABLE_DESKTOP_AURA)
+#include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
+#endif
 
 namespace otf {
 
@@ -33,6 +44,53 @@ constexpr int kChromeHeight = 65;
 
 OtfPlatformWindow* g_instance = nullptr;
 
+// Minimal non-test ViewsDelegate: routes top-level widgets to
+// DesktopNativeWidgetAura (and child widgets to NativeWidgetAura) on desktop
+// aura, which is what content_shell's DesktopTestViewsDelegate does for tests.
+class OtfViewsDelegate : public views::ViewsDelegate {
+ public:
+  OtfViewsDelegate() = default;
+  OtfViewsDelegate(const OtfViewsDelegate&) = delete;
+  OtfViewsDelegate& operator=(const OtfViewsDelegate&) = delete;
+  ~OtfViewsDelegate() override = default;
+
+  void OnBeforeWidgetInit(
+      views::Widget::InitParams* params,
+      views::internal::NativeWidgetDelegate* delegate) override {
+#if BUILDFLAG(ENABLE_DESKTOP_AURA)
+    if (params->native_widget) {
+      return;
+    }
+    if (params->parent &&
+        params->type != views::Widget::InitParams::TYPE_MENU &&
+        params->type != views::Widget::InitParams::TYPE_TOOLTIP) {
+      params->native_widget = new views::NativeWidgetAura(delegate);
+    } else {
+      params->native_widget = new views::DesktopNativeWidgetAura(delegate);
+    }
+#endif
+  }
+};
+
+// Process-global views environment (window manager state, screen, ViewsDelegate),
+// created once before the first widget. Replaces the setup content_shell did in
+// ShellPlatformDelegate::Initialize.
+struct ViewsEnv {
+  ViewsEnv() {
+    if (!display::Screen::HasScreen()) {
+      screen = views::CreateDesktopScreen();
+    }
+  }
+  wm::WMState wm_state;
+  std::unique_ptr<display::Screen> screen;
+  OtfViewsDelegate views_delegate;  // registers itself as the global on ctor
+};
+
+void EnsureViewsEnv() {
+  static base::NoDestructor<ViewsEnv> env;
+  (void)env;
+}
+
 class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
  public:
   OtfWindowAura(content::WebContents* ui_contents,
@@ -40,6 +98,10 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
                 base::OnceClosure on_closed)
       : on_closed_(std::move(on_closed)) {
     g_instance = this;
+
+    // Bring up the views environment (ViewsDelegate/wm/screen) before the first
+    // widget. content_shell did this in ShellPlatformDelegate::Initialize.
+    EnsureViewsEnv();
 
     // The whole window is the UI WebContents. No native toolbar — otf renders
     // its own chrome inside the WebContents.
@@ -181,6 +243,11 @@ std::unique_ptr<OtfPlatformWindow> OtfPlatformWindow::Create(
 // static
 OtfPlatformWindow* OtfPlatformWindow::Get() {
   return g_instance;
+}
+
+// static
+void OtfPlatformWindow::InitToolkit() {
+  EnsureViewsEnv();
 }
 
 }  // namespace otf

@@ -74,10 +74,9 @@ extern "C" const OtfApi* otf_api(void) { return &kApi; }
 
 #else
 // ----------------------------- content layer -------------------------------
-// First light (Phase 2): boot Chromium's content layer from Rust by reusing
-// content_shell's embedder scaffolding (OtfMainDelegate). The bridge interface
-// (Rust <-> JS) is live; the tabs interface is being filled in with real
-// WebContents in Phase 2c — until then its ops are no-ops.
+// Boots Chromium's content layer from Rust through otf's own embedder
+// (OtfMainDelegate — no content_shell). The bridge interface (Rust <-> JS) and
+// the tabs interface (real WebContents) are live.
 #include "content/public/app/content_main.h"
 #include "otf/shim/otf_bridge_host.h"
 #include "otf/shim/otf_main_delegate.h"
@@ -104,10 +103,10 @@ OtfStatus LifecycleInit(int argc, char** argv, OtfCallbacks callbacks) {
 }
 
 OtfStatus LifecycleRun(void) {
-  // Mirrors content/shell/app/shell_main.cc: the delegate must outlive
-  // ContentMain. OtfMainDelegate reuses content_shell's embedder scaffolding but
-  // installs otf's browser/renderer clients so the bridge interface is exposed
-  // to every frame. ContentMain runs this process — the browser process blocks
+  // The delegate must outlive ContentMain. OtfMainDelegate is otf's own
+  // ContentMainDelegate: it loads otf's resources and installs otf's
+  // browser/renderer clients (exposing the bridge to every frame) and builds
+  // otf's own window. ContentMain runs this process — the browser process blocks
   // in the run loop until shutdown; re-exec'd child processes run their logic
   // and return. Returns the process exit code.
   otf::OtfMainDelegate delegate;
@@ -119,7 +118,7 @@ OtfStatus LifecycleRun(void) {
 
 void LifecycleShutdown(void) { g_callbacks = {}; }
 
-// --- Ui --- (TODO(phase2c): our own UI WebContents; today it's content_shell's)
+// --- Ui --- (the UI WebContents + window are created by OtfBrowserMainParts)
 OtfStatus UiCreate(const char* /*url*/) { return 0; }
 OtfStatus UiSetContentBounds(int32_t x, int32_t y, int32_t w, int32_t h) {
   otf::OtfTabHost::Get().SetContentBounds(x, y, w, h);

@@ -5,11 +5,13 @@
 
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/files/file_path.h"
+#include "base/path_service.h"
 #include "build/build_config.h"
-#include "content/shell/common/shell_switches.h"
 #include "otf/shim/otf_content_browser_client.h"
 #include "otf/shim/otf_content_client.h"
 #include "otf/shim/otf_content_renderer_client.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace otf {
 
@@ -18,8 +20,8 @@ namespace {
 #if BUILDFLAG(IS_LINUX)
 // Default the Ozone backend to Wayland when a compositor is present, else X11.
 // Wayland is the modern default across Linux desktops; we fall back to X11 so
-// X11-only sessions (and Xwayland-less setups) still run. An explicit
-// --ozone-platform on the command line always wins. Must run before Ozone init.
+// X11-only sessions still run. An explicit --ozone-platform always wins. Must
+// run before Ozone init.
 void DefaultOzonePlatform(base::CommandLine* command_line) {
   constexpr char kOzonePlatform[] = "ozone-platform";
   if (command_line->HasSwitch(kOzonePlatform)) {
@@ -34,25 +36,29 @@ void DefaultOzonePlatform(base::CommandLine* command_line) {
 }
 #endif  // BUILDFLAG(IS_LINUX)
 
+// Loads otf's resource pack into the shared ResourceBundle. otf.pak ships next to
+// the binary (DIR_ASSETS) and aggregates content/blink/ui/views resources.
+void InitializeResourceBundle() {
+  base::FilePath pak_file;
+  CHECK(base::PathService::Get(base::DIR_ASSETS, &pak_file));
+  pak_file = pak_file.Append(FILE_PATH_LITERAL("otf.pak"));
+  ui::ResourceBundle::InitSharedInstanceWithPakPath(pak_file);
+}
+
 }  // namespace
 
 OtfMainDelegate::OtfMainDelegate() = default;
 OtfMainDelegate::~OtfMainDelegate() = default;
 
 std::optional<int> OtfMainDelegate::BasicStartupComplete() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-
-  // Suppress content_shell's built-in test toolbar (Back/Forward/Refresh/Stop +
-  // URL field). otf draws its own chrome (the React UI WebContents), so the
-  // shell WebView fills the whole window. Forced on here, before the window is
-  // built, so it doesn't depend on a launch flag.
-  command_line->AppendSwitch(switches::kContentShellHideToolbar);
-
 #if BUILDFLAG(IS_LINUX)
-  DefaultOzonePlatform(command_line);
+  DefaultOzonePlatform(base::CommandLine::ForCurrentProcess());
 #endif
+  return std::nullopt;
+}
 
-  return ShellMainDelegate::BasicStartupComplete();
+void OtfMainDelegate::PreSandboxStartup() {
+  InitializeResourceBundle();
 }
 
 content::ContentClient* OtfMainDelegate::CreateContentClient() {
@@ -61,16 +67,13 @@ content::ContentClient* OtfMainDelegate::CreateContentClient() {
 }
 
 content::ContentBrowserClient* OtfMainDelegate::CreateContentBrowserClient() {
-  // Store in the base's member (our client derives from ShellContentBrowserClient)
-  // so ShellMainDelegate's own uses of browser_client_ keep working and lifetime
-  // is owned by the base.
   browser_client_ = std::make_unique<OtfContentBrowserClient>();
   return browser_client_.get();
 }
 
 content::ContentRendererClient* OtfMainDelegate::CreateContentRendererClient() {
-  otf_renderer_client_ = std::make_unique<OtfContentRendererClient>();
-  return otf_renderer_client_.get();
+  renderer_client_ = std::make_unique<OtfContentRendererClient>();
+  return renderer_client_.get();
 }
 
 }  // namespace otf

@@ -18,18 +18,16 @@ OtfContentBrowserClient::~OtfContentBrowserClient() = default;
 
 std::unique_ptr<content::BrowserMainParts>
 OtfContentBrowserClient::CreateBrowserMainParts(bool /*is_integration_test*/) {
-  auto parts = std::make_unique<OtfBrowserMainParts>();
-  // Register with the Shell base so its browser_context() and other hooks keep
-  // resolving (this overrides the base's own CreateBrowserMainParts).
-  set_browser_main_parts(parts.get());
-  return parts;
+  return std::make_unique<OtfBrowserMainParts>();
 }
 
 void OtfContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
     content::RenderFrameHost* render_frame_host,
     mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
-  ShellContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
+  content::ContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
       render_frame_host, map);
+  // TODO(security): gate on internal browser:// frames; web content must not see
+  // the bridge (mirrors the content-permission whitelist in plan.md).
   map->Add<mojom::BridgeHost>(base::BindRepeating(
       [](content::RenderFrameHost* rfh,
          mojo::PendingReceiver<mojom::BridgeHost> receiver) {

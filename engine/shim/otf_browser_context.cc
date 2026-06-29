@@ -29,7 +29,15 @@ base::FilePath ResolveUserDataDir(bool off_the_record) {
   return dir;
 }
 
+// The process's active non-incognito context (the UI + page tabs share it).
+OtfBrowserContext* g_active = nullptr;
+
 }  // namespace
+
+// static
+OtfBrowserContext* OtfBrowserContext::Get() {
+  return g_active;
+}
 
 OtfBrowserContext::OtfBrowserContext(bool off_the_record)
     : off_the_record_(off_the_record),
@@ -39,9 +47,16 @@ OtfBrowserContext::OtfBrowserContext(bool off_the_record)
 
   BrowserContextDependencyManager::GetInstance()->CreateBrowserContextServices(
       this);
+
+  if (!off_the_record_ && !g_active) {
+    g_active = this;
+  }
 }
 
 OtfBrowserContext::~OtfBrowserContext() {
+  if (g_active == this) {
+    g_active = nullptr;
+  }
   NotifyWillBeDestroyed();
 
   // The SimpleDependencyManager must be passed after the

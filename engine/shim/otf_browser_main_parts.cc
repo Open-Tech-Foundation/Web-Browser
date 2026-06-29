@@ -6,13 +6,20 @@
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
 #include "base/run_loop.h"
+#include "build/build_config.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/filename_util.h"
+#include "otf/shim/otf_browser_context.h"
 #include "otf/shim/otf_platform_window.h"
-#include "ui/base/page_transition_types.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "ui/base/ime/init/input_method_initializer.h"
+#include "ui/linux/linux_ui.h"
+#include "ui/linux/linux_ui_factory.h"
+#endif
 
 namespace otf {
 
@@ -42,12 +49,33 @@ GURL ResolveStartupURL() {
 OtfBrowserMainParts::OtfBrowserMainParts() = default;
 OtfBrowserMainParts::~OtfBrowserMainParts() = default;
 
-void OtfBrowserMainParts::InitializeMessageLoopContext() {
-  // Our own UI surface, replacing Shell::CreateNewWindow. The UI WebContents
-  // hosts the React chrome; page tabs are layered on top by OtfTabHost.
-  content::WebContents::CreateParams params(browser_context());
-  ui_contents_ = content::WebContents::Create(params);
+int OtfBrowserMainParts::PreEarlyInitialization() {
+#if BUILDFLAG(IS_LINUX)
+  // TODO(input): revisit vs. Ozone's native input method when polishing IME.
+  ui::InitializeInputMethodForTesting();
+#endif
+  return 0;  // content::RESULT_CODE_NORMAL_EXIT
+}
 
+void OtfBrowserMainParts::ToolkitInitialized() {
+#if BUILDFLAG(IS_LINUX)
+  ui::LinuxUi::SetInstance(ui::GetDefaultLinuxUi());
+#endif
+}
+
+int OtfBrowserMainParts::PreMainMessageLoopRun() {
+  browser_context_ =
+      std::make_unique<OtfBrowserContext>(/*off_the_record=*/false);
+
+  // Bring up the windowing environment (screen/wm/ViewsDelegate) before any
+  // WebContents — content registers display observers that require a Screen.
+  OtfPlatformWindow::InitToolkit();
+
+  // Our own UI surface (replacing content::Shell): the UI WebContents hosts the
+  // React chrome; page tabs are layered on top by OtfTabHost. UI + tabs share
+  // this one browser context (OtfBrowserContext::Get()).
+  content::WebContents::CreateParams params(browser_context_.get());
+  ui_contents_ = content::WebContents::Create(params);
   ui_contents_->GetController().LoadURLWithParams(
       content::NavigationController::LoadURLParams(ResolveStartupURL()));
 
@@ -56,22 +84,24 @@ void OtfBrowserMainParts::InitializeMessageLoopContext() {
       gfx::Size(kDefaultWindowWidth, kDefaultWindowHeight),
       base::BindOnce(&OtfBrowserMainParts::OnWindowClosed,
                      weak_factory_.GetWeakPtr()));
+  return 0;
 }
 
 void OtfBrowserMainParts::WillRunMainMessageLoop(
     std::unique_ptr<base::RunLoop>& run_loop) {
-  // otf owns the quit: closing OtfWindow ends the run loop. (Deliberately does
-  // not chain to the base, which would hand the closure to content::Shell.)
+  // otf owns the quit: closing OtfWindow ends the run loop.
   quit_closure_ = run_loop->QuitClosure();
 }
 
 void OtfBrowserMainParts::PostMainMessageLoopRun() {
-  // Tear the UI down before the base resets the browser contexts: the WebView in
-  // the widget and the WebContents must outlive neither the context nor each
-  // other incorrectly.
+  // Tear the UI down before the browser context (WebContents must outlive
+  // neither the context nor the window incorrectly).
   window_.reset();
   ui_contents_.reset();
-  ShellBrowserMainParts::PostMainMessageLoopRun();
+#if BUILDFLAG(IS_LINUX)
+  ui::LinuxUi::SetInstance(nullptr);
+#endif
+  browser_context_.reset();
 }
 
 void OtfBrowserMainParts::OnWindowClosed() {

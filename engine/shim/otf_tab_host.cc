@@ -65,22 +65,17 @@ content::WebContents* OtfTabHost::Find(OtfTabHandle id) {
   return it == tabs_.end() ? nullptr : it->second.contents.get();
 }
 
-// The BrowserContext (profile) backing all page tabs. otf's own context,
-// replacing content_shell's. Process-lifetime for now (created lazily on the
-// first tab, intentionally never destroyed); ownership moves to
-// OtfBrowserMainParts once the own-window work lands, which also lets the UI
-// surface share this same context.
-// TODO(phase2b): own the context in OtfBrowserMainParts and tear it down on exit.
-static content::BrowserContext* PageBrowserContext() {
-  static base::NoDestructor<OtfBrowserContext> context(/*off_the_record=*/false);
-  return context.get();
-}
-
 content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
   if (auto* existing = Find(id)) {
     return existing;
   }
-  content::WebContents::CreateParams params(PageBrowserContext());
+  // Page tabs share the process context owned by OtfBrowserMainParts (the same
+  // one backing the UI WebContents).
+  content::BrowserContext* context = OtfBrowserContext::Get();
+  if (!context) {
+    return nullptr;
+  }
+  content::WebContents::CreateParams params(context);
   std::unique_ptr<content::WebContents> contents =
       content::WebContents::Create(params);
   content::WebContents* raw = contents.get();
