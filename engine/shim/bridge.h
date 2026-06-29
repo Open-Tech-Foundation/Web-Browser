@@ -36,8 +36,11 @@ extern "C" {
 // ---------------------------------------------------------------------------
 // Handles & status
 // ---------------------------------------------------------------------------
-// Opaque to Rust. A tab is a content::WebContents on the browser thread.
-typedef uint64_t OtfTabHandle;       // 0 == invalid
+// A tab id. CALLER-ASSIGNED: Rust owns the tab id space (it is authoritative
+// for tab state, plan.md), so it picks the id and the shim maps id -> a
+// content::WebContents on the browser thread. The same id flows back in the
+// content-event callbacks. 0 == invalid.
+typedef uint64_t OtfTabHandle;
 typedef int32_t OtfStatus;           // 0 == ok, negative == error code
 
 // ---------------------------------------------------------------------------
@@ -89,15 +92,18 @@ typedef struct OtfUiApi {
 // Interface: Tabs — content::WebContents managed on the browser thread
 // ---------------------------------------------------------------------------
 typedef struct OtfTabsApi {
-  OtfTabHandle (*create)(const char* url);   // 0 on failure
-  OtfStatus    (*navigate)(OtfTabHandle tab, const char* url);
-  OtfStatus    (*show)(OtfTabHandle tab);     // parent native view into the hole
-  OtfStatus    (*hide)(OtfTabHandle tab);
-  OtfStatus    (*close)(OtfTabHandle tab);
-  OtfStatus    (*reload)(OtfTabHandle tab);
-  OtfStatus    (*stop)(OtfTabHandle tab);
-  OtfStatus    (*go_back)(OtfTabHandle tab);
-  OtfStatus    (*go_forward)(OtfTabHandle tab);
+  // Create a WebContents bound to the caller-assigned `tab` id (no-op if it
+  // already exists). `navigate` lazily creates one if needed, so explicit
+  // create is optional.
+  OtfStatus (*create)(OtfTabHandle tab, const char* url);
+  OtfStatus (*navigate)(OtfTabHandle tab, const char* url);
+  OtfStatus (*show)(OtfTabHandle tab);     // parent native view into the hole
+  OtfStatus (*hide)(OtfTabHandle tab);
+  OtfStatus (*close)(OtfTabHandle tab);
+  OtfStatus (*reload)(OtfTabHandle tab);
+  OtfStatus (*stop)(OtfTabHandle tab);
+  OtfStatus (*go_back)(OtfTabHandle tab);
+  OtfStatus (*go_forward)(OtfTabHandle tab);
 } OtfTabsApi;
 
 // ---------------------------------------------------------------------------

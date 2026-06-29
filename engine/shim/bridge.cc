@@ -44,7 +44,10 @@ OtfStatus StubUiCreate(const char* url) {
 }
 OtfStatus StubUiSetContentBounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
 
-OtfTabHandle StubTabCreate(const char* /*url*/) { return g_next_tab.fetch_add(1); }
+OtfStatus StubTabCreate(OtfTabHandle, const char* /*url*/) {
+  (void)g_next_tab;
+  return 0;
+}
 OtfStatus StubTabNavigate(OtfTabHandle, const char*) { return 0; }
 OtfStatus StubTabShow(OtfTabHandle) { return 0; }
 OtfStatus StubTabHide(OtfTabHandle) { return 0; }
@@ -78,10 +81,13 @@ extern "C" const OtfApi* otf_api(void) { return &kApi; }
 #include "content/public/app/content_main.h"
 #include "otf/shim/otf_bridge_host.h"
 #include "otf/shim/otf_main_delegate.h"
+#include "otf/shim/otf_tab_host.h"
 
 namespace {
 int g_argc = 0;
 char** g_argv = nullptr;
+
+const char* str_or_empty(const char* s) { return s ? s : ""; }
 
 // --- Lifecycle ---
 OtfStatus LifecycleInit(int argc, char** argv, OtfCallbacks callbacks) {
@@ -90,8 +96,10 @@ OtfStatus LifecycleInit(int argc, char** argv, OtfCallbacks callbacks) {
   g_argv = argv;
   // The bridge host lives in the browser process and marshals JS calls to Rust.
   // Child processes also run this init but never bind a renderer-side receiver,
-  // so wiring the callbacks unconditionally is harmless.
+  // so wiring the callbacks unconditionally is harmless. The tab host reuses the
+  // same observer table to push content events (title/url/load) back to Rust.
   otf::OtfBridgeHost::Get().SetCallbacks(callbacks);
+  otf::OtfTabHost::Get().SetCallbacks(callbacks);
   return 0;
 }
 
@@ -111,20 +119,29 @@ OtfStatus LifecycleRun(void) {
 
 void LifecycleShutdown(void) { g_callbacks = {}; }
 
-// --- Ui --- (TODO(phase2c): own UI WebContents + content hole)
+// --- Ui --- (TODO(phase2c): our own UI WebContents; today it's content_shell's)
 OtfStatus UiCreate(const char* /*url*/) { return 0; }
-OtfStatus UiSetContentBounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
+OtfStatus UiSetContentBounds(int32_t x, int32_t y, int32_t w, int32_t h) {
+  otf::OtfTabHost::Get().SetContentBounds(x, y, w, h);
+  return 0;
+}
 
-// --- Tabs --- (TODO(phase2c): real WebContents hosted in the window)
-OtfTabHandle TabCreate(const char* /*url*/) { return 0; }
-OtfStatus TabNavigate(OtfTabHandle, const char*) { return 0; }
-OtfStatus TabShow(OtfTabHandle) { return 0; }
-OtfStatus TabHide(OtfTabHandle) { return 0; }
-OtfStatus TabClose(OtfTabHandle) { return 0; }
-OtfStatus TabReload(OtfTabHandle) { return 0; }
-OtfStatus TabStop(OtfTabHandle) { return 0; }
-OtfStatus TabGoBack(OtfTabHandle) { return 0; }
-OtfStatus TabGoForward(OtfTabHandle) { return 0; }
+// --- Tabs --- real WebContents hosted in the UI window (otf_tab_host.cc).
+OtfStatus TabCreate(OtfTabHandle id, const char* url) {
+  return otf::OtfTabHost::Get().Create(id, str_or_empty(url));
+}
+OtfStatus TabNavigate(OtfTabHandle id, const char* url) {
+  return otf::OtfTabHost::Get().Navigate(id, str_or_empty(url));
+}
+OtfStatus TabShow(OtfTabHandle id) { return otf::OtfTabHost::Get().Show(id); }
+OtfStatus TabHide(OtfTabHandle id) { return otf::OtfTabHost::Get().Hide(id); }
+OtfStatus TabClose(OtfTabHandle id) { return otf::OtfTabHost::Get().Close(id); }
+OtfStatus TabReload(OtfTabHandle id) { return otf::OtfTabHost::Get().Reload(id); }
+OtfStatus TabStop(OtfTabHandle id) { return otf::OtfTabHost::Get().Stop(id); }
+OtfStatus TabGoBack(OtfTabHandle id) { return otf::OtfTabHost::Get().GoBack(id); }
+OtfStatus TabGoForward(OtfTabHandle id) {
+  return otf::OtfTabHost::Get().GoForward(id);
+}
 
 // --- Bridge --- (Rust -> JS, live)
 OtfStatus BridgeRespond(uint64_t reply_id, const char* json) {

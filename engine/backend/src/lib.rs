@@ -66,11 +66,7 @@ mod ffi {
             (self.ui().create.unwrap())(url)
         }
 
-        // --- tabs ---
-        /// # Safety: `url` must be a valid NUL-terminated C string.
-        pub unsafe fn tab_create(&self, url: *const c_char) -> OtfTabHandle {
-            (self.tabs().create.unwrap())(url)
-        }
+        // --- tabs (caller-assigned ids: Rust owns the id space) ---
         /// # Safety: `url` must be a valid NUL-terminated C string.
         pub unsafe fn tab_navigate(&self, tab: OtfTabHandle, url: *const c_char) -> OtfStatus {
             (self.tabs().navigate.unwrap())(tab, url)
@@ -80,6 +76,18 @@ mod ffi {
         }
         pub fn tab_close(&self, tab: OtfTabHandle) -> OtfStatus {
             unsafe { (self.tabs().close.unwrap())(tab) }
+        }
+        pub fn tab_reload(&self, tab: OtfTabHandle) -> OtfStatus {
+            unsafe { (self.tabs().reload.unwrap())(tab) }
+        }
+        pub fn tab_stop(&self, tab: OtfTabHandle) -> OtfStatus {
+            unsafe { (self.tabs().stop.unwrap())(tab) }
+        }
+        pub fn tab_go_back(&self, tab: OtfTabHandle) -> OtfStatus {
+            unsafe { (self.tabs().go_back.unwrap())(tab) }
+        }
+        pub fn tab_go_forward(&self, tab: OtfTabHandle) -> OtfStatus {
+            unsafe { (self.tabs().go_forward.unwrap())(tab) }
         }
 
         // --- bridge ---

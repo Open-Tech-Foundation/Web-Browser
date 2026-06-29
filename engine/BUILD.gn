@@ -47,6 +47,8 @@ executable("otf_browser") {
     "shim/otf_main.cc",
     "shim/otf_main_delegate.cc",
     "shim/otf_main_delegate.h",
+    "shim/otf_tab_host.cc",
+    "shim/otf_tab_host.h",
   ]
 
   defines = [ "OTF_WITH_CONTENT" ]
@@ -69,6 +71,10 @@ executable("otf_browser") {
     "//mojo/public/cpp/bindings",
     "//sandbox",
     "//third_party/blink/public:blink_headers",
+    "//ui/aura",
+    "//ui/base",
+    "//ui/gfx/geometry",
+    "//url",
     "//v8",
   ]
 

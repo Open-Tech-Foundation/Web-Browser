@@ -165,6 +165,9 @@ impl Backend {
                     .unwrap_or("browser://newtab")
                     .to_owned();
                 let new_id = self.open_tab(&url);
+                // Show the (so far page-less) tab so the content area reflects the
+                // switch; its WebContents is created lazily on first navigation.
+                self.platform_show(new_id);
                 let events = vec![
                     self.new_tab_event(new_id),
                     bridge::event("active-tab-changed", serde_json::json!({ "id": new_id })),
@@ -174,11 +177,31 @@ impl Backend {
                     events,
                 }
             }
+            // Navigate the active (or named) tab; the tab host lazily creates a
+            // WebContents the first time and shows it in the content hole.
+            "navigation.tab" => {
+                let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(tid) = tab_id() {
+                    if let Some(t) = self.tab_mut(tid) {
+                        t.url = url.to_owned();
+                        t.loading = true;
+                    }
+                    self.platform_navigate(tid, url);
+                }
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(true)))
+            }
+            "tabs.back" | "tabs.forward" | "tabs.reload" | "tabs.stop" => {
+                if let Some(tid) = tab_id() {
+                    self.platform_nav_action(method, tid);
+                }
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(true)))
+            }
             "tabs.switch" => {
                 let mut events = Vec::new();
                 if let Some(tid) = tab_id() {
                     if self.tab(tid).is_some() {
                         self.active = Some(tid);
+                        self.platform_show(tid);
                         events.push(bridge::event(
                             "active-tab-changed",
                             serde_json::json!({ "id": tid }),
@@ -194,8 +217,10 @@ impl Backend {
                 let mut events = Vec::new();
                 if let Some(tid) = tab_id() {
                     if self.close_tab(tid) {
+                        self.platform_close(tid);
                         events.push(bridge::event("tab-closed", serde_json::json!({ "id": tid })));
                         if let Some(active) = self.active {
+                            self.platform_show(active);
                             events.push(bridge::event(
                                 "active-tab-changed",
                                 serde_json::json!({ "id": active }),
@@ -238,6 +263,45 @@ impl Backend {
             "loading": t.loading,
         })
     }
+
+    // --- platform tab ops (drive the content-layer tab host via the FFI) -----
+    // The Rust tab id is the caller-assigned handle the shim maps to a
+    // WebContents. These are no-ops in the standalone (no-Chromium) build.
+
+    #[cfg(feature = "with-content")]
+    fn platform_navigate(&self, id: TabId, url: &str) {
+        if let Ok(c) = std::ffi::CString::new(url) {
+            unsafe { crate::ffi::Api::get().tab_navigate(id, c.as_ptr()) };
+        }
+    }
+    #[cfg(feature = "with-content")]
+    fn platform_show(&self, id: TabId) {
+        crate::ffi::Api::get().tab_show(id);
+    }
+    #[cfg(feature = "with-content")]
+    fn platform_close(&self, id: TabId) {
+        crate::ffi::Api::get().tab_close(id);
+    }
+    #[cfg(feature = "with-content")]
+    fn platform_nav_action(&self, method: &str, id: TabId) {
+        let api = crate::ffi::Api::get();
+        match method {
+            "tabs.back" => api.tab_go_back(id),
+            "tabs.forward" => api.tab_go_forward(id),
+            "tabs.reload" => api.tab_reload(id),
+            "tabs.stop" => api.tab_stop(id),
+            _ => 0,
+        };
+    }
+
+    #[cfg(not(feature = "with-content"))]
+    fn platform_navigate(&self, _id: TabId, _url: &str) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_show(&self, _id: TabId) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_close(&self, _id: TabId) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_nav_action(&self, _method: &str, _id: TabId) {}
 }
 
 /// Outcome of an inbound JS call: an optional RPC response plus any UI events to

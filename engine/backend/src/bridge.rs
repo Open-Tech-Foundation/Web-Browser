@@ -63,11 +63,50 @@ fn boot_stub(method: &str) -> Option<Reply> {
     Some(Reply::Ok(value))
 }
 
+/// Resolve raw address-bar input to a URL (the synchronous half of navigation;
+/// the UI awaits this before issuing `navigation.tab`, so it MUST answer). A
+/// thing that already has a scheme or looks like a host becomes a URL; anything
+/// else becomes a search query.
+fn resolve_input(input: &str) -> String {
+    let t = input.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    if t.contains("://") {
+        return t.to_owned();
+    }
+    let looks_like_host =
+        !t.contains(char::is_whitespace) && (t.contains('.') || t.starts_with("localhost"));
+    if looks_like_host {
+        return format!("https://{t}");
+    }
+    format!("https://www.google.com/search?q={}", percent_encode(t))
+}
+
+/// Minimal percent-encoding for a search query (space -> +, reserved -> %XX).
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// Route a method to its namespace handler. Returns None if unknown so the
 /// caller can answer with `unknown_method`, matching the previous dispatcher.
 pub fn dispatch(call: &Call) -> Option<Reply> {
     if let Some(reply) = boot_stub(call.method) {
         return Some(reply);
+    }
+    if call.method == "navigation.resolveInput" {
+        let input = call.params.get("input").and_then(Value::as_str).unwrap_or("");
+        return Some(Reply::Ok(json!(resolve_input(input))));
     }
     let namespace = call.method.split('.').next().unwrap_or("");
     match namespace {
@@ -183,6 +222,28 @@ mod tests {
         let resp = handle_request("not json").expect("sync error");
         let v: Value = serde_json::from_str(&resp).unwrap();
         assert_eq!(v["error"]["code"], "bad_request");
+    }
+
+    #[test]
+    fn resolve_input_classifies_url_vs_search() {
+        assert_eq!(resolve_input("https://a.com"), "https://a.com");
+        assert_eq!(resolve_input("example.com"), "https://example.com");
+        assert_eq!(resolve_input("localhost:3000"), "https://localhost:3000");
+        assert_eq!(
+            resolve_input("hello world"),
+            "https://www.google.com/search?q=hello+world"
+        );
+    }
+
+    #[test]
+    fn resolve_input_answers_via_dispatch() {
+        let resp = handle_request(
+            r#"{"id":"3","method":"navigation.resolveInput","params":{"input":"example.com"}}"#,
+        )
+        .expect("resolveInput must respond");
+        let v: Value = serde_json::from_str(&resp).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["result"], "https://example.com");
     }
 
     #[test]
