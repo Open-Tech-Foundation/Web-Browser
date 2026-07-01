@@ -95,6 +95,15 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
       bridge map.
+  - [~] **Workspace data isolation** (in progress — Phase 1 done): each workspace
+        will be its own profile-like `BrowserContext` rooted at
+        `<root>/workspaces/<id>/`, so cookies/cache/site storage never collide.
+        Phase 1 adds `OtfBrowserContextManager` + a persistent `system` context
+        (`<root>/system/`) for the shell/overlays and resolves the user-data root
+        (`--user-data-dir`, else `$HOME/.otf-browser-dev` in dev, else
+        `$HOME/.otf-browser`). Page tabs still share the system context; Phase 2
+        routes them to their workspace's context. Deletion is async + wiped on
+        next launch; private workspaces are off-the-record.
   - [x] **Page context menu** (the browser's own): a per-tab `WebContentsDelegate`
         (`otf_tab_host.cc`) intercepts `HandleContextMenu`, serializes the hit-test
         ({link/src/selection/editable + edit-flags + x,y}), and the backend opens a

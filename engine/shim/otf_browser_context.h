@@ -22,16 +22,16 @@ namespace otf {
 
 class OtfBrowserContext : public content::BrowserContext {
  public:
-  explicit OtfBrowserContext(bool off_the_record);
+  // `path` is where this context's storage (cookies/cache/site data) lives; for
+  // an off-the-record context it is ephemeral (in-memory) and the path is unused
+  // on disk. Contexts are created and owned by OtfBrowserContextManager: the
+  // system context (UI + overlays) and, later, one per workspace.
+  OtfBrowserContext(base::FilePath path, bool off_the_record);
 
   OtfBrowserContext(const OtfBrowserContext&) = delete;
   OtfBrowserContext& operator=(const OtfBrowserContext&) = delete;
 
   ~OtfBrowserContext() override;
-
-  // The process's active (non-incognito) context, or nullptr before one is
-  // created. Owned by OtfBrowserMainParts; shared by the UI and all page tabs.
-  static OtfBrowserContext* Get();
 
   // content::BrowserContext:
   base::FilePath GetPath() const override;

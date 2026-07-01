@@ -7,7 +7,7 @@
 #include "build/build_config.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
-#include "otf/shim/otf_browser_context.h"
+#include "otf/shim/otf_browser_context_manager.h"
 #include "otf/shim/otf_devtools.h"
 #include "otf/shim/otf_platform_window.h"
 #include "otf/shim/otf_trust.h"
@@ -53,21 +53,23 @@ int OtfBrowserMainParts::PreMainMessageLoopRun() {
   // internal browser:// UI (trusted by scheme).
   InitTrustedUiOrigin();
 
-  browser_context_ =
-      std::make_unique<OtfBrowserContext>(/*off_the_record=*/false);
+  // Owns otf's BrowserContexts + the per-workspace on-disk layout. The UI shell
+  // and overlays use the persistent `system` context (page tabs move to their
+  // workspace's context in Phase 2 of data isolation).
+  context_manager_ = std::make_unique<OtfBrowserContextManager>();
+  content::BrowserContext* system_context = context_manager_->System();
 
   // Re-wire the DevTools/CDP http handler content_shell used to start (needed
   // for e2e tooling and DevTools to attach). No-op without --remote-debugging-port.
-  MaybeStartDevToolsServer(browser_context_.get());
+  MaybeStartDevToolsServer(system_context);
 
   // Bring up the windowing environment (screen/wm/ViewsDelegate) before any
   // WebContents — content registers display observers that require a Screen.
   OtfPlatformWindow::InitToolkit();
 
   // Our own UI surface (replacing content::Shell): the UI WebContents hosts the
-  // React chrome; page tabs are layered on top by OtfTabHost. UI + tabs share
-  // this one browser context (OtfBrowserContext::Get()).
-  content::WebContents::CreateParams params(browser_context_.get());
+  // React chrome; page tabs are layered on top by OtfTabHost.
+  content::WebContents::CreateParams params(system_context);
   ui_contents_ = content::WebContents::Create(params);
   ui_contents_->GetController().LoadURLWithParams(
       content::NavigationController::LoadURLParams(ResolveUiUrl()));
@@ -96,7 +98,7 @@ void OtfBrowserMainParts::PostMainMessageLoopRun() {
 #if BUILDFLAG(IS_LINUX)
   ui::LinuxUi::SetInstance(nullptr);
 #endif
-  browser_context_.reset();
+  context_manager_.reset();
 }
 
 void OtfBrowserMainParts::OnWindowClosed() {

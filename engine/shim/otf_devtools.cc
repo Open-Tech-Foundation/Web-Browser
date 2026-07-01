@@ -12,7 +12,7 @@
 #include "content/public/browser/devtools_manager_delegate.h"
 #include "content/public/browser/devtools_socket_factory.h"
 #include "content/public/common/content_switches.h"
-#include "otf/shim/otf_browser_context.h"
+#include "otf/shim/otf_browser_context_manager.h"
 #include "net/base/ip_address.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_source.h"
@@ -92,7 +92,9 @@ class OtfDevToolsManagerDelegate : public content::DevToolsManagerDelegate {
 
 std::unique_ptr<content::DevToolsManagerDelegate>
 CreateDevToolsManagerDelegate() {
-  return std::make_unique<OtfDevToolsManagerDelegate>(OtfBrowserContext::Get());
+  OtfBrowserContextManager* manager = OtfBrowserContextManager::Get();
+  return std::make_unique<OtfDevToolsManagerDelegate>(
+      manager ? manager->System() : nullptr);
 }
 
 void MaybeStartDevToolsServer(content::BrowserContext* browser_context) {

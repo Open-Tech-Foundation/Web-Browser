@@ -7,7 +7,7 @@
 #include "base/functional/bind.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
-#include "otf/shim/otf_browser_context.h"
+#include "otf/shim/otf_browser_context_manager.h"
 #include "otf/shim/otf_platform_window.h"
 #include "otf/shim/otf_trust.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -72,7 +72,9 @@ content::WebContents* OtfPopupOverlay::EnsureContents(const std::string& name) {
   if (it != popups_.end()) {
     return it->second.get();
   }
-  content::BrowserContext* context = OtfBrowserContext::Get();
+  // Overlays are chrome (browser://), so they use the system context.
+  OtfBrowserContextManager* manager = OtfBrowserContextManager::Get();
+  content::BrowserContext* context = manager ? manager->System() : nullptr;
   if (!context) {
     return nullptr;
   }

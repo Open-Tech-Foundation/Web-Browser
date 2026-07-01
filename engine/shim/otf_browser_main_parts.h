@@ -18,7 +18,7 @@ class WebContents;
 
 namespace otf {
 
-class OtfBrowserContext;
+class OtfBrowserContextManager;
 class OtfPlatformWindow;
 
 class OtfBrowserMainParts : public content::BrowserMainParts {
@@ -42,7 +42,7 @@ class OtfBrowserMainParts : public content::BrowserMainParts {
   // Runs the captured run-loop quit closure; wired to OtfWindow's close.
   void OnWindowClosed();
 
-  std::unique_ptr<OtfBrowserContext> browser_context_;
+  std::unique_ptr<OtfBrowserContextManager> context_manager_;
   std::unique_ptr<content::WebContents> ui_contents_;
   std::unique_ptr<OtfPlatformWindow> window_;
   base::OnceClosure quit_closure_;

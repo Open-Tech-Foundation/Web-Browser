@@ -11,6 +11,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Page context menu, drawn as the browser's own overlay. Right-clicking a page shows a transparent, rounded menu built from the engine's hit-test: link actions (open in new tab, copy link address; copy email for mailto links), image actions (copy/save), editable-field actions (undo/redo/cut/copy/paste/select-all, gated by capability), selection actions (search the selection via the configured engine, copy), and reload on a bare page. Page edits and image actions run through the content layer; link/selection copying uses the clipboard; selection search goes through the backend resolver. No view-source / dev-tools items are offered (browser policy). Esc, an outside click, or picking an item dismisses it.
 - Real `browser://` internal-page scheme. Internal pages (the shell, new tab, settings, history, …) are now served over a registered, standard, secure `browser://` scheme from the built UI assets, so they work in a packaged build with no dev server. The scheme is handled by a dedicated URL loader factory for both navigations and subresources; in dev the UI still loads over the dev server.
 
+### Changed
+
+- Browser data now lives under a stable user-data root instead of a temp dir: `$HOME/.otf-browser` in production, `$HOME/.otf-browser-dev` in dev, or an explicit `--user-data-dir`. This is the first step of per-workspace data isolation: the UI shell and overlays run in a dedicated `system` profile under that root; per-workspace cookie/cache/storage isolation follows.
+
 ### Fixed
 
 - The built-in new tab page now actually loads. Opening a tab (and the initial boot tab) navigates its WebContents to the internal `browser://newtab` page. In production it is served natively over `browser://`; in dev it is redirected to the dev server's `newtab.html`, with the address bar keeping the `browser://` form.

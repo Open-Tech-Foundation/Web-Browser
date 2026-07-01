@@ -133,6 +133,8 @@ executable("otf_browser") {
     "shim/bridge.h",
     "shim/otf_browser_context.cc",
     "shim/otf_browser_context.h",
+    "shim/otf_browser_context_manager.cc",
+    "shim/otf_browser_context_manager.h",
     "shim/otf_browser_main_parts.cc",
     "shim/otf_browser_main_parts.h",
     "shim/otf_bridge_host.cc",

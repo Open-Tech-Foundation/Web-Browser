@@ -1,0 +1,52 @@
+// Owns otf's BrowserContexts and the on-disk layout under the user-data root.
+//
+// Data isolation model (see plan): each workspace is its own profile-like
+// context rooted at `<root>/workspaces/<id>/`, so cookies/cache/site storage
+// never collide across workspaces. The UI shell and overlays use a separate
+// persistent `system` context (`<root>/system/`) that holds no web data. Phase 1
+// introduces the manager + system context; page tabs still use the system
+// context until Phase 2 routes them to their workspace's context.
+
+#ifndef OTF_ENGINE_SHIM_OTF_BROWSER_CONTEXT_MANAGER_H_
+#define OTF_ENGINE_SHIM_OTF_BROWSER_CONTEXT_MANAGER_H_
+
+#include <memory>
+
+#include "base/files/file_path.h"
+
+namespace content {
+class BrowserContext;
+}
+
+namespace otf {
+
+class OtfBrowserContext;
+
+class OtfBrowserContextManager {
+ public:
+  OtfBrowserContextManager();
+  ~OtfBrowserContextManager();
+
+  OtfBrowserContextManager(const OtfBrowserContextManager&) = delete;
+  OtfBrowserContextManager& operator=(const OtfBrowserContextManager&) = delete;
+
+  // The process instance, or nullptr before OtfBrowserMainParts creates it /
+  // after teardown. Used by the shim (tab host, overlays, devtools) to reach a
+  // context without threading it through every call.
+  static OtfBrowserContextManager* Get();
+
+  // The persistent context for the UI shell + overlays (browser:// chrome).
+  content::BrowserContext* System();
+
+  // The user-data root (`<root>/system`, `<root>/workspaces/<id>`,
+  // `<root>/downloads`). Resolved once at construction.
+  const base::FilePath& Root() const { return root_; }
+
+ private:
+  base::FilePath root_;
+  std::unique_ptr<OtfBrowserContext> system_;
+};
+
+}  // namespace otf
+
+#endif  // OTF_ENGINE_SHIM_OTF_BROWSER_CONTEXT_MANAGER_H_

@@ -12,51 +12,21 @@
 
 namespace otf {
 
-namespace {
-
-// User-data directory for the profile. Off-the-record contexts get an
-// ephemeral subdir; the persistent one will move to a real per-user path once
-// session persistence lands. For now both live under the system temp dir.
-base::FilePath ResolveUserDataDir(bool off_the_record) {
-  base::FilePath dir;
-  CHECK(base::PathService::Get(base::DIR_TEMP, &dir));
-  dir = dir.Append(FILE_PATH_LITERAL("otf-browser"));
-  dir = dir.Append(off_the_record ? FILE_PATH_LITERAL("incognito")
-                                  : FILE_PATH_LITERAL("default"));
-  if (!base::PathExists(dir)) {
-    base::CreateDirectory(dir);
+OtfBrowserContext::OtfBrowserContext(base::FilePath path, bool off_the_record)
+    : off_the_record_(off_the_record), path_(std::move(path)) {
+  // A persistent (on-disk) context needs its directory to exist; off-the-record
+  // storage is in-memory, so its path is nominal only.
+  if (!off_the_record_ && !base::PathExists(path_)) {
+    base::CreateDirectory(path_);
   }
-  return dir;
-}
-
-// The process's active non-incognito context (the UI + page tabs share it).
-OtfBrowserContext* g_active = nullptr;
-
-}  // namespace
-
-// static
-OtfBrowserContext* OtfBrowserContext::Get() {
-  return g_active;
-}
-
-OtfBrowserContext::OtfBrowserContext(bool off_the_record)
-    : off_the_record_(off_the_record),
-      path_(ResolveUserDataDir(off_the_record)) {
   key_ = std::make_unique<SimpleFactoryKey>(path_, off_the_record_);
   SimpleKeyMap::GetInstance()->Associate(this, key_.get());
 
   BrowserContextDependencyManager::GetInstance()->CreateBrowserContextServices(
       this);
-
-  if (!off_the_record_ && !g_active) {
-    g_active = this;
-  }
 }
 
 OtfBrowserContext::~OtfBrowserContext() {
-  if (g_active == this) {
-    g_active = nullptr;
-  }
   NotifyWillBeDestroyed();
 
   // The SimpleDependencyManager must be passed after the

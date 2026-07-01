@@ -16,7 +16,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "otf/shim/otf_browser_context.h"
+#include "otf/shim/otf_browser_context_manager.h"
 #include "otf/shim/otf_platform_window.h"
 #include "otf/shim/otf_trust.h"
 #include "third_party/blink/public/common/context_menu_data/edit_flags.h"
@@ -137,9 +137,10 @@ content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
   if (auto* existing = Find(id)) {
     return existing;
   }
-  // Page tabs share the process context owned by OtfBrowserMainParts (the same
-  // one backing the UI WebContents).
-  content::BrowserContext* context = OtfBrowserContext::Get();
+  // Phase 1: page tabs share the system context (Phase 2 routes them to their
+  // workspace's context for cookie/cache/storage isolation).
+  OtfBrowserContextManager* manager = OtfBrowserContextManager::Get();
+  content::BrowserContext* context = manager ? manager->System() : nullptr;
   if (!context) {
     return nullptr;
   }
