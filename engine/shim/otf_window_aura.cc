@@ -183,15 +183,18 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
   void SetContentBounds(const gfx::Rect& bounds) override {
     content_bounds_ = bounds.IsEmpty() ? std::optional<gfx::Rect>()
                                        : std::optional<gfx::Rect>(bounds);
-    // Reflow the currently shown tab into the new region.
-    if (shown_tab_) {
-      if (aura::Window* view = shown_tab_->GetNativeView()) {
-        view->SetBounds(ContentBounds());
-      }
-    }
+    ReflowShownTab();
   }
 
   // views::WidgetObserver:
+  void OnWidgetBoundsChanged(views::Widget* /*widget*/,
+                             const gfx::Rect& /*new_bounds*/) override {
+    // The UI WebContents is the Widget's contents view and reflows via views
+    // layout automatically; the page tab is a child aura window layered over the
+    // content region, so it must be reflowed by hand on every window resize.
+    ReflowShownTab();
+  }
+
   void OnWidgetDestroying(views::Widget* widget) override {
     // User-initiated close: stop new tabs from targeting a dead window and end
     // the run loop. The Widget object stays owned by us until destruction.
@@ -207,6 +210,17 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
  private:
   aura::Window* HostWindow() {
     return widget_ ? widget_->GetNativeWindow() : nullptr;
+  }
+
+  // Resize the currently shown page tab's child view into the content region.
+  // No-op when no tab is shown (e.g. a model-only tab that never navigated).
+  void ReflowShownTab() {
+    if (!shown_tab_) {
+      return;
+    }
+    if (aura::Window* view = shown_tab_->GetNativeView()) {
+      view->SetBounds(ContentBounds());
+    }
   }
 
   gfx::Rect ContentBounds() {
