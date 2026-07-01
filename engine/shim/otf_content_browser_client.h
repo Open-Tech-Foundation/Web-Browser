@@ -11,6 +11,9 @@
 
 #include "content/public/browser/content_browser_client.h"
 
+namespace base {
+class CommandLine;
+}
 namespace content {
 class BrowserMainParts;
 class RenderFrameHost;
@@ -36,6 +39,8 @@ class OtfContentBrowserClient : public content::ContentBrowserClient {
   std::unique_ptr<content::DevToolsManagerDelegate>
   CreateDevToolsManagerDelegate() override;
   std::string GetProduct() override;
+  void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
+                                      int child_process_id) override;
 };
 
 }  // namespace otf

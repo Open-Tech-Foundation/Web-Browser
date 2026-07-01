@@ -94,7 +94,13 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
-      bridge map. Still to do: gate the bridge to `browser://` frames (security).
+      bridge map.
+  - [x] **Bridge trust gate** (`otf_trust.{h,cc}`): only otf's own internal UI
+        frames may use the JS<->Rust bridge. Trusted = the internal `browser://`
+        scheme, or (dev only) the resolved UI origin (forwarded to renderers via a
+        switch). Enforced authoritatively in the browser (gates the mojo bind) and
+        in the renderer (gates whether `window.otf` is installed). Web content is
+        denied (`tests/e2e/bridge-trust.test.js`).
   - [x] **DevTools http handler re-wired** (`otf_devtools.{h,cc}`): otf provides a
         minimal `DevToolsManagerDelegate` + starts the CDP TCP server on
         `--remote-debugging-port` (loopback), so DevTools/e2e can attach again

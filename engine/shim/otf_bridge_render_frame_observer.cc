@@ -6,9 +6,12 @@
 #include "content/public/renderer/render_frame.h"
 #include "gin/converter.h"
 #include "gin/function_template.h"
+#include "otf/shim/otf_trust.h"
 #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
+#include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_local_frame.h"
+#include "url/gurl.h"
 #include "v8/include/v8.h"
 
 namespace otf {
@@ -24,10 +27,14 @@ void OtfBridgeRenderFrameObserver::OnDestruct() {
 }
 
 void OtfBridgeRenderFrameObserver::DidClearWindowObject() {
-  // TODO(security): only install on internal browser:// UI frames; web content
-  // must not see window.otf (mirror the content-permission whitelist).
   blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
   if (!frame) {
+    return;
+  }
+  // Bridge gate (renderer side): only otf's own internal UI frames get
+  // window.otf; web content must never see it. The browser enforces the same
+  // predicate authoritatively when the interface is bound.
+  if (!IsTrustedBridgeUrl(GURL(frame->GetDocument().Url()))) {
     return;
   }
   v8::Isolate* isolate = frame->GetAgentGroupScheduler()->Isolate();

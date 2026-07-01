@@ -2,17 +2,15 @@
 
 #include <utility>
 
-#include "base/command_line.h"
-#include "base/files/file_util.h"
 #include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents.h"
-#include "net/base/filename_util.h"
 #include "otf/shim/otf_browser_context.h"
 #include "otf/shim/otf_devtools.h"
 #include "otf/shim/otf_platform_window.h"
+#include "otf/shim/otf_trust.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
@@ -28,30 +26,6 @@ namespace {
 
 constexpr int kDefaultWindowWidth = 1280;
 constexpr int kDefaultWindowHeight = 800;
-
-// The page the UI WebContents loads on launch: `--dev-ui-url=<url>` (used by the
-// e2e harness) takes precedence, then the first positional arg (the dev server
-// URL in `bun run dev`), falling back to the internal new-tab UI.
-GURL ResolveStartupURL() {
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch("dev-ui-url")) {
-    GURL dev_url(command_line->GetSwitchValueASCII("dev-ui-url"));
-    if (dev_url.is_valid() && dev_url.has_scheme()) {
-      return dev_url;
-    }
-  }
-  const base::CommandLine::StringVector& args = command_line->GetArgs();
-  if (args.empty()) {
-    return GURL("browser://newtab");
-  }
-  GURL url(args[0]);
-  if (url.is_valid() && url.has_scheme()) {
-    return url;
-  }
-  return net::FilePathToFileURL(
-      base::MakeAbsoluteFilePath(base::FilePath(args[0])));
-}
 
 }  // namespace
 
@@ -73,6 +47,12 @@ void OtfBrowserMainParts::ToolkitInitialized() {
 }
 
 int OtfBrowserMainParts::PreMainMessageLoopRun() {
+  // Record the trusted UI origin before the UI renderer spawns (below), so the
+  // bridge gate agrees across processes. Safe here: URL schemes are registered by
+  // now, but no frame-hosting child process has launched yet. No-op for the
+  // internal browser:// UI (trusted by scheme).
+  InitTrustedUiOrigin();
+
   browser_context_ =
       std::make_unique<OtfBrowserContext>(/*off_the_record=*/false);
 
@@ -90,7 +70,7 @@ int OtfBrowserMainParts::PreMainMessageLoopRun() {
   content::WebContents::CreateParams params(browser_context_.get());
   ui_contents_ = content::WebContents::Create(params);
   ui_contents_->GetController().LoadURLWithParams(
-      content::NavigationController::LoadURLParams(ResolveStartupURL()));
+      content::NavigationController::LoadURLParams(ResolveUiUrl()));
 
   window_ = OtfPlatformWindow::Create(
       ui_contents_.get(),

@@ -37,10 +37,16 @@ test('page tab viewport tracks the window on resize',
     const browser = await launchDevBrowser();
     let page = null;
     try {
+      // Synthetic address-bar navigation can occasionally miss keystrokes; retry
+      // until the page tab target actually appears.
       const probeUrl = `${devUrl}/resize-probe`;
-      await navigateFromAddressBar(browser.cdp, probeUrl);
-
-      const target = await waitForTarget((t) => (t.url || '').includes('resize-probe'));
+      let target = null;
+      for (let attempt = 0; attempt < 5 && !target; attempt++) {
+        await navigateFromAddressBar(browser.cdp, probeUrl);
+        target = await waitForTarget((t) => (t.url || '').includes('resize-probe'), 3000)
+          .catch(() => null);
+      }
+      assert.ok(target, 'the page tab should have navigated to the probe URL');
       page = new CdpClient(target.webSocketDebuggerUrl);
       await page.open();
       await page.send('Runtime.enable');

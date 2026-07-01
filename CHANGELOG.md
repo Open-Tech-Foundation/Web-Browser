@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- Re-wired the DevTools/CDP remote-debugging HTTP handler that was dropped when content_shell was removed. The engine now provides a minimal `DevToolsManagerDelegate` and starts a loopback CDP server on `--remote-debugging-port`, so DevTools and the CDP-driven e2e suite can attach to the UI and tab targets again. `--dev-ui-url=<url>` selects the UI URL and the browser identifies itself as `OTF/0.1` in `/json/version`.
+- Bridge trust gate: the JS↔Rust bridge (`window.otf`) is now exposed only to otf's own internal UI frames — the internal `browser://` scheme, or (in dev) the resolved UI origin. Web content is denied both in the renderer (no `window.otf` installed) and authoritatively in the browser (the mojo interface bind is rejected). Covered by a new `tests/e2e/bridge-trust.test.js`.
+
+### Fixed
+
+- Page tab content now tracks the window on resize. The page tab is a child window layered over the content region and was not following the top-level window; it is now reflowed into the content region whenever the window bounds change. Covered by a new `tests/e2e/window-resize.test.js`.
+
 
 ## [0.1.0-alpha.56] - 2026-06-27
 

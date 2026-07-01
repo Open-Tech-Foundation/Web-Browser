@@ -153,6 +153,8 @@ executable("otf_browser") {
     "shim/otf_platform_window.h",
     "shim/otf_tab_host.cc",
     "shim/otf_tab_host.h",
+    "shim/otf_trust.cc",
+    "shim/otf_trust.h",
   ]
 
   # The OtfPlatformWindow backend is platform-conditional: one translation unit

@@ -27,8 +27,8 @@ void OtfBridgeHost::SetCallbacks(OtfCallbacks callbacks) {
 void OtfBridgeHost::BindReceiver(
     content::RenderFrameHost* /*render_frame_host*/,
     mojo::PendingReceiver<mojom::BridgeHost> receiver) {
-  // TODO(security): gate on the frame's origin so only internal browser:// UI
-  // frames (and the content-permission whitelist) may bind the bridge.
+  // Trust is enforced upstream at bind registration (OtfContentBrowserClient's
+  // binder checks IsTrustedBridgeFrame), so only trusted UI frames reach here.
   const uint64_t client_id = next_client_id_++;
   receivers_.Add(this, std::move(receiver), client_id);
 }
