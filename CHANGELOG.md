@@ -13,7 +13,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 
-- Workspaces now have fully isolated data: each workspace is its own profile-like storage context, so cookies, cache, and site storage never leak between workspaces (a cookie set in one workspace is invisible to the same site in another). Browser data lives under a stable user-data root — `$HOME/.otf-browser` in production, `$HOME/.otf-browser-dev` in dev, or an explicit `--user-data-dir` — with the UI shell in a dedicated `system` profile and each workspace under `workspaces/<id>/`.
+- Workspaces now have fully isolated data: each workspace is its own profile-like storage context, so cookies, cache, and site storage never leak between workspaces (a cookie set in one workspace is invisible to the same site in another). Browser data lives under a stable user-data root — `$HOME/.otf-browser` in production, `$HOME/.otf-browser-dev` in dev, or an explicit `--user-data-dir` — with the UI shell in a dedicated `system` profile and each workspace under `workspaces/<id>/`. Deleting a workspace tears down its session immediately and permanently wipes its data on the next launch.
 
 ### Fixed
 

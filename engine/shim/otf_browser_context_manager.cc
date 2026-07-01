@@ -4,8 +4,12 @@
 
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/files/file_enumerator.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
+#include "base/task/thread_pool.h"
 #include "otf/shim/otf_browser_context.h"
 
 namespace otf {
@@ -13,6 +17,27 @@ namespace otf {
 namespace {
 
 OtfBrowserContextManager* g_instance = nullptr;
+
+// A workspace directory carrying this marker file is pending deletion; it is
+// wiped on the next launch.
+constexpr base::FilePath::CharType kDeletedMarker[] =
+    FILE_PATH_LITERAL(".otf-deleted");
+
+// Remove any workspace directory that was marked for deletion in a prior run.
+// Runs at startup (blocking is allowed here).
+void WipeMarkedWorkspaces(const base::FilePath& root) {
+  const base::FilePath workspaces = root.Append(FILE_PATH_LITERAL("workspaces"));
+  if (!base::DirectoryExists(workspaces)) {
+    return;
+  }
+  base::FileEnumerator dirs(workspaces, /*recursive=*/false,
+                            base::FileEnumerator::DIRECTORIES);
+  for (base::FilePath dir = dirs.Next(); !dir.empty(); dir = dirs.Next()) {
+    if (base::PathExists(dir.Append(kDeletedMarker))) {
+      base::DeletePathRecursively(dir);
+    }
+  }
+}
 
 // The user-data root:
 //   1. --user-data-dir=<path>  (automated / e2e per-session temp dirs)
@@ -41,6 +66,8 @@ OtfBrowserContextManager* OtfBrowserContextManager::Get() {
 OtfBrowserContextManager::OtfBrowserContextManager()
     : root_(ResolveUserDataRoot()) {
   g_instance = this;
+  // Finish deletions confirmed in a previous session before anything opens.
+  WipeMarkedWorkspaces(root_);
   system_ = std::make_unique<OtfBrowserContext>(
       root_.Append(FILE_PATH_LITERAL("system")), /*off_the_record=*/false);
 }
@@ -70,6 +97,23 @@ content::BrowserContext* OtfBrowserContextManager::ForWorkspace(
   content::BrowserContext* raw = context.get();
   workspaces_[id] = std::move(context);
   return raw;
+}
+
+void OtfBrowserContextManager::ReleaseWorkspace(const std::string& id) {
+  workspaces_.erase(id);  // destroy the context (its tabs are already closed).
+  // Mark the directory off the UI thread (file I/O blocks); it is wiped on the
+  // next launch. Best-effort + crash-safe enough until the DB owns the list.
+  base::FilePath dir =
+      root_.Append(FILE_PATH_LITERAL("workspaces")).AppendASCII(id);
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(
+          [](base::FilePath dir) {
+            if (base::DirectoryExists(dir)) {
+              base::WriteFile(dir.Append(kDeletedMarker), std::string_view());
+            }
+          },
+          std::move(dir)));
 }
 
 }  // namespace otf

@@ -104,8 +104,12 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
         context. **Phase 2:** page tabs are bound to their workspace's context
         (`OtfTabsApi.set_workspace`, fed by the backend at tab open) — verified by
         `tests/e2e/workspace-isolation.test.js` (ws1 cookies invisible in ws2).
-        **Remaining:** delete → teardown + restart-wipe; private-workspace OTR;
-        UUID ids + DB-created default (with the DB).
+        **Phase 3:** deleting a workspace drops its context and marks its dir
+        (`OtfUiApi.workspace_release`); it is wiped at the next launch
+        (`WipeMarkedWorkspaces`) — verified by `tests/e2e/workspace-delete-wipe.test.js`.
+        **Remaining (features, OTR contexts):** private *tabs* (per-tab, in-memory)
+        and *guest mode* (app-menu, in-memory) — both isolated from workspaces.
+        UUID ids + DB-created default arrive with the DB.
   - [x] **Page context menu** (the browser's own): a per-tab `WebContentsDelegate`
         (`otf_tab_host.cc`) intercepts `HandleContextMenu`, serializes the hit-test
         ({link/src/selection/editable + edit-flags + x,y}), and the backend opens a

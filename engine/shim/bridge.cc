@@ -45,6 +45,7 @@ OtfStatus StubUiCreate(const char* url) {
 OtfStatus StubUiSetContentBounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
 OtfStatus StubUiPopupShow(const char*) { return 0; }
 OtfStatus StubUiPopupHide(const char*) { return 0; }
+OtfStatus StubUiWorkspaceRelease(const char*) { return 0; }
 
 OtfStatus StubTabSetWorkspace(OtfTabHandle, const char*) { return 0; }
 OtfStatus StubTabCreate(OtfTabHandle, const char* /*url*/) {
@@ -68,7 +69,7 @@ OtfStatus StubBridgeEmit(OtfTabHandle, const char*) { return 0; }
 
 const OtfLifecycleApi kLifecycle = {StubInit, StubRun, StubShutdown};
 const OtfUiApi kUi = {StubUiCreate, StubUiSetContentBounds, StubUiPopupShow,
-                      StubUiPopupHide};
+                      StubUiPopupHide, StubUiWorkspaceRelease};
 const OtfTabsApi kTabs = {StubTabSetWorkspace, StubTabCreate,   StubTabNavigate,
                           StubTabShow,         StubTabHide,     StubTabClose,
                           StubTabReload,       StubTabStop,     StubTabGoBack,
@@ -86,6 +87,7 @@ extern "C" const OtfApi* otf_api(void) { return &kApi; }
 // (OtfMainDelegate — no content_shell). The bridge interface (Rust <-> JS) and
 // the tabs interface (real WebContents) are live.
 #include "content/public/app/content_main.h"
+#include "otf/shim/otf_browser_context_manager.h"
 #include "otf/shim/otf_bridge_host.h"
 #include "otf/shim/otf_main_delegate.h"
 #include "otf/shim/otf_popup_overlay.h"
@@ -142,6 +144,12 @@ OtfStatus UiPopupHide(const char* name) {
   otf::OtfPopupOverlay::Get().Hide(str_or_empty(name));
   return 0;
 }
+OtfStatus UiWorkspaceRelease(const char* workspace_id) {
+  if (auto* manager = otf::OtfBrowserContextManager::Get()) {
+    manager->ReleaseWorkspace(str_or_empty(workspace_id));
+  }
+  return 0;
+}
 
 // --- Tabs --- real WebContents hosted in the UI window (otf_tab_host.cc).
 OtfStatus TabSetWorkspace(OtfTabHandle id, const char* workspace_id) {
@@ -179,7 +187,8 @@ OtfStatus BridgeEmit(OtfTabHandle /*target*/, const char* json) {
 
 const OtfLifecycleApi kLifecycle = {LifecycleInit, LifecycleRun,
                                     LifecycleShutdown};
-const OtfUiApi kUi = {UiCreate, UiSetContentBounds, UiPopupShow, UiPopupHide};
+const OtfUiApi kUi = {UiCreate, UiSetContentBounds, UiPopupShow, UiPopupHide,
+                      UiWorkspaceRelease};
 const OtfTabsApi kTabs = {TabSetWorkspace, TabCreate,   TabNavigate,  TabShow,
                           TabHide,         TabClose,    TabReload,    TabStop,
                           TabGoBack,       TabGoForward, TabContextAction};

@@ -87,6 +87,10 @@ mod ffi {
         pub unsafe fn ui_popup_hide(&self, name: *const c_char) -> OtfStatus {
             (self.ui().popup_hide.unwrap())(name)
         }
+        /// # Safety: `workspace_id` must be a valid NUL-terminated C string.
+        pub unsafe fn ui_workspace_release(&self, workspace_id: *const c_char) -> OtfStatus {
+            (self.ui().workspace_release.unwrap())(workspace_id)
+        }
 
         // --- tabs (caller-assigned ids: Rust owns the id space) ---
         /// # Safety: `workspace_id` must be a valid NUL-terminated C string.

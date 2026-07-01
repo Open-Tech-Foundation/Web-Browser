@@ -44,6 +44,11 @@ class OtfBrowserContextManager {
   // Lazily created and cached; `id` is the workspace id string (UUID-ready).
   content::BrowserContext* ForWorkspace(const std::string& id);
 
+  // Delete a workspace's data: destroy its context now (its tabs are already
+  // closed) and mark its directory for wipe. The directory is fully removed on
+  // the next launch (WipeMarkedWorkspaces), matching "async, wiped on restart".
+  void ReleaseWorkspace(const std::string& id);
+
   // The user-data root (`<root>/system`, `<root>/workspaces/<id>`,
   // `<root>/downloads`). Resolved once at construction.
   const base::FilePath& Root() const { return root_; }

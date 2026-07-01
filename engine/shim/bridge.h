@@ -103,6 +103,10 @@ typedef struct OtfUiApi {
   // also dismisses on a click outside its bounds (reported via on_popup_closed).
   OtfStatus (*popup_show)(const char* name);
   OtfStatus (*popup_hide)(const char* name);
+
+  // A workspace was deleted: drop its storage context and mark its data for wipe
+  // (fully removed on the next launch). `workspace_id` is the workspace id string.
+  OtfStatus (*workspace_release)(const char* workspace_id);
 } OtfUiApi;
 
 // ---------------------------------------------------------------------------

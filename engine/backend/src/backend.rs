@@ -497,6 +497,8 @@ impl Backend {
         }
         self.tabs.retain(|t| t.workspace != ws_id);
         self.workspaces.retain(|w| w.id != ws_id);
+        // Drop its storage context and mark its data for wipe on next launch.
+        self.platform_release_workspace(ws_id);
 
         let mut events = vec![bridge::event(
             "workspaces-updated",
@@ -650,6 +652,12 @@ impl Backend {
             unsafe { crate::ffi::Api::get().tab_context_action(id, c.as_ptr(), x, y) };
         }
     }
+    #[cfg(feature = "with-content")]
+    fn platform_release_workspace(&self, workspace: WorkspaceId) {
+        if let Ok(c) = std::ffi::CString::new(workspace.to_string()) {
+            unsafe { crate::ffi::Api::get().ui_workspace_release(c.as_ptr()) };
+        }
+    }
 
     #[cfg(not(feature = "with-content"))]
     fn platform_set_tab_workspace(&self, _id: TabId, _workspace: WorkspaceId) {}
@@ -667,6 +675,8 @@ impl Backend {
     fn platform_popup_hide(&self, _name: &str) {}
     #[cfg(not(feature = "with-content"))]
     fn platform_context_action(&self, _id: TabId, _action: &str, _x: i32, _y: i32) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_release_workspace(&self, _workspace: WorkspaceId) {}
 }
 
 /// Outcome of an inbound JS call: an optional RPC response plus any UI events to
