@@ -7,6 +7,7 @@ use std::os::raw::{c_char, c_int};
 use crate::bridge;
 
 pub type TabId = u64;
+pub type WorkspaceId = u64;
 
 #[derive(Debug, Clone)]
 pub struct Tab {
@@ -14,24 +15,54 @@ pub struct Tab {
     pub url: String,
     pub title: String,
     pub loading: bool,
+    /// The workspace this tab belongs to. Tabs are only visible while their
+    /// workspace is active (`tabs.list` filters by it).
+    pub workspace: WorkspaceId,
+}
+
+/// A named group of tabs. Exactly one workspace is active at a time; switching
+/// swaps which tabs the UI sees and which one is shown in the content area.
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    pub id: WorkspaceId,
+    pub name: String,
+    /// The tab shown when this workspace is active (restored across switches).
+    pub active_tab: Option<TabId>,
 }
 
 #[derive(Default)]
 pub struct Backend {
     tabs: Vec<Tab>,
-    active: Option<TabId>,
     next_id: TabId,
+    workspaces: Vec<Workspace>,
+    active_workspace: WorkspaceId,
+    next_workspace_id: WorkspaceId,
 }
 
 impl Backend {
+    /// A fresh backend with a single default workspace and no tabs.
+    fn new() -> Self {
+        Backend {
+            tabs: Vec::new(),
+            next_id: 1,
+            workspaces: vec![Workspace {
+                id: 1,
+                name: String::from("Default"),
+                active_tab: None,
+            }],
+            active_workspace: 1,
+            next_workspace_id: 2,
+        }
+    }
+
     #[cfg(test)]
     pub fn new_for_test() -> Self {
-        Backend { next_id: 1, ..Default::default() }
+        Backend::new()
     }
 
     /// Real entry: boot Chromium via the shim, open the UI surface, run the loop.
     pub fn run(argc: c_int, argv: *mut *mut c_char) -> c_int {
-        let mut backend = Backend { next_id: 1, ..Default::default() };
+        let mut backend = Backend::new();
         backend.boot(argc, argv);
         backend.open_tab("browser://newtab");
         backend.enter_run_loop()
@@ -64,33 +95,60 @@ impl Backend {
     pub fn open_tab(&mut self, url: &str) -> TabId {
         let id = self.next_id;
         self.next_id += 1;
+        let workspace = self.active_workspace;
         self.tabs.push(Tab {
             id,
             url: url.to_owned(),
             title: String::from("New Tab"),
             loading: false,
+            workspace,
         });
-        self.active = Some(id);
+        self.set_active_tab(Some(id));
         id
     }
 
     pub fn close_tab(&mut self, id: TabId) -> bool {
         let Some(pos) = self.tabs.iter().position(|t| t.id == id) else { return false };
+        let ws = self.tabs[pos].workspace;
         self.tabs.remove(pos);
-        if self.active == Some(id) {
-            self.active = self.tabs.last().map(|t| t.id);
+        // If the closed tab was its workspace's active one, fall back to the last
+        // remaining tab in that same workspace (or none).
+        if self.workspace(ws).and_then(|w| w.active_tab) == Some(id) {
+            let fallback = self.tabs.iter().rev().find(|t| t.workspace == ws).map(|t| t.id);
+            if let Some(w) = self.workspace_mut(ws) {
+                w.active_tab = fallback;
+            }
         }
         true
     }
 
     #[cfg(test)]
     pub fn tab_count(&self) -> usize { self.tabs.len() }
-    #[cfg(test)]
-    pub fn active_tab(&self) -> Option<TabId> { self.active }
+    /// The active tab of the active workspace.
+    pub fn active_tab(&self) -> Option<TabId> {
+        self.workspace(self.active_workspace).and_then(|w| w.active_tab)
+    }
     pub fn tab(&self, id: TabId) -> Option<&Tab> { self.tabs.iter().find(|t| t.id == id) }
 
     fn tab_mut(&mut self, id: TabId) -> Option<&mut Tab> {
         self.tabs.iter_mut().find(|t| t.id == id)
+    }
+
+    // --- workspaces --------------------------------------------------------
+
+    fn workspace(&self, id: WorkspaceId) -> Option<&Workspace> {
+        self.workspaces.iter().find(|w| w.id == id)
+    }
+    fn workspace_mut(&mut self, id: WorkspaceId) -> Option<&mut Workspace> {
+        self.workspaces.iter_mut().find(|w| w.id == id)
+    }
+
+    /// Record `id` as the active tab of the currently active workspace.
+    fn set_active_tab(&mut self, id: Option<TabId>) {
+        let ws = self.active_workspace;
+        if let Some(w) = self.workspace_mut(ws) {
+            w.active_tab = id;
+        }
     }
 
     // --- content event sinks (called from the FFI trampolines) -------------
@@ -150,14 +208,28 @@ impl Backend {
             "ui.events.subscribe" => CallOutcome::events(self.replay_events()),
 
             // Reads that must reflect live state (the stateless boot stubs can't).
+            // Tabs are scoped to the active workspace.
             "tabs.list" => {
-                let tabs: Vec<serde_json::Value> =
-                    self.tabs.iter().map(Self::tab_json).collect();
+                let tabs: Vec<serde_json::Value> = self
+                    .tabs
+                    .iter()
+                    .filter(|t| t.workspace == self.active_workspace)
+                    .map(Self::tab_json)
+                    .collect();
                 CallOutcome::reply(bridge::ok_response(id, serde_json::json!(tabs)))
             }
             "tabs.active" => {
-                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(self.active)))
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(self.active_tab())))
             }
+
+            // --- workspaces ---------------------------------------------------
+            "workspaces.list" => {
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(self.workspaces_json())))
+            }
+            "workspaces.create" => self.workspace_create(id, &params),
+            "workspaces.rename" => self.workspace_rename(id, &params),
+            "workspaces.delete" => self.workspace_delete(id, &params),
+            "workspaces.switch" => self.workspace_switch(id, &params),
 
             // Tab lifecycle: mutate the model and push the matching events.
             "navigation.newTab" => {
@@ -203,7 +275,7 @@ impl Backend {
                 let mut events = Vec::new();
                 if let Some(tid) = tab_id() {
                     if self.tab(tid).is_some() {
-                        self.active = Some(tid);
+                        self.set_active_tab(Some(tid));
                         self.platform_show(tid);
                         events.push(bridge::event(
                             "active-tab-changed",
@@ -222,7 +294,7 @@ impl Backend {
                     if self.close_tab(tid) {
                         self.platform_close(tid);
                         events.push(bridge::event("tab-closed", serde_json::json!({ "id": tid })));
-                        if let Some(active) = self.active {
+                        if let Some(active) = self.active_tab() {
                             self.platform_show(active);
                             events.push(bridge::event(
                                 "active-tab-changed",
@@ -241,16 +313,160 @@ impl Backend {
         }
     }
 
-    /// Replay the current model to a freshly subscribed UI: a `new-tab` per tab
-    /// plus the active-tab marker, so the chrome populates from authoritative
-    /// state without a separate fetch.
+    /// Replay the current model to a freshly subscribed UI: the workspace list
+    /// and active workspace, a `new-tab` per tab in the active workspace, plus the
+    /// active-tab marker, so the chrome populates from authoritative state without
+    /// a separate fetch.
     fn replay_events(&self) -> Vec<String> {
-        let mut events: Vec<String> =
-            self.tabs.iter().map(|t| self.new_tab_event(t.id)).collect();
-        if let Some(active) = self.active {
+        let mut events = vec![
+            bridge::event(
+                "workspaces-updated",
+                serde_json::json!({ "workspaces": self.workspaces_json() }),
+            ),
+            bridge::event("workspace-changed", serde_json::json!({ "id": self.active_workspace })),
+        ];
+        events.extend(
+            self.tabs
+                .iter()
+                .filter(|t| t.workspace == self.active_workspace)
+                .map(|t| self.new_tab_event(t.id)),
+        );
+        if let Some(active) = self.active_tab() {
             events.push(bridge::event("active-tab-changed", serde_json::json!({ "id": active })));
         }
         events
+    }
+
+    // --- workspace RPC handlers -------------------------------------------
+
+    /// Workspace list in the UI's shape: `[{ id, name, active }]`.
+    fn workspaces_json(&self) -> Vec<serde_json::Value> {
+        self.workspaces
+            .iter()
+            .map(|w| {
+                serde_json::json!({
+                    "id": w.id,
+                    "name": w.name,
+                    "active": w.id == self.active_workspace,
+                })
+            })
+            .collect()
+    }
+
+    fn name_taken(&self, name: &str, except: Option<WorkspaceId>) -> bool {
+        self.workspaces
+            .iter()
+            .any(|w| Some(w.id) != except && w.name == name)
+    }
+
+    /// `workspaces.create { name }` — add a workspace, switch to it, and open a
+    /// fresh tab in it so it has an active tab. Rejects duplicate names.
+    fn workspace_create(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if name.is_empty() {
+            return CallOutcome::reply(bridge::error_response(id, "bad_request", "missing name"));
+        }
+        if self.name_taken(name, None) {
+            return CallOutcome::reply(bridge::error_response(id, "duplicate name", "duplicate name"));
+        }
+        let ws_id = self.next_workspace_id;
+        self.next_workspace_id += 1;
+        self.workspaces.push(Workspace { id: ws_id, name: name.to_owned(), active_tab: None });
+        self.active_workspace = ws_id;
+        let tab_id = self.open_tab("browser://newtab");
+        self.platform_show(tab_id);
+        let events = vec![
+            self.new_tab_event(tab_id),
+            bridge::event("workspaces-updated", serde_json::json!({ "workspaces": self.workspaces_json() })),
+            bridge::event("workspace-changed", serde_json::json!({ "id": ws_id })),
+            bridge::event("active-tab-changed", serde_json::json!({ "id": tab_id })),
+        ];
+        CallOutcome {
+            response: Some(bridge::ok_response(id, serde_json::json!({ "id": ws_id }))),
+            events,
+        }
+    }
+
+    /// `workspaces.rename { id, name }` — rename, rejecting duplicate names.
+    fn workspace_rename(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let ws_id = params.get("id").and_then(|v| v.as_u64());
+        let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_owned();
+        if name.is_empty() {
+            return CallOutcome::reply(bridge::error_response(id, "bad_request", "missing name"));
+        }
+        if self.name_taken(&name, ws_id) {
+            return CallOutcome::reply(bridge::error_response(id, "duplicate name", "duplicate name"));
+        }
+        let mut events = Vec::new();
+        if let Some(w) = ws_id.and_then(|wid| self.workspace_mut(wid)) {
+            w.name = name;
+            events.push(bridge::event(
+                "workspaces-updated",
+                serde_json::json!({ "workspaces": self.workspaces_json() }),
+            ));
+        }
+        CallOutcome {
+            response: Some(bridge::ok_response(id, serde_json::json!(true))),
+            events,
+        }
+    }
+
+    /// `workspaces.delete { id }` — remove a workspace and its tabs; refuses to
+    /// delete the last one. Switches away if the active workspace was deleted.
+    fn workspace_delete(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let ws_id = params.get("id").and_then(|v| v.as_u64());
+        if self.workspaces.len() <= 1 {
+            return CallOutcome::reply(bridge::error_response(id, "last_workspace", "cannot delete the last workspace"));
+        }
+        let Some(ws_id) = ws_id.filter(|wid| self.workspace(*wid).is_some()) else {
+            return CallOutcome::reply(bridge::ok_response(id, serde_json::json!(false)));
+        };
+
+        // Drop the workspace's tabs (and their WebContents).
+        let doomed: Vec<TabId> =
+            self.tabs.iter().filter(|t| t.workspace == ws_id).map(|t| t.id).collect();
+        for tid in &doomed {
+            self.platform_close(*tid);
+        }
+        self.tabs.retain(|t| t.workspace != ws_id);
+        self.workspaces.retain(|w| w.id != ws_id);
+
+        let mut events = vec![bridge::event(
+            "workspaces-updated",
+            serde_json::json!({ "workspaces": self.workspaces_json() }),
+        )];
+        // If we deleted the active workspace, switch to the first remaining one.
+        if self.active_workspace == ws_id {
+            self.active_workspace = self.workspaces[0].id;
+            events.push(bridge::event("workspace-changed", serde_json::json!({ "id": self.active_workspace })));
+            if let Some(active) = self.active_tab() {
+                self.platform_show(active);
+                events.push(bridge::event("active-tab-changed", serde_json::json!({ "id": active })));
+            }
+        }
+        CallOutcome {
+            response: Some(bridge::ok_response(id, serde_json::json!(true))),
+            events,
+        }
+    }
+
+    /// `workspaces.switch { id }` — make a workspace active and show its tab.
+    fn workspace_switch(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let mut events = Vec::new();
+        if let Some(ws_id) = params.get("id").and_then(|v| v.as_u64()) {
+            if self.workspace(ws_id).is_some() && ws_id != self.active_workspace {
+                self.active_workspace = ws_id;
+                events.push(bridge::event("workspace-changed", serde_json::json!({ "id": ws_id })));
+                if let Some(active) = self.active_tab() {
+                    self.platform_show(active);
+                    events.push(bridge::event("active-tab-changed", serde_json::json!({ "id": active })));
+                }
+            }
+        }
+        CallOutcome {
+            response: Some(bridge::ok_response(id, serde_json::json!(true))),
+            events,
+        }
     }
 
     fn new_tab_event(&self, id: TabId) -> String {

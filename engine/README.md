@@ -95,6 +95,11 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
       bridge map.
+  - [x] **Workspaces:** the backend owns a workspace model (`workspaces.list/
+        create/rename/delete/switch`); tabs belong to a workspace and `tabs.list`/
+        `tabs.active`/subscribe replay are scoped to the active one, emitting
+        `workspaces-updated`/`workspace-changed` (`tests/e2e/workspaces-model.test.js`,
+        cargo tests). Persistence lands later (external Rust embeddable DB).
   - [x] **Bridge trust gate** (`otf_trust.{h,cc}`): only otf's own internal UI
         frames may use the JS<->Rust bridge. Trusted = the internal `browser://`
         scheme, or (dev only) the resolved UI origin (forwarded to renderers via a

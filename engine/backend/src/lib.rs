@@ -136,7 +136,7 @@ pub extern "C" fn otf_backend_main(argc: c_int, argv: *mut *mut c_char) -> c_int
 
 #[cfg(test)]
 mod tests {
-    use super::backend::Backend;
+    use super::backend::{Backend, CallOutcome};
 
     #[test]
     fn tab_model_create_and_close() {
@@ -202,10 +202,13 @@ mod tests {
 
         let outcome = b.on_js_call(r#"{"id":"s1","method":"ui.events.subscribe"}"#);
         assert!(outcome.response.is_none(), "subscriptions have no RPC reply");
-        assert_eq!(event_keys(&outcome.events), ["new-tab", "active-tab-changed"]);
-        let first: serde_json::Value = serde_json::from_str(&outcome.events[0]).unwrap();
-        assert_eq!(first["tab"]["id"], id);
-        assert_eq!(first["tab"]["url"], "https://example.com");
+        assert_eq!(
+            event_keys(&outcome.events),
+            ["workspaces-updated", "workspace-changed", "new-tab", "active-tab-changed"]
+        );
+        let tab_event: serde_json::Value = serde_json::from_str(&outcome.events[2]).unwrap();
+        assert_eq!(tab_event["tab"]["id"], id);
+        assert_eq!(tab_event["tab"]["url"], "https://example.com");
     }
 
     #[test]
@@ -254,5 +257,90 @@ mod tests {
         let outcome = b.on_js_call(r#"{"id":"1","method":"tabs.list","params":{}}"#);
         let resp: serde_json::Value = serde_json::from_str(&outcome.response.unwrap()).unwrap();
         assert_eq!(resp["result"].as_array().unwrap().len(), 2);
+    }
+
+    fn result(outcome: &CallOutcome) -> serde_json::Value {
+        serde_json::from_str(outcome.response.as_deref().unwrap()).unwrap()
+    }
+
+    fn call(b: &mut Backend, method: &str, params: serde_json::Value) -> CallOutcome {
+        let req = serde_json::json!({ "id": "t", "method": method, "params": params }).to_string();
+        b.on_js_call(&req)
+    }
+
+    #[test]
+    fn workspaces_start_with_one_default() {
+        let mut b = Backend::new_for_test();
+        let out = call(&mut b, "workspaces.list", serde_json::json!({}));
+        let list = result(&out);
+        let arr = list["result"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["name"], "Default");
+        assert_eq!(arr[0]["active"], true);
+    }
+
+    #[test]
+    fn create_workspace_switches_and_scopes_tabs() {
+        let mut b = Backend::new_for_test();
+        b.open_tab("https://a.test"); // lives in Default
+
+        let out = call(&mut b, "workspaces.create", serde_json::json!({ "name": "Work" }));
+        let new_ws = result(&out)["result"]["id"].as_u64().unwrap();
+        // A fresh tab was opened in the new workspace and it is now active.
+        assert_eq!(
+            event_keys(&out.events),
+            ["new-tab", "workspaces-updated", "workspace-changed", "active-tab-changed"]
+        );
+
+        // tabs.list is now scoped to the new (active) workspace: only its own tab.
+        let list = result(&call(&mut b, "tabs.list", serde_json::json!({})));
+        assert_eq!(list["result"].as_array().unwrap().len(), 1);
+
+        // Switch back to Default and its original tab reappears.
+        call(&mut b, "workspaces.switch", serde_json::json!({ "id": 1 }));
+        let back = result(&call(&mut b, "tabs.list", serde_json::json!({})));
+        assert_eq!(back["result"].as_array().unwrap().len(), 1);
+        assert_eq!(back["result"][0]["url"], "https://a.test");
+        let _ = new_ws;
+    }
+
+    #[test]
+    fn create_rejects_duplicate_name() {
+        let mut b = Backend::new_for_test();
+        let out = call(&mut b, "workspaces.create", serde_json::json!({ "name": "Default" }));
+        let resp = result(&out);
+        assert_eq!(resp["ok"], false);
+        assert_eq!(resp["error"]["code"], "duplicate name");
+        assert!(out.events.is_empty());
+    }
+
+    #[test]
+    fn rename_workspace_updates_list() {
+        let mut b = Backend::new_for_test();
+        let out = call(&mut b, "workspaces.rename", serde_json::json!({ "id": 1, "name": "Home" }));
+        assert_eq!(event_keys(&out.events), ["workspaces-updated"]);
+        let list = result(&call(&mut b, "workspaces.list", serde_json::json!({})));
+        assert_eq!(list["result"][0]["name"], "Home");
+    }
+
+    #[test]
+    fn cannot_delete_last_workspace() {
+        let mut b = Backend::new_for_test();
+        let out = call(&mut b, "workspaces.delete", serde_json::json!({ "id": 1 }));
+        assert_eq!(result(&out)["error"]["code"], "last_workspace");
+    }
+
+    #[test]
+    fn delete_active_workspace_switches_away() {
+        let mut b = Backend::new_for_test();
+        let created = call(&mut b, "workspaces.create", serde_json::json!({ "name": "Work" }));
+        let ws = result(&created)["result"]["id"].as_u64().unwrap();
+
+        let out = call(&mut b, "workspaces.delete", serde_json::json!({ "id": ws }));
+        assert_eq!(result(&out)["ok"], true);
+        // Back on Default, and Work's tab is gone.
+        let list = result(&call(&mut b, "workspaces.list", serde_json::json!({})));
+        assert_eq!(list["result"].as_array().unwrap().len(), 1);
+        assert_eq!(list["result"][0]["id"], 1);
     }
 }

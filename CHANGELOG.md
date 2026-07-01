@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- Workspaces are now backed by the Rust engine: create, rename, delete, and switch workspaces, each owning its own set of tabs. `tabs.list`/`tabs.active` and the subscribe replay are scoped to the active workspace, and workspace changes emit `workspaces-updated`/`workspace-changed`. Duplicate workspace names and deleting the last workspace are rejected. (On-disk persistence is deferred to the upcoming embedded store.)
 - Re-wired the DevTools/CDP remote-debugging HTTP handler that was dropped when content_shell was removed. The engine now provides a minimal `DevToolsManagerDelegate` and starts a loopback CDP server on `--remote-debugging-port`, so DevTools and the CDP-driven e2e suite can attach to the UI and tab targets again. `--dev-ui-url=<url>` selects the UI URL and the browser identifies itself as `OTF/0.1` in `/json/version`.
 - Bridge trust gate: the JS↔Rust bridge (`window.otf`) is now exposed only to otf's own internal UI frames — the internal `browser://` scheme, or (in dev) the resolved UI origin. Web content is denied both in the renderer (no `window.otf` installed) and authoritatively in the browser (the mojo interface bind is rejected). Covered by a new `tests/e2e/bridge-trust.test.js`.
 
