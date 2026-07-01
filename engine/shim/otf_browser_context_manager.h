@@ -44,6 +44,10 @@ class OtfBrowserContextManager {
   // Lazily created and cached; `id` is the workspace id string (UUID-ready).
   content::BrowserContext* ForWorkspace(const std::string& id);
 
+  // The workspace's in-memory (off-the-record) context, shared by all of its
+  // private tabs and isolated from its persistent data. Keyed by workspace id.
+  content::BrowserContext* ForIncognito(const std::string& id);
+
   // Delete a workspace's data: destroy its context now (its tabs are already
   // closed) and mark its directory for wipe. The directory is fully removed on
   // the next launch (WipeMarkedWorkspaces), matching "async, wiped on restart".
@@ -57,6 +61,8 @@ class OtfBrowserContextManager {
   base::FilePath root_;
   std::unique_ptr<OtfBrowserContext> system_;
   std::map<std::string, std::unique_ptr<OtfBrowserContext>> workspaces_;
+  // Per-workspace in-memory context for that workspace's private tabs.
+  std::map<std::string, std::unique_ptr<OtfBrowserContext>> incognito_;
 };
 
 }  // namespace otf

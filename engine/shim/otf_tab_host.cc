@@ -135,8 +135,9 @@ void OtfTabHost::Shutdown() {
 }
 
 OtfStatus OtfTabHost::SetWorkspace(OtfTabHandle id,
-                                   const std::string& workspace_id) {
-  tab_workspace_[id] = workspace_id;
+                                   const std::string& workspace_id,
+                                   bool off_the_record) {
+  tab_workspace_[id] = TabWorkspace{workspace_id, off_the_record};
   return 0;
 }
 
@@ -156,9 +157,11 @@ content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
     return nullptr;
   }
   auto ws = tab_workspace_.find(id);
-  content::BrowserContext* context = (ws != tab_workspace_.end() && !ws->second.empty())
-                                         ? manager->ForWorkspace(ws->second)
-                                         : manager->System();
+  content::BrowserContext* context = manager->System();
+  if (ws != tab_workspace_.end() && !ws->second.id.empty()) {
+    context = ws->second.off_the_record ? manager->ForIncognito(ws->second.id)
+                                        : manager->ForWorkspace(ws->second.id);
+  }
   if (!context) {
     return nullptr;
   }

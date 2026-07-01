@@ -47,7 +47,7 @@ OtfStatus StubUiPopupShow(const char*) { return 0; }
 OtfStatus StubUiPopupHide(const char*) { return 0; }
 OtfStatus StubUiWorkspaceRelease(const char*) { return 0; }
 
-OtfStatus StubTabSetWorkspace(OtfTabHandle, const char*) { return 0; }
+OtfStatus StubTabSetWorkspace(OtfTabHandle, const char*, int32_t) { return 0; }
 OtfStatus StubTabCreate(OtfTabHandle, const char* /*url*/) {
   (void)g_next_tab;
   return 0;
@@ -152,8 +152,10 @@ OtfStatus UiWorkspaceRelease(const char* workspace_id) {
 }
 
 // --- Tabs --- real WebContents hosted in the UI window (otf_tab_host.cc).
-OtfStatus TabSetWorkspace(OtfTabHandle id, const char* workspace_id) {
-  return otf::OtfTabHost::Get().SetWorkspace(id, str_or_empty(workspace_id));
+OtfStatus TabSetWorkspace(OtfTabHandle id, const char* workspace_id,
+                          int32_t off_the_record) {
+  return otf::OtfTabHost::Get().SetWorkspace(id, str_or_empty(workspace_id),
+                                             off_the_record != 0);
 }
 OtfStatus TabCreate(OtfTabHandle id, const char* url) {
   return otf::OtfTabHost::Get().Create(id, str_or_empty(url));

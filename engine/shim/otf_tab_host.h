@@ -43,8 +43,10 @@ class OtfTabHost {
 
   // OtfTabsApi ops (caller-assigned ids).
   // Bind a tab to its workspace before its WebContents is created, so the tab
-  // uses that workspace's isolated storage context.
-  OtfStatus SetWorkspace(OtfTabHandle id, const std::string& workspace_id);
+  // uses that workspace's isolated storage context. `off_the_record` selects the
+  // workspace's shared in-memory (private) context instead of its persistent one.
+  OtfStatus SetWorkspace(OtfTabHandle id, const std::string& workspace_id,
+                         bool off_the_record);
   OtfStatus Create(OtfTabHandle id, const std::string& url);
   OtfStatus Navigate(OtfTabHandle id, const std::string& url);
   OtfStatus Show(OtfTabHandle id);
@@ -88,10 +90,15 @@ class OtfTabHost {
   content::WebContents* Find(OtfTabHandle id);
   content::WebContents* EnsureContents(OtfTabHandle id);
 
+  // A tab's storage identity, set before its WebContents is created.
+  struct TabWorkspace {
+    std::string id;
+    bool off_the_record = false;
+  };
+
   OtfCallbacks callbacks_ = {};
   std::map<OtfTabHandle, TabEntry> tabs_;
-  // Tab -> workspace id, set before the WebContents is created.
-  std::map<OtfTabHandle, std::string> tab_workspace_;
+  std::map<OtfTabHandle, TabWorkspace> tab_workspace_;
   OtfTabHandle active_ = 0;
 };
 

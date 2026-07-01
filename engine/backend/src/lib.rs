@@ -98,8 +98,9 @@ mod ffi {
             &self,
             tab: OtfTabHandle,
             workspace_id: *const c_char,
+            off_the_record: i32,
         ) -> OtfStatus {
-            (self.tabs().set_workspace.unwrap())(tab, workspace_id)
+            (self.tabs().set_workspace.unwrap())(tab, workspace_id, off_the_record)
         }
         /// # Safety: `url` must be a valid NUL-terminated C string.
         pub unsafe fn tab_navigate(&self, tab: OtfTabHandle, url: *const c_char) -> OtfStatus {

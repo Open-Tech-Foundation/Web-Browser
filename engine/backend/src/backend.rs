@@ -18,6 +18,9 @@ pub struct Tab {
     /// The workspace this tab belongs to. Tabs are only visible while their
     /// workspace is active (`tabs.list` filters by it).
     pub workspace: WorkspaceId,
+    /// A private tab: its storage is the workspace's shared in-memory context,
+    /// isolated from the workspace's persistent data.
+    pub private: bool,
 }
 
 /// A named group of tabs. Exactly one workspace is active at a time; switching
@@ -105,6 +108,10 @@ impl Backend {
     // --- tab model (transport-agnostic, fully testable) --------------------
 
     pub fn open_tab(&mut self, url: &str) -> TabId {
+        self.open_tab_ex(url, false)
+    }
+
+    fn open_tab_ex(&mut self, url: &str, private: bool) -> TabId {
         let id = self.next_id;
         self.next_id += 1;
         let workspace = self.active_workspace;
@@ -114,9 +121,11 @@ impl Backend {
             title: String::from("New Tab"),
             loading: false,
             workspace,
+            private,
         });
-        // Bind the tab to its workspace's storage before its WebContents exists.
-        self.platform_set_tab_workspace(id, workspace);
+        // Bind the tab to its workspace's storage before its WebContents exists;
+        // a private tab uses the workspace's shared in-memory context.
+        self.platform_set_tab_workspace(id, workspace, private);
         self.set_active_tab(Some(id));
         id
     }
@@ -299,26 +308,9 @@ impl Backend {
             }
 
             // Tab lifecycle: mutate the model and push the matching events.
-            "navigation.newTab" => {
-                let url = params
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("browser://newtab")
-                    .to_owned();
-                let new_id = self.open_tab(&url);
-                // Navigate the new tab so its WebContents is created, loads the
-                // page, and is shown in the content area.
-                self.platform_navigate(new_id, &url);
-                let events = vec![
-                    self.new_tab_event(new_id),
-                    bridge::event("active-tab-changed", serde_json::json!({ "id": new_id })),
-                ];
-                CallOutcome {
-                    response: Some(bridge::ok_response(id, serde_json::json!({ "tabId": new_id }))),
-                    events,
-                }
-            }
+            "navigation.newTab" => self.open_new_tab(id, &params, false),
+            // A private tab in the current workspace (shared in-memory storage).
+            "navigation.newPrivateTab" => self.open_new_tab(id, &params, true),
             // Navigate the active (or named) tab; the tab host lazily creates a
             // WebContents the first time and shows it in the content hole.
             "navigation.tab" => {
@@ -549,10 +541,33 @@ impl Backend {
             "url": t.url,
             "title": t.title,
             "loading": t.loading,
+            "private": t.private,
         })
     }
 
     // --- popup overlays ---------------------------------------------------
+
+    /// Open a new tab (optionally private) in the active workspace, navigate it,
+    /// and return the events to push.
+    fn open_new_tab(&mut self, id: &str, params: &serde_json::Value, private: bool) -> CallOutcome {
+        let url = params
+            .get("url")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("browser://newtab")
+            .to_owned();
+        let new_id = self.open_tab_ex(&url, private);
+        // Navigate so its WebContents is created, loads the page, and is shown.
+        self.platform_navigate(new_id, &url);
+        let events = vec![
+            self.new_tab_event(new_id),
+            bridge::event("active-tab-changed", serde_json::json!({ "id": new_id })),
+        ];
+        CallOutcome {
+            response: Some(bridge::ok_response(id, serde_json::json!({ "tabId": new_id }))),
+            events,
+        }
+    }
 
     /// `ui.popup.show { name }` — open/raise the named overlay and tell it to
     /// reset transient state (`popup-restore`, broadcast; the overlay filters).
@@ -603,10 +618,10 @@ impl Backend {
     // WebContents. These are no-ops in the standalone (no-Chromium) build.
 
     #[cfg(feature = "with-content")]
-    fn platform_set_tab_workspace(&self, id: TabId, workspace: WorkspaceId) {
+    fn platform_set_tab_workspace(&self, id: TabId, workspace: WorkspaceId, private: bool) {
         // The workspace id is passed as a string so it stays UUID-ready.
         if let Ok(c) = std::ffi::CString::new(workspace.to_string()) {
-            unsafe { crate::ffi::Api::get().tab_set_workspace(id, c.as_ptr()) };
+            unsafe { crate::ffi::Api::get().tab_set_workspace(id, c.as_ptr(), private as i32) };
         }
     }
     #[cfg(feature = "with-content")]
@@ -660,7 +675,7 @@ impl Backend {
     }
 
     #[cfg(not(feature = "with-content"))]
-    fn platform_set_tab_workspace(&self, _id: TabId, _workspace: WorkspaceId) {}
+    fn platform_set_tab_workspace(&self, _id: TabId, _workspace: WorkspaceId, _private: bool) {}
     #[cfg(not(feature = "with-content"))]
     fn platform_navigate(&self, _id: TabId, _url: &str) {}
     #[cfg(not(feature = "with-content"))]

@@ -99,8 +99,25 @@ content::BrowserContext* OtfBrowserContextManager::ForWorkspace(
   return raw;
 }
 
+content::BrowserContext* OtfBrowserContextManager::ForIncognito(
+    const std::string& id) {
+  auto it = incognito_.find(id);
+  if (it != incognito_.end()) {
+    return it->second.get();
+  }
+  // Off-the-record: storage is in-memory, so the path is nominal (no directory).
+  base::FilePath path =
+      root_.Append(FILE_PATH_LITERAL("incognito")).AppendASCII(id);
+  auto context =
+      std::make_unique<OtfBrowserContext>(std::move(path), /*off_the_record=*/true);
+  content::BrowserContext* raw = context.get();
+  incognito_[id] = std::move(context);
+  return raw;
+}
+
 void OtfBrowserContextManager::ReleaseWorkspace(const std::string& id) {
   workspaces_.erase(id);  // destroy the context (its tabs are already closed).
+  incognito_.erase(id);   // and its in-memory private session.
   // Mark the directory off the UI thread (file I/O blocks); it is wiped on the
   // next launch. Best-effort + crash-safe enough until the DB owns the list.
   base::FilePath dir =

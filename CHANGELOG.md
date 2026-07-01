@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- Private tabs. Opening a private tab (New Private Tab in the app menu) keeps it in the current workspace but backs it with an in-memory context: private tabs in a workspace share storage with each other, but nothing is written to disk and they cannot see — or be seen by — the workspace's normal browsing data. They are marked with a private badge in the tab strip.
+
 - Page context menu, drawn as the browser's own overlay. Right-clicking a page shows a transparent, rounded menu built from the engine's hit-test: link actions (open in new tab, copy link address; copy email for mailto links), image actions (copy/save), editable-field actions (undo/redo/cut/copy/paste/select-all, gated by capability), selection actions (search the selection via the configured engine, copy), and reload on a bare page. Page edits and image actions run through the content layer; link/selection copying uses the clipboard; selection search goes through the backend resolver. No view-source / dev-tools items are offered (browser policy). Esc, an outside click, or picking an item dismisses it.
 - Real `browser://` internal-page scheme. Internal pages (the shell, new tab, settings, history, …) are now served over a registered, standard, secure `browser://` scheme from the built UI assets, so they work in a packaged build with no dev server. The scheme is handled by a dedicated URL loader factory for both navigations and subresources; in dev the UI still loads over the dev server.
 
