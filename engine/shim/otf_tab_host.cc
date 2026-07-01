@@ -108,16 +108,18 @@ OtfStatus OtfTabHost::Navigate(OtfTabHandle id, const std::string& url) {
   // (see NotifyUrl); normal web pages clear that mapping.
   GURL target(url);
   auto& entry = tabs_[id];
+  entry.internal_url.clear();
+  entry.internal_target.clear();
   if (target.SchemeIs(kInternalScheme) && !target.host().empty()) {
     const GURL served = ResolveUiUrl().Resolve(std::string(target.host()) + ".html");
-    if (served.is_valid()) {
+    // In dev the UI is served over http, so redirect internal pages there (and
+    // remember the browser:// URL for display). In production browser:// is
+    // served natively (OtfInternalURLLoaderFactory), so navigate it as-is.
+    if (served.is_valid() && !served.SchemeIs(kInternalScheme)) {
       entry.internal_url = url;
       entry.internal_target = served.spec();
       target = served;
     }
-  } else {
-    entry.internal_url.clear();
-    entry.internal_target.clear();
   }
 
   content::NavigationController::LoadURLParams params{target};

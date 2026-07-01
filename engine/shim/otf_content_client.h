@@ -19,6 +19,7 @@ class OtfContentClient : public content::ContentClient {
   ~OtfContentClient() override;
 
   // content::ContentClient:
+  void AddAdditionalSchemes(Schemes* schemes) override;
   std::u16string GetLocalizedString(int message_id) override;
   std::string_view GetDataResource(
       int resource_id,

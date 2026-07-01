@@ -33,7 +33,8 @@ GURL ResolveUiUrl() {
   }
   const base::CommandLine::StringVector& args = command_line->GetArgs();
   if (args.empty()) {
-    return GURL("browser://newtab");
+    // Production default: the shell page, served over the internal scheme.
+    return GURL("browser://shell");
   }
   GURL url(args[0]);
   if (url.is_valid() && url.has_scheme()) {

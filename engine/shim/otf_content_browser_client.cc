@@ -13,6 +13,7 @@
 #include "otf/shim/otf_bridge.mojom.h"
 #include "otf/shim/otf_bridge_host.h"
 #include "otf/shim/otf_devtools.h"
+#include "otf/shim/otf_internal_url_loader_factory.h"
 #include "otf/shim/otf_trust.h"
 
 namespace otf {
@@ -49,6 +50,26 @@ void OtfContentBrowserClient::AppendExtraCommandLineSwitches(
     int /*child_process_id*/) {
   // Propagate the trusted-UI-origin switch so the renderer's bridge gate agrees.
   AppendTrustSwitches(command_line);
+}
+
+mojo::PendingRemote<network::mojom::URLLoaderFactory>
+OtfContentBrowserClient::CreateNonNetworkNavigationURLLoaderFactory(
+    const std::string& scheme,
+    content::FrameTreeNodeId /*frame_tree_node_id*/) {
+  if (scheme == kInternalScheme) {
+    return OtfInternalURLLoaderFactory::Create(ResolveUiAssetDir());
+  }
+  return mojo::PendingRemote<network::mojom::URLLoaderFactory>();
+}
+
+void OtfContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
+    int /*render_process_id*/,
+    int /*render_frame_id*/,
+    const std::optional<url::Origin>& /*request_initiator_origin*/,
+    NonNetworkURLLoaderFactoryMap* factories) {
+  // Internal pages load their own assets (/assets/…) over browser:// too.
+  factories->emplace(kInternalScheme,
+                     OtfInternalURLLoaderFactory::Create(ResolveUiAssetDir()));
 }
 
 std::unique_ptr<content::DevToolsManagerDelegate>

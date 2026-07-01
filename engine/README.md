@@ -95,6 +95,13 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
       bridge map.
+  - [x] **`browser://` internal-page scheme** (`otf_internal_url_loader_factory.{h,cc}`):
+        registered as a standard/secure scheme (`OtfContentClient::AddAdditionalSchemes`)
+        and served from the UI asset dir (`--otf-ui-dir`, else `<DIR_ASSETS>/ui`)
+        for navigations + subresources. `browser://shell`→`index.html`,
+        `browser://<page>`→`<page>.html`, shared `/assets/…`. Production internal
+        pages now load with no dev server; dev still redirects tabs to the dev
+        origin (`tests/e2e/internal-scheme.test.js`).
   - [x] **Popup overlays** (`otf_popup_overlay.{h,cc}` + `ui.popup.*`): named
         popups render in their own **transparent** overlay WebContents (`<name>.html`)
         layered over the window, so they float over the chrome/page instead of the

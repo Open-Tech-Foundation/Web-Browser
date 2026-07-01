@@ -6,9 +6,13 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Added
+
+- Real `browser://` internal-page scheme. Internal pages (the shell, new tab, settings, history, …) are now served over a registered, standard, secure `browser://` scheme from the built UI assets, so they work in a packaged build with no dev server. The scheme is handled by a dedicated URL loader factory for both navigations and subresources; in dev the UI still loads over the dev server.
+
 ### Fixed
 
-- The built-in new tab page now actually loads. Opening a tab (and the initial boot tab) navigates its WebContents to the internal `browser://newtab` page, which is served as the UI's `newtab.html`; internal `browser://<page>` URLs are resolved to their `<page>.html` while the address bar keeps showing the `browser://` form. (Production serving of `browser://` via a real scheme handler is still to come; this works in the dev/asset-served setup.)
+- The built-in new tab page now actually loads. Opening a tab (and the initial boot tab) navigates its WebContents to the internal `browser://newtab` page. In production it is served natively over `browser://`; in dev it is redirected to the dev server's `newtab.html`, with the address bar keeping the `browser://` form.
 - The address bar now tracks the active tab's live URL. Per-tab title/URL/loading updates were emitted in a shape (`tabUrlChanged { tabId, url }`) the UI never consumed; they are now sent as the `{ id, key, value }` property deltas the UI applies, so the URL bar, title, and loading spinner update during navigation. The new tab page keeps an empty address bar.
 
 ### Added

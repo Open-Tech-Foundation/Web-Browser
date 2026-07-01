@@ -521,7 +521,9 @@ export async function launchDevBrowser(options = {}) {
     if (!productionUi) {
       browserArgs.splice(1, 0, `--dev-ui-url=${devUrl}`);
     } else {
+      // Serve the internal browser:// pages from the built UI assets on disk.
       browserArgs.push('--e2e-allow-remote-debugging');
+      browserArgs.push(`--otf-ui-dir=${options.uiDir || path.join(repoRoot, 'build', 'Release', 'ui')}`);
     }
 
     browser = spawnProcess(browserBin, browserArgs, {
