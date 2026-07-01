@@ -37,6 +37,9 @@ pub struct Backend {
     workspaces: Vec<Workspace>,
     active_workspace: WorkspaceId,
     next_workspace_id: WorkspaceId,
+    /// Names of popup overlays currently open, so `ui.popup.toggle` knows which
+    /// way to flip and the shim's click-outside dismissal can clear one.
+    open_popups: Vec<String>,
 }
 
 impl Backend {
@@ -52,6 +55,7 @@ impl Backend {
             }],
             active_workspace: 1,
             next_workspace_id: 2,
+            open_popups: Vec::new(),
         }
     }
 
@@ -230,6 +234,14 @@ impl Backend {
             "workspaces.rename" => self.workspace_rename(id, &params),
             "workspaces.delete" => self.workspace_delete(id, &params),
             "workspaces.switch" => self.workspace_switch(id, &params),
+
+            // --- popup overlays ----------------------------------------------
+            "ui.popup.show" => self.popup_show(id, &params),
+            "ui.popup.hide" => self.popup_hide(id, &params),
+            "ui.popup.toggle" => self.popup_toggle(id, &params),
+            // A popup's restore stream: no RPC reply. The overlay receives
+            // `popup-restore` (broadcast on each show) and filters it by name.
+            "ui.popup.restoreSubscribe" => CallOutcome::events(Vec::new()),
 
             // Tab lifecycle: mutate the model and push the matching events.
             "navigation.newTab" => {
@@ -483,6 +495,52 @@ impl Backend {
         })
     }
 
+    // --- popup overlays ---------------------------------------------------
+
+    /// `ui.popup.show { name }` — open/raise the named overlay and tell it to
+    /// reset transient state (`popup-restore`, broadcast; the overlay filters).
+    fn popup_show(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+        if name.is_empty() {
+            return CallOutcome::reply(bridge::error_response(id, "bad_request", "missing name"));
+        }
+        self.platform_popup_show(&name);
+        if !self.open_popups.iter().any(|n| n == &name) {
+            self.open_popups.push(name.clone());
+        }
+        let events = vec![bridge::event("popup-restore", serde_json::json!({ "name": name }))];
+        CallOutcome {
+            response: Some(bridge::ok_response(id, serde_json::json!(true))),
+            events,
+        }
+    }
+
+    /// `ui.popup.hide { name }` — dismiss the named overlay.
+    fn popup_hide(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_owned();
+        self.platform_popup_hide(&name);
+        self.open_popups.retain(|n| n != &name);
+        CallOutcome::reply(bridge::ok_response(id, serde_json::json!(true)))
+    }
+
+    /// `ui.popup.toggle { name }` — show if closed, hide if open.
+    fn popup_toggle(&mut self, id: &str, params: &serde_json::Value) -> CallOutcome {
+        let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        if name.is_empty() {
+            return CallOutcome::reply(bridge::error_response(id, "bad_request", "missing name"));
+        }
+        if self.open_popups.iter().any(|n| n == name) {
+            self.popup_hide(id, params)
+        } else {
+            self.popup_show(id, params)
+        }
+    }
+
+    /// The shim dismissed a popup (click outside its bounds); drop its open-state.
+    pub fn on_popup_closed(&mut self, name: &str) {
+        self.open_popups.retain(|n| n != name);
+    }
+
     // --- platform tab ops (drive the content-layer tab host via the FFI) -----
     // The Rust tab id is the caller-assigned handle the shim maps to a
     // WebContents. These are no-ops in the standalone (no-Chromium) build.
@@ -512,6 +570,18 @@ impl Backend {
             _ => 0,
         };
     }
+    #[cfg(feature = "with-content")]
+    fn platform_popup_show(&self, name: &str) {
+        if let Ok(c) = std::ffi::CString::new(name) {
+            unsafe { crate::ffi::Api::get().ui_popup_show(c.as_ptr()) };
+        }
+    }
+    #[cfg(feature = "with-content")]
+    fn platform_popup_hide(&self, name: &str) {
+        if let Ok(c) = std::ffi::CString::new(name) {
+            unsafe { crate::ffi::Api::get().ui_popup_hide(c.as_ptr()) };
+        }
+    }
 
     #[cfg(not(feature = "with-content"))]
     fn platform_navigate(&self, _id: TabId, _url: &str) {}
@@ -521,6 +591,10 @@ impl Backend {
     fn platform_close(&self, _id: TabId) {}
     #[cfg(not(feature = "with-content"))]
     fn platform_nav_action(&self, _method: &str, _id: TabId) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_popup_show(&self, _name: &str) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_popup_hide(&self, _name: &str) {}
 }
 
 /// Outcome of an inbound JS call: an optional RPC response plus any UI events to
@@ -559,6 +633,7 @@ mod ffi_glue {
             on_url_changed: Some(on_url_changed),
             on_load_state: Some(on_load_state),
             on_unhandled_key: Some(on_unhandled_key),
+            on_popup_closed: Some(on_popup_closed),
         }
     }
 
@@ -638,5 +713,9 @@ mod ffi_glue {
     ) -> i32 {
         // Phase 3 wires the reserved-shortcut table; for now let it propagate.
         0
+    }
+
+    unsafe extern "C" fn on_popup_closed(user_data: *mut c_void, name: *const c_char) {
+        as_backend(user_data).on_popup_closed(c_str(name));
     }
 }

@@ -58,6 +58,18 @@ class OtfPlatformWindow {
   // Override the content region the shown tab is sized into (px, window-relative).
   // Passing an empty rect restores the default (window minus the chrome strip).
   virtual void SetContentBounds(const gfx::Rect& bounds) = 0;
+
+  // The content region (window-relative px) below the chrome strip — where page
+  // tabs and popup overlays are placed. Used to position overlays.
+  virtual gfx::Rect ContentRegion() = 0;
+
+  // Popup-overlay hosting. ShowOverlay parents `overlay`'s (transparent) view at
+  // `bounds`, raises it above the page tab, and focuses it; `on_dismiss` runs
+  // when the user clicks outside those bounds. HideOverlay detaches it.
+  virtual void ShowOverlay(content::WebContents* overlay,
+                           const gfx::Rect& bounds,
+                           base::RepeatingClosure on_dismiss) = 0;
+  virtual void HideOverlay(content::WebContents* overlay) = 0;
 };
 
 }  // namespace otf

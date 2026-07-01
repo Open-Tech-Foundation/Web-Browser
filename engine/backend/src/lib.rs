@@ -79,6 +79,14 @@ mod ffi {
         pub unsafe fn ui_create(&self, url: *const c_char) -> OtfStatus {
             (self.ui().create.unwrap())(url)
         }
+        /// # Safety: `name` must be a valid NUL-terminated C string.
+        pub unsafe fn ui_popup_show(&self, name: *const c_char) -> OtfStatus {
+            (self.ui().popup_show.unwrap())(name)
+        }
+        /// # Safety: `name` must be a valid NUL-terminated C string.
+        pub unsafe fn ui_popup_hide(&self, name: *const c_char) -> OtfStatus {
+            (self.ui().popup_hide.unwrap())(name)
+        }
 
         // --- tabs (caller-assigned ids: Rust owns the id space) ---
         /// # Safety: `url` must be a valid NUL-terminated C string.

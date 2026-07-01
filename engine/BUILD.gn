@@ -151,6 +151,8 @@ executable("otf_browser") {
     "shim/otf_main_delegate.cc",
     "shim/otf_main_delegate.h",
     "shim/otf_platform_window.h",
+    "shim/otf_popup_overlay.cc",
+    "shim/otf_popup_overlay.h",
     "shim/otf_tab_host.cc",
     "shim/otf_tab_host.h",
     "shim/otf_trust.cc",

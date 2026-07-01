@@ -66,6 +66,11 @@ typedef struct OtfCallbacks {
   // Returns 1 if Rust consumed it, 0 to let it propagate.
   int32_t (*on_unhandled_key)(void* user_data, OtfTabHandle tab,
                               int32_t key_code, uint32_t modifiers);
+
+  // A popup overlay was dismissed by the shim itself (a click outside its
+  // bounds), not by an explicit ui.popup.hide. Rust clears its open-state so a
+  // subsequent toggle re-opens it. `name` is the popup's name.
+  void (*on_popup_closed)(void* user_data, const char* name);
 } OtfCallbacks;
 
 // ---------------------------------------------------------------------------
@@ -86,6 +91,12 @@ typedef struct OtfUiApi {
   OtfStatus (*create)(const char* url);
   // Position of the "hole" the active tab's native view is parented into.
   OtfStatus (*set_content_bounds)(int32_t x, int32_t y, int32_t w, int32_t h);
+
+  // Named popup overlays: transparent WebContents layered over the window (its
+  // page is `<name>.html`). `show` opens/raises it, `hide` dismisses it. The shim
+  // also dismisses on a click outside its bounds (reported via on_popup_closed).
+  OtfStatus (*popup_show)(const char* name);
+  OtfStatus (*popup_hide)(const char* name);
 } OtfUiApi;
 
 // ---------------------------------------------------------------------------

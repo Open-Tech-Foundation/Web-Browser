@@ -10,6 +10,7 @@
 #include <optional>
 #include <utility>
 
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "build/build_config.h"
@@ -18,6 +19,8 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/display/screen.h"
+#include "ui/events/event.h"
+#include "ui/events/event_handler.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/buildflags.h"
@@ -91,7 +94,9 @@ void EnsureViewsEnv() {
   (void)env;
 }
 
-class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
+class OtfWindowAura : public OtfPlatformWindow,
+                      public views::WidgetObserver,
+                      public ui::EventHandler {
  public:
   OtfWindowAura(content::WebContents* ui_contents,
                 const gfx::Size& size,
@@ -129,6 +134,8 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
 #endif
     widget_->Init(std::move(params));
     widget_->AddObserver(this);
+    // Pre-target handler for click-outside dismissal of popup overlays.
+    widget_->GetNativeWindow()->AddPreTargetHandler(this);
 
     widget_->GetNativeWindow()->GetHost()->Show();
     widget_->Show();
@@ -143,6 +150,9 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
       g_instance = nullptr;
     }
     if (widget_) {
+      if (aura::Window* host = HostWindow()) {
+        host->RemovePreTargetHandler(this);
+      }
       widget_->RemoveObserver(this);
     }
     widget_.reset();
@@ -186,6 +196,45 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
     ReflowShownTab();
   }
 
+  gfx::Rect ContentRegion() override { return ContentBounds(); }
+
+  void ShowOverlay(content::WebContents* overlay,
+                   const gfx::Rect& bounds,
+                   base::RepeatingClosure on_dismiss) override {
+    aura::Window* host = HostWindow();
+    aura::Window* view = overlay ? overlay->GetNativeView() : nullptr;
+    if (!host || !view) {
+      return;
+    }
+    // Transparent so the rounded popup floats over the page/chrome behind it.
+    view->SetTransparent(true);
+    if (view->parent() != host) {
+      host->AddChild(view);
+    }
+    view->SetBounds(bounds);
+    view->Show();
+    host->StackChildAtTop(view);  // above the page tab
+    overlay->WasShown();
+    overlay->Focus();
+    shown_overlay_ = overlay;
+    overlay_bounds_ = bounds;
+    overlay_dismiss_ = std::move(on_dismiss);
+  }
+
+  void HideOverlay(content::WebContents* overlay) override {
+    if (!overlay) {
+      return;
+    }
+    if (shown_overlay_ == overlay) {
+      shown_overlay_ = nullptr;
+      overlay_dismiss_.Reset();
+    }
+    if (aura::Window* view = overlay->GetNativeView()) {
+      view->Hide();
+    }
+    overlay->WasHidden();
+  }
+
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget* /*widget*/,
                              const gfx::Rect& /*new_bounds*/) override {
@@ -193,6 +242,18 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
     // layout automatically; the page tab is a child aura window layered over the
     // content region, so it must be reflowed by hand on every window resize.
     ReflowShownTab();
+  }
+
+  // ui::EventHandler: dismiss a shown popup overlay on a press outside its bounds
+  // (the "click outside to close" the popup renderer can't do itself). The press
+  // is left to propagate so it still activates whatever was clicked.
+  void OnMouseEvent(ui::MouseEvent* event) override {
+    if (!shown_overlay_ || event->type() != ui::EventType::kMousePressed) {
+      return;
+    }
+    if (!overlay_bounds_.Contains(event->location()) && overlay_dismiss_) {
+      overlay_dismiss_.Run();
+    }
   }
 
   void OnWidgetDestroying(views::Widget* widget) override {
@@ -241,6 +302,11 @@ class OtfWindowAura : public OtfPlatformWindow, public views::WidgetObserver {
   base::OnceClosure on_closed_;
   raw_ptr<content::WebContents> shown_tab_ = nullptr;
   std::optional<gfx::Rect> content_bounds_;
+
+  // The currently shown popup overlay (if any) and how to dismiss it.
+  raw_ptr<content::WebContents> shown_overlay_ = nullptr;
+  gfx::Rect overlay_bounds_;
+  base::RepeatingClosure overlay_dismiss_;
 };
 
 }  // namespace

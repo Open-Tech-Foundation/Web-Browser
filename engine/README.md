@@ -95,6 +95,14 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
       bridge map.
+  - [x] **Popup overlays** (`otf_popup_overlay.{h,cc}` + `ui.popup.*`): named
+        popups render in their own **transparent** overlay WebContents (`<name>.html`)
+        layered over the window, so they float over the chrome/page instead of the
+        old opaque child window. Common close contract: ESC + close button
+        (`Popup.jsx`) and **click-outside** (an aura pre-target handler in the
+        window backend → `on_popup_closed`). `show`/`hide`/`toggle` track open state
+        (`tests/e2e/popup-overlay.test.js`). Placement uses per-name defaults for
+        now (anchor rects can be passed later).
   - [x] **Workspaces:** the backend owns a workspace model (`workspaces.list/
         create/rename/delete/switch`); tabs belong to a workspace and `tabs.list`/
         `tabs.active`/subscribe replay are scoped to the active one, emitting

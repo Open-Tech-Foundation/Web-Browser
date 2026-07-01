@@ -43,6 +43,8 @@ OtfStatus StubUiCreate(const char* url) {
   return 0;
 }
 OtfStatus StubUiSetContentBounds(int32_t, int32_t, int32_t, int32_t) { return 0; }
+OtfStatus StubUiPopupShow(const char*) { return 0; }
+OtfStatus StubUiPopupHide(const char*) { return 0; }
 
 OtfStatus StubTabCreate(OtfTabHandle, const char* /*url*/) {
   (void)g_next_tab;
@@ -61,7 +63,8 @@ OtfStatus StubBridgeRespond(uint64_t, const char*) { return 0; }
 OtfStatus StubBridgeEmit(OtfTabHandle, const char*) { return 0; }
 
 const OtfLifecycleApi kLifecycle = {StubInit, StubRun, StubShutdown};
-const OtfUiApi kUi = {StubUiCreate, StubUiSetContentBounds};
+const OtfUiApi kUi = {StubUiCreate, StubUiSetContentBounds, StubUiPopupShow,
+                      StubUiPopupHide};
 const OtfTabsApi kTabs = {StubTabCreate,  StubTabNavigate, StubTabShow,
                           StubTabHide,    StubTabClose,    StubTabReload,
                           StubTabStop,    StubTabGoBack,   StubTabGoForward};
@@ -80,6 +83,7 @@ extern "C" const OtfApi* otf_api(void) { return &kApi; }
 #include "content/public/app/content_main.h"
 #include "otf/shim/otf_bridge_host.h"
 #include "otf/shim/otf_main_delegate.h"
+#include "otf/shim/otf_popup_overlay.h"
 #include "otf/shim/otf_tab_host.h"
 
 namespace {
@@ -99,6 +103,7 @@ OtfStatus LifecycleInit(int argc, char** argv, OtfCallbacks callbacks) {
   // same observer table to push content events (title/url/load) back to Rust.
   otf::OtfBridgeHost::Get().SetCallbacks(callbacks);
   otf::OtfTabHost::Get().SetCallbacks(callbacks);
+  otf::OtfPopupOverlay::Get().SetCallbacks(callbacks);
   return 0;
 }
 
@@ -122,6 +127,14 @@ void LifecycleShutdown(void) { g_callbacks = {}; }
 OtfStatus UiCreate(const char* /*url*/) { return 0; }
 OtfStatus UiSetContentBounds(int32_t x, int32_t y, int32_t w, int32_t h) {
   otf::OtfTabHost::Get().SetContentBounds(x, y, w, h);
+  return 0;
+}
+OtfStatus UiPopupShow(const char* name) {
+  otf::OtfPopupOverlay::Get().Show(str_or_empty(name));
+  return 0;
+}
+OtfStatus UiPopupHide(const char* name) {
+  otf::OtfPopupOverlay::Get().Hide(str_or_empty(name));
   return 0;
 }
 
@@ -154,7 +167,7 @@ OtfStatus BridgeEmit(OtfTabHandle /*target*/, const char* json) {
 
 const OtfLifecycleApi kLifecycle = {LifecycleInit, LifecycleRun,
                                     LifecycleShutdown};
-const OtfUiApi kUi = {UiCreate, UiSetContentBounds};
+const OtfUiApi kUi = {UiCreate, UiSetContentBounds, UiPopupShow, UiPopupHide};
 const OtfTabsApi kTabs = {TabCreate, TabNavigate, TabShow,   TabHide,    TabClose,
                           TabReload, TabStop,      TabGoBack, TabGoForward};
 const OtfBridgeApi kBridge = {BridgeRespond, BridgeEmit};
