@@ -61,6 +61,11 @@ class OtfTabHost {
   struct TabEntry {
     std::unique_ptr<content::WebContents> contents;
     std::unique_ptr<OtfTabObserver> observer;
+    // For an internal page: the `browser://…` URL the tab shows (what the URL bar
+    // should display) and the real `<ui-base>/<page>.html` URL we actually load.
+    // Empty for normal web pages.
+    std::string internal_url;
+    std::string internal_target;
   };
 
   OtfTabHost();

@@ -12,9 +12,14 @@ const BROWSER_SCHEME = {
   BOOKMARKS: 'browser://bookmarks',
 };
 
+// The new-tab page shows an empty address bar (ready to type), whether the URL
+// arrives as the internal browser://newtab or its served newtab.html form.
+const isNewTabUrl = (u) => !!u && (u.startsWith('browser://newtab') || u.includes('/newtab.html'));
+const displayTabUrl = (u) => (isNewTabUrl(u) ? '' : (u || ''));
+
 const normalizeTab = (tab) => ({
   ...tab,
-  url: (tab.url && (tab.url.startsWith('browser://newtab') || tab.url.includes('/newtab.html'))) ? '' : (tab.url || ''),
+  url: displayTabUrl(tab.url),
   loading: Boolean(tab.loading),
   canGoBack: Boolean(tab.canGoBack),
   canGoForward: Boolean(tab.canGoForward),
@@ -287,6 +292,7 @@ const App = () => {
             } else {
               let val = event.value;
               if (event.key === 'zoomPercent') val = Number(event.value);
+              else if (event.key === 'url') val = displayTabUrl(event.value);
               else if (event.key === 'sslError') val = event.value === 'true' || event.value === true;
               else if (event.key === 'muted') val = event.value === 'true' || event.value === true;
               else if (event.key === 'pinned') val = event.value === 'true' || event.value === true;

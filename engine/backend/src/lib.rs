@@ -171,15 +171,17 @@ mod tests {
         assert_eq!(tab.url, "https://example.com/page");
         assert!(!tab.loading);
 
-        // Each sink returns the UI event envelope keyed for the bridge.
-        for (env, key) in [
-            (&title_ev, "tabTitleChanged"),
-            (&url_ev, "tabUrlChanged"),
-            (&load_ev, "tabLoadStateChanged"),
+        // Each sink returns a per-tab property delta `{ id, key, value }` (the
+        // shape App.jsx routes through UPDATE_TAB).
+        for (env, key, value) in [
+            (&title_ev, "title", serde_json::json!("Example")),
+            (&url_ev, "url", serde_json::json!("https://example.com/page")),
+            (&load_ev, "loading", serde_json::json!(false)),
         ] {
             let v: serde_json::Value = serde_json::from_str(env).unwrap();
             assert_eq!(v["key"], key);
-            assert_eq!(v["tabId"], id);
+            assert_eq!(v["id"], id);
+            assert_eq!(v["value"], value);
         }
     }
 

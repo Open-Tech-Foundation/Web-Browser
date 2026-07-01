@@ -13,6 +13,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "otf/shim/otf_browser_context.h"
 #include "otf/shim/otf_platform_window.h"
+#include "otf/shim/otf_trust.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
@@ -102,7 +103,24 @@ OtfStatus OtfTabHost::Navigate(OtfTabHandle id, const std::string& url) {
   if (!wc) {
     return -1;
   }
-  content::NavigationController::LoadURLParams params{GURL(url)};
+  // Internal pages (browser://<page>) are served as the UI's "<page>.html" next
+  // to the shell. Remember the browser:// URL so the URL bar keeps showing it
+  // (see NotifyUrl); normal web pages clear that mapping.
+  GURL target(url);
+  auto& entry = tabs_[id];
+  if (target.SchemeIs(kInternalScheme) && !target.host().empty()) {
+    const GURL served = ResolveUiUrl().Resolve(std::string(target.host()) + ".html");
+    if (served.is_valid()) {
+      entry.internal_url = url;
+      entry.internal_target = served.spec();
+      target = served;
+    }
+  } else {
+    entry.internal_url.clear();
+    entry.internal_target.clear();
+  }
+
+  content::NavigationController::LoadURLParams params{target};
   params.transition_type = ui::PAGE_TRANSITION_TYPED;
   wc->GetController().LoadURLWithParams(params);
   Show(id);
@@ -202,8 +220,21 @@ void OtfTabHost::NotifyTitle(OtfTabHandle id, const std::string& title) {
 }
 
 void OtfTabHost::NotifyUrl(OtfTabHandle id, const std::string& url) {
+  // For an internal page still on its served "<page>.html" URL, report the
+  // browser:// URL so the UI shows/treats it as internal. Any navigation away
+  // clears the mapping and reports the real URL.
+  std::string reported = url;
+  auto it = tabs_.find(id);
+  if (it != tabs_.end() && !it->second.internal_url.empty()) {
+    if (url == it->second.internal_target) {
+      reported = it->second.internal_url;
+    } else {
+      it->second.internal_url.clear();
+      it->second.internal_target.clear();
+    }
+  }
   if (callbacks_.on_url_changed) {
-    callbacks_.on_url_changed(callbacks_.user_data, id, url.c_str());
+    callbacks_.on_url_changed(callbacks_.user_data, id, reported.c_str());
   }
 }
 

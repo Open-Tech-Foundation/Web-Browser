@@ -40,6 +40,9 @@ pub struct Backend {
     /// Names of popup overlays currently open, so `ui.popup.toggle` knows which
     /// way to flip and the shim's click-outside dismissal can clear one.
     open_popups: Vec<String>,
+    /// Set once the UI has subscribed; used to lazily load the boot tab's page
+    /// (the content layer isn't ready to host a WebContents until then).
+    ui_ready: bool,
 }
 
 impl Backend {
@@ -56,6 +59,7 @@ impl Backend {
             active_workspace: 1,
             next_workspace_id: 2,
             open_popups: Vec::new(),
+            ui_ready: false,
         }
     }
 
@@ -159,31 +163,27 @@ impl Backend {
     // Each updates the authoritative model and returns the UI event envelope to
     // push, or None when the handle is unknown.
 
+    // These emit per-tab *property deltas* in the UI's shape (bridge map §5b):
+    // `{ id, key, value }`, where `key` is the tab property. App.jsx routes any
+    // event whose key isn't a known event type through UPDATE_TAB, so the address
+    // bar / title / spinner track live navigation.
+
     pub fn on_title_changed(&mut self, id: TabId, title: &str) -> Option<String> {
         let tab = self.tab_mut(id)?;
         tab.title = title.to_owned();
-        Some(bridge::event(
-            "tabTitleChanged",
-            serde_json::json!({ "tabId": id, "title": title }),
-        ))
+        Some(bridge::event("title", serde_json::json!({ "id": id, "value": title })))
     }
 
     pub fn on_url_changed(&mut self, id: TabId, url: &str) -> Option<String> {
         let tab = self.tab_mut(id)?;
         tab.url = url.to_owned();
-        Some(bridge::event(
-            "tabUrlChanged",
-            serde_json::json!({ "tabId": id, "url": url }),
-        ))
+        Some(bridge::event("url", serde_json::json!({ "id": id, "value": url })))
     }
 
     pub fn on_load_state(&mut self, id: TabId, loading: bool) -> Option<String> {
         let tab = self.tab_mut(id)?;
         tab.loading = loading;
-        Some(bridge::event(
-            "tabLoadStateChanged",
-            serde_json::json!({ "tabId": id, "loading": loading }),
-        ))
+        Some(bridge::event("loading", serde_json::json!({ "id": id, "value": loading })))
     }
 
     // --- bridge ------------------------------------------------------------
@@ -209,7 +209,21 @@ impl Backend {
 
         match method {
             // The UI's event stream opening: no RPC reply, replay current state.
-            "ui.events.subscribe" => CallOutcome::events(self.replay_events()),
+            // On the first subscribe the content layer is up, so load the boot
+            // tab's page (it had no WebContents until now).
+            "ui.events.subscribe" => {
+                let events = self.replay_events();
+                if !self.ui_ready {
+                    self.ui_ready = true;
+                    if let Some(active) = self.active_tab() {
+                        let url = self.tab(active).map(|t| t.url.clone()).unwrap_or_default();
+                        if !url.is_empty() {
+                            self.platform_navigate(active, &url);
+                        }
+                    }
+                }
+                CallOutcome::events(events)
+            }
 
             // Reads that must reflect live state (the stateless boot stubs can't).
             // Tabs are scoped to the active workspace.
@@ -252,9 +266,9 @@ impl Backend {
                     .unwrap_or("browser://newtab")
                     .to_owned();
                 let new_id = self.open_tab(&url);
-                // Show the (so far page-less) tab so the content area reflects the
-                // switch; its WebContents is created lazily on first navigation.
-                self.platform_show(new_id);
+                // Navigate the new tab so its WebContents is created, loads the
+                // page, and is shown in the content area.
+                self.platform_navigate(new_id, &url);
                 let events = vec![
                     self.new_tab_event(new_id),
                     bridge::event("active-tab-changed", serde_json::json!({ "id": new_id })),

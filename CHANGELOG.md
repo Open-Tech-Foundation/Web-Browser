@@ -6,6 +6,11 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+### Fixed
+
+- The built-in new tab page now actually loads. Opening a tab (and the initial boot tab) navigates its WebContents to the internal `browser://newtab` page, which is served as the UI's `newtab.html`; internal `browser://<page>` URLs are resolved to their `<page>.html` while the address bar keeps showing the `browser://` form. (Production serving of `browser://` via a real scheme handler is still to come; this works in the dev/asset-served setup.)
+- The address bar now tracks the active tab's live URL. Per-tab title/URL/loading updates were emitted in a shape (`tabUrlChanged { tabId, url }`) the UI never consumed; they are now sent as the `{ id, key, value }` property deltas the UI applies, so the URL bar, title, and loading spinner update during navigation. The new tab page keeps an empty address bar.
+
 ### Added
 
 - Modern popup/overlay subsystem: named popups (workspace switcher, split menu, blocked-popup prompt, etc.) now render in their own transparent overlay WebContents layered over the window instead of the previous opaque child window, so they float over the chrome and page. Every popup shares a common close contract — Esc, an in-popup close button, and click-outside-to-dismiss (handled in the window backend) — driven by `ui.popup.show`/`hide`/`toggle`, which also tracks open state.
