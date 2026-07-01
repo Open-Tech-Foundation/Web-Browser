@@ -94,8 +94,15 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
-      bridge map. Plus: re-wire a DevTools http handler (dropped with Shell),
-      window-resize reflow, gate the bridge to `browser://` frames (security).
+      bridge map. Still to do: gate the bridge to `browser://` frames (security).
+  - [x] **DevTools http handler re-wired** (`otf_devtools.{h,cc}`): otf provides a
+        minimal `DevToolsManagerDelegate` + starts the CDP TCP server on
+        `--remote-debugging-port` (loopback), so DevTools/e2e can attach again
+        (content_shell used to do this). `--dev-ui-url` now selects the UI URL and
+        `GetProduct()` names the browser `OTF/…`. e2e harness is live again.
+  - [x] **Window-resize reflow:** `OtfWindowAura::OnWidgetBoundsChanged` reflows
+        the shown page tab (a child aura window) into the content region on resize
+        (covered by `tests/e2e/window-resize.test.js`).
 - [ ] **Foundation for app features:** SQLite for history/bookmarks + session
       persistence/restore (back/forward UX builds on this).
 - [ ] **Phase 4:** privacy APIs (DoH, HTTPS-only, partitioning, request filter).

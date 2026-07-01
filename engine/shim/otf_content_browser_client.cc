@@ -4,12 +4,14 @@
 
 #include "base/functional/bind.h"
 #include "content/public/browser/browser_main_parts.h"
+#include "content/public/browser/devtools_manager_delegate.h"
 #include "content/public/browser/render_frame_host.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "otf/shim/otf_browser_main_parts.h"
 #include "otf/shim/otf_bridge.mojom.h"
 #include "otf/shim/otf_bridge_host.h"
+#include "otf/shim/otf_devtools.h"
 
 namespace otf {
 
@@ -33,6 +35,17 @@ void OtfContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
          mojo::PendingReceiver<mojom::BridgeHost> receiver) {
         OtfBridgeHost::Get().BindReceiver(rfh, std::move(receiver));
       }));
+}
+
+std::unique_ptr<content::DevToolsManagerDelegate>
+OtfContentBrowserClient::CreateDevToolsManagerDelegate() {
+  return otf::CreateDevToolsManagerDelegate();
+}
+
+std::string OtfContentBrowserClient::GetProduct() {
+  // Identifies the browser in the DevTools/CDP /json/version "Browser" field
+  // (and anywhere content derives a product string).
+  return "OTF/0.1";
 }
 
 }  // namespace otf

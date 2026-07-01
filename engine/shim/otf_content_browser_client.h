@@ -7,6 +7,7 @@
 #define OTF_ENGINE_SHIM_OTF_CONTENT_BROWSER_CLIENT_H_
 
 #include <memory>
+#include <string>
 
 #include "content/public/browser/content_browser_client.h"
 
@@ -32,6 +33,9 @@ class OtfContentBrowserClient : public content::ContentBrowserClient {
   void RegisterBrowserInterfaceBindersForFrame(
       content::RenderFrameHost* render_frame_host,
       mojo::BinderMapWithContext<content::RenderFrameHost*>* map) override;
+  std::unique_ptr<content::DevToolsManagerDelegate>
+  CreateDevToolsManagerDelegate() override;
+  std::string GetProduct() override;
 };
 
 }  // namespace otf

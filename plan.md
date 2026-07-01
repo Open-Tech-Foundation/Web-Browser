@@ -169,8 +169,8 @@ gn/ninja (master)
 **Phase 3 — Browser core** (next)
 - Full tab-model parity; input router + reserved-shortcut table; RPC breadth
   (most namespaces still resolve `Deferred`).
-- Re-wire DevTools http handler; window-resize reflow; gate bridge to `browser://`
-  frames (security). **SQLite for history/bookmarks + session persistence/restore**
+- ~~Re-wire DevTools http handler; window-resize reflow~~ ✅; gate bridge to
+  `browser://` frames (security). **SQLite for history/bookmarks + session persistence/restore**
   — the data foundation app features (back/forward UX, history, bookmarks) build on.
 
 **Phase 4 — Privacy layer**
