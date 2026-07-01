@@ -43,6 +43,9 @@ pub struct Backend {
     /// Set once the UI has subscribed; used to lazily load the boot tab's page
     /// (the content layer isn't ready to host a WebContents until then).
     ui_ready: bool,
+    /// The most recent page context-menu hit-test, so the menu overlay can fetch
+    /// it on mount (`contextMenu.current`) without racing the show.
+    last_context_menu: Option<serde_json::Value>,
 }
 
 impl Backend {
@@ -60,6 +63,7 @@ impl Backend {
             next_workspace_id: 2,
             open_popups: Vec::new(),
             ui_ready: false,
+            last_context_menu: None,
         }
     }
 
@@ -186,6 +190,22 @@ impl Backend {
         Some(bridge::event("loading", serde_json::json!({ "id": id, "value": loading })))
     }
 
+    /// A page right-click: stash the hit-test, open otf's own menu overlay, and
+    /// push a `context-menu` event (the overlay also fetches it via
+    /// `contextMenu.current` on mount to avoid racing the show). Returns the
+    /// events to emit.
+    pub fn on_context_menu(&mut self, id: TabId, params_json: &str) -> Vec<String> {
+        let params: serde_json::Value =
+            serde_json::from_str(params_json).unwrap_or_else(|_| serde_json::json!({}));
+        let payload = serde_json::json!({ "tabId": id, "params": params });
+        self.last_context_menu = Some(payload.clone());
+        self.platform_popup_show("contextmenu");
+        if !self.open_popups.iter().any(|n| n == "contextmenu") {
+            self.open_popups.push("contextmenu".to_owned());
+        }
+        vec![bridge::event("context-menu", payload)]
+    }
+
     // --- bridge ------------------------------------------------------------
 
     /// Handle an inbound JS bridge request against the authoritative tab model.
@@ -256,6 +276,25 @@ impl Backend {
             // A popup's restore stream: no RPC reply. The overlay receives
             // `popup-restore` (broadcast on each show) and filters it by name.
             "ui.popup.restoreSubscribe" => CallOutcome::events(Vec::new()),
+
+            // --- page context menu -------------------------------------------
+            // The menu overlay's event stream (broadcast context-menu events).
+            "contextMenu.subscribe" => CallOutcome::events(Vec::new()),
+            // The overlay fetches the current hit-test on mount.
+            "contextMenu.current" => {
+                let cur = self.last_context_menu.clone().unwrap_or(serde_json::Value::Null);
+                CallOutcome::reply(bridge::ok_response(id, cur))
+            }
+            // Run a page action (copy/paste/selectAll/copyImage/…) on the tab.
+            "contextMenu.exec" => {
+                let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                let x = params.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                let y = params.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                if let Some(tid) = tab_id() {
+                    self.platform_context_action(tid, action, x, y);
+                }
+                CallOutcome::reply(bridge::ok_response(id, serde_json::json!(true)))
+            }
 
             // Tab lifecycle: mutate the model and push the matching events.
             "navigation.newTab" => {
@@ -596,6 +635,12 @@ impl Backend {
             unsafe { crate::ffi::Api::get().ui_popup_hide(c.as_ptr()) };
         }
     }
+    #[cfg(feature = "with-content")]
+    fn platform_context_action(&self, id: TabId, action: &str, x: i32, y: i32) {
+        if let Ok(c) = std::ffi::CString::new(action) {
+            unsafe { crate::ffi::Api::get().tab_context_action(id, c.as_ptr(), x, y) };
+        }
+    }
 
     #[cfg(not(feature = "with-content"))]
     fn platform_navigate(&self, _id: TabId, _url: &str) {}
@@ -609,6 +654,8 @@ impl Backend {
     fn platform_popup_show(&self, _name: &str) {}
     #[cfg(not(feature = "with-content"))]
     fn platform_popup_hide(&self, _name: &str) {}
+    #[cfg(not(feature = "with-content"))]
+    fn platform_context_action(&self, _id: TabId, _action: &str, _x: i32, _y: i32) {}
 }
 
 /// Outcome of an inbound JS call: an optional RPC response plus any UI events to
@@ -648,6 +695,7 @@ mod ffi_glue {
             on_load_state: Some(on_load_state),
             on_unhandled_key: Some(on_unhandled_key),
             on_popup_closed: Some(on_popup_closed),
+            on_context_menu: Some(on_context_menu),
         }
     }
 
@@ -731,5 +779,15 @@ mod ffi_glue {
 
     unsafe extern "C" fn on_popup_closed(user_data: *mut c_void, name: *const c_char) {
         as_backend(user_data).on_popup_closed(c_str(name));
+    }
+
+    unsafe extern "C" fn on_context_menu(
+        user_data: *mut c_void,
+        tab: OtfTabHandle,
+        params_json: *const c_char,
+    ) {
+        for ev in as_backend(user_data).on_context_menu(tab, c_str(params_json)) {
+            emit(ev);
+        }
     }
 }

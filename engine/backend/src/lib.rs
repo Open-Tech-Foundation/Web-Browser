@@ -111,6 +111,16 @@ mod ffi {
         pub fn tab_go_forward(&self, tab: OtfTabHandle) -> OtfStatus {
             unsafe { (self.tabs().go_forward.unwrap())(tab) }
         }
+        /// # Safety: `action` must be a valid NUL-terminated C string.
+        pub unsafe fn tab_context_action(
+            &self,
+            tab: OtfTabHandle,
+            action: *const c_char,
+            x: i32,
+            y: i32,
+        ) -> OtfStatus {
+            (self.tabs().context_action.unwrap())(tab, action, x, y)
+        }
 
         // --- bridge ---
         /// # Safety: `json` must be a valid NUL-terminated C string.
@@ -287,6 +297,32 @@ mod tests {
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["name"], "Default");
         assert_eq!(arr[0]["active"], true);
+    }
+
+    #[test]
+    fn context_menu_stashes_hittest_and_serves_current() {
+        let mut b = Backend::new_for_test();
+        let tab = b.open_tab("https://a.test");
+
+        let events = b.on_context_menu(
+            tab,
+            r#"{"x":10,"y":20,"linkUrl":"https://ex.com/","mediaType":"none"}"#,
+        );
+        // Pushes a context-menu event carrying the tab + hit-test.
+        assert_eq!(event_keys(&events), ["context-menu"]);
+        let ev: serde_json::Value = serde_json::from_str(&events[0]).unwrap();
+        assert_eq!(ev["tabId"], tab);
+        assert_eq!(ev["params"]["linkUrl"], "https://ex.com/");
+
+        // The overlay can fetch the same hit-test on mount.
+        let cur = result(&call(&mut b, "contextMenu.current", serde_json::json!({})));
+        assert_eq!(cur["result"]["params"]["x"], 10);
+        assert_eq!(cur["result"]["tabId"], tab);
+
+        // exec replies ok (the platform action is a no-op without content).
+        let ex = result(&call(&mut b, "contextMenu.exec",
+            serde_json::json!({ "tabId": tab, "action": "copy", "x": 10, "y": 20 })));
+        assert_eq!(ex["ok"], true);
     }
 
     #[test]

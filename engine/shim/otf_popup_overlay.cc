@@ -40,6 +40,11 @@ gfx::Size PopupSize(const std::string& name) {
 
 // Place the popup near the top-left of the content region, clamped to fit.
 gfx::Rect PlacePopup(const std::string& name, const gfx::Rect& region) {
+  // The page context menu is a full-window transparent layer: the React menu
+  // positions itself at the click point and its backdrop captures outside clicks.
+  if (name == "contextmenu") {
+    return region;
+  }
   constexpr int kMargin = 12;
   gfx::Size size = PopupSize(name);
   int width = std::min(size.width(), std::max(0, region.width() - 2 * kMargin));

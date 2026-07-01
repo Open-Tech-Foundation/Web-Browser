@@ -8,6 +8,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
+- Page context menu, drawn as otf's own overlay. Right-clicking a page shows a transparent, rounded menu built from the engine's hit-test: link actions (open in new tab, copy address), image actions (open/copy/save), editable-field actions (undo/redo/cut/copy/paste/select-all, gated by capability), text-selection actions (copy, web search), and page navigation — plus otf's own additions (copy page address, view page source). Page edits and image actions run through the content layer; link/selection copying uses the clipboard directly. Esc, an outside click, or picking an item dismisses it.
 - Real `browser://` internal-page scheme. Internal pages (the shell, new tab, settings, history, …) are now served over a registered, standard, secure `browser://` scheme from the built UI assets, so they work in a packaged build with no dev server. The scheme is handled by a dedicated URL loader factory for both navigations and subresources; in dev the UI still loads over the dev server.
 
 ### Fixed

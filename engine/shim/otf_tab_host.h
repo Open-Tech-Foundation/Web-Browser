@@ -26,6 +26,7 @@ class WebContents;
 namespace otf {
 
 class OtfTabObserver;
+class OtfTabWebContentsDelegate;
 
 class OtfTabHost {
  public:
@@ -54,6 +55,11 @@ class OtfTabHost {
   void NotifyTitle(OtfTabHandle id, const std::string& title);
   void NotifyUrl(OtfTabHandle id, const std::string& url);
   void NotifyLoad(OtfTabHandle id, bool loading);
+  // Called by the per-tab delegate on a page right-click.
+  void NotifyContextMenu(OtfTabHandle id, const std::string& params_json);
+
+  // Run a context-menu action on the tab's page (see OtfTabsApi::context_action).
+  OtfStatus ContextAction(OtfTabHandle id, const std::string& action, int x, int y);
 
  private:
   friend class base::NoDestructor<OtfTabHost>;
@@ -61,6 +67,7 @@ class OtfTabHost {
   struct TabEntry {
     std::unique_ptr<content::WebContents> contents;
     std::unique_ptr<OtfTabObserver> observer;
+    std::unique_ptr<OtfTabWebContentsDelegate> delegate;
     // For an internal page: the `browser://…` URL the tab shows (what the URL bar
     // should display) and the real `<ui-base>/<page>.html` URL we actually load.
     // Empty for normal web pages.

@@ -3,17 +3,24 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/json/json_writer.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/values.h"
+#include "content/public/browser/context_menu_params.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/reload_type.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "otf/shim/otf_browser_context.h"
 #include "otf/shim/otf_platform_window.h"
 #include "otf/shim/otf_trust.h"
+#include "third_party/blink/public/common/context_menu_data/edit_flags.h"
+#include "third_party/blink/public/mojom/context_menu/context_menu.mojom-shared.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
@@ -41,6 +48,66 @@ class OtfTabObserver : public content::WebContentsObserver {
         web_contents()) {
       host_->NotifyUrl(id_, web_contents()->GetLastCommittedURL().spec());
     }
+  }
+
+ private:
+  OtfTabHandle id_;
+  raw_ptr<OtfTabHost> host_;
+};
+
+namespace {
+
+const char* MediaTypeString(blink::mojom::ContextMenuDataMediaType type) {
+  using MediaType = blink::mojom::ContextMenuDataMediaType;
+  switch (type) {
+    case MediaType::kImage: return "image";
+    case MediaType::kVideo: return "video";
+    case MediaType::kAudio: return "audio";
+    case MediaType::kCanvas: return "canvas";
+    case MediaType::kFile: return "file";
+    case MediaType::kPlugin: return "plugin";
+    default: return "none";
+  }
+}
+
+// Serialize the trustworthy subset of a context-menu hit-test into the JSON the
+// UI menu overlay renders from.
+std::string SerializeContextMenu(const content::ContextMenuParams& params) {
+  const int flags = params.edit_flags;
+  using Edit = blink::ContextMenuDataEditFlags;
+  base::DictValue d;
+  d.Set("x", params.x);
+  d.Set("y", params.y);
+  d.Set("mediaType", MediaTypeString(params.media_type));
+  d.Set("linkUrl", params.link_url.spec());
+  d.Set("linkText", base::UTF16ToUTF8(params.link_text));
+  d.Set("srcUrl", params.src_url.spec());
+  d.Set("hasImage", params.has_image_contents);
+  d.Set("selectionText", base::UTF16ToUTF8(params.selection_text));
+  d.Set("isEditable", params.is_editable);
+  d.Set("pageUrl", params.page_url.spec());
+  d.Set("canUndo", (flags & Edit::kCanUndo) != 0);
+  d.Set("canRedo", (flags & Edit::kCanRedo) != 0);
+  d.Set("canCut", (flags & Edit::kCanCut) != 0);
+  d.Set("canCopy", (flags & Edit::kCanCopy) != 0);
+  d.Set("canPaste", (flags & Edit::kCanPaste) != 0);
+  d.Set("canSelectAll", (flags & Edit::kCanSelectAll) != 0);
+  return base::WriteJson(d).value_or("{}");
+}
+
+}  // namespace
+
+// Per-tab WebContentsDelegate: otf draws its own page context menu, so it
+// intercepts the content-layer request and forwards the hit-test to the UI.
+class OtfTabWebContentsDelegate : public content::WebContentsDelegate {
+ public:
+  OtfTabWebContentsDelegate(OtfTabHandle id, OtfTabHost* host)
+      : id_(id), host_(host) {}
+
+  bool HandleContextMenu(content::RenderFrameHost& /*rfh*/,
+                         const content::ContextMenuParams& params) override {
+    host_->NotifyContextMenu(id_, SerializeContextMenu(params));
+    return true;  // otf shows its own menu; suppress the default.
   }
 
  private:
@@ -83,6 +150,8 @@ content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
   TabEntry entry;
   entry.contents = std::move(contents);
   entry.observer = std::make_unique<OtfTabObserver>(raw, id, this);
+  entry.delegate = std::make_unique<OtfTabWebContentsDelegate>(id, this);
+  raw->SetDelegate(entry.delegate.get());
   tabs_[id] = std::move(entry);
   return raw;
 }
@@ -244,6 +313,49 @@ void OtfTabHost::NotifyLoad(OtfTabHandle id, bool loading) {
   if (callbacks_.on_load_state) {
     callbacks_.on_load_state(callbacks_.user_data, id, loading ? 1 : 0);
   }
+}
+
+void OtfTabHost::NotifyContextMenu(OtfTabHandle id,
+                                   const std::string& params_json) {
+  if (callbacks_.on_context_menu) {
+    callbacks_.on_context_menu(callbacks_.user_data, id, params_json.c_str());
+  }
+}
+
+OtfStatus OtfTabHost::ContextAction(OtfTabHandle id,
+                                    const std::string& action,
+                                    int x,
+                                    int y) {
+  content::WebContents* wc = Find(id);
+  if (!wc) {
+    return -1;
+  }
+  if (action == "copy") {
+    wc->Copy();
+  } else if (action == "cut") {
+    wc->Cut();
+  } else if (action == "paste") {
+    wc->Paste();
+  } else if (action == "pasteMatchStyle") {
+    wc->PasteAndMatchStyle();
+  } else if (action == "selectAll") {
+    wc->SelectAll();
+  } else if (action == "undo") {
+    wc->Undo();
+  } else if (action == "redo") {
+    wc->Redo();
+  } else if (action == "copyImage" || action == "saveImage") {
+    if (content::RenderFrameHost* rfh = wc->GetPrimaryMainFrame()) {
+      if (action == "copyImage") {
+        rfh->CopyImageAt(x, y);
+      } else {
+        rfh->SaveImageAt(x, y);
+      }
+    }
+  } else {
+    return -1;
+  }
+  return 0;
 }
 
 }  // namespace otf

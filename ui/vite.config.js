@@ -46,7 +46,8 @@ export default defineConfig({
         'popup-intent': resolve(__dirname, 'popup-intent.html'),
         'popup-intent-target': resolve(__dirname, 'popup-intent-target.html'),
         console: resolve(__dirname, 'console.html'),
-        snipperview: resolve(__dirname, 'snipperview.html')
+        snipperview: resolve(__dirname, 'snipperview.html'),
+        contextmenu: resolve(__dirname, 'contextmenu.html')
       }
     }
   }

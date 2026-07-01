@@ -58,6 +58,9 @@ OtfStatus StubTabReload(OtfTabHandle) { return 0; }
 OtfStatus StubTabStop(OtfTabHandle) { return 0; }
 OtfStatus StubTabGoBack(OtfTabHandle) { return 0; }
 OtfStatus StubTabGoForward(OtfTabHandle) { return 0; }
+OtfStatus StubTabContextAction(OtfTabHandle, const char*, int32_t, int32_t) {
+  return 0;
+}
 
 OtfStatus StubBridgeRespond(uint64_t, const char*) { return 0; }
 OtfStatus StubBridgeEmit(OtfTabHandle, const char*) { return 0; }
@@ -65,9 +68,10 @@ OtfStatus StubBridgeEmit(OtfTabHandle, const char*) { return 0; }
 const OtfLifecycleApi kLifecycle = {StubInit, StubRun, StubShutdown};
 const OtfUiApi kUi = {StubUiCreate, StubUiSetContentBounds, StubUiPopupShow,
                       StubUiPopupHide};
-const OtfTabsApi kTabs = {StubTabCreate,  StubTabNavigate, StubTabShow,
-                          StubTabHide,    StubTabClose,    StubTabReload,
-                          StubTabStop,    StubTabGoBack,   StubTabGoForward};
+const OtfTabsApi kTabs = {StubTabCreate,  StubTabNavigate,  StubTabShow,
+                          StubTabHide,    StubTabClose,     StubTabReload,
+                          StubTabStop,    StubTabGoBack,    StubTabGoForward,
+                          StubTabContextAction};
 const OtfBridgeApi kBridge = {StubBridgeRespond, StubBridgeEmit};
 const OtfApi kApi = {OTF_API_VERSION, &kLifecycle, &kUi, &kTabs, &kBridge};
 
@@ -154,6 +158,10 @@ OtfStatus TabGoBack(OtfTabHandle id) { return otf::OtfTabHost::Get().GoBack(id);
 OtfStatus TabGoForward(OtfTabHandle id) {
   return otf::OtfTabHost::Get().GoForward(id);
 }
+OtfStatus TabContextAction(OtfTabHandle id, const char* action, int32_t x,
+                           int32_t y) {
+  return otf::OtfTabHost::Get().ContextAction(id, str_or_empty(action), x, y);
+}
 
 // --- Bridge --- (Rust -> JS, live)
 OtfStatus BridgeRespond(uint64_t reply_id, const char* json) {
@@ -168,8 +176,9 @@ OtfStatus BridgeEmit(OtfTabHandle /*target*/, const char* json) {
 const OtfLifecycleApi kLifecycle = {LifecycleInit, LifecycleRun,
                                     LifecycleShutdown};
 const OtfUiApi kUi = {UiCreate, UiSetContentBounds, UiPopupShow, UiPopupHide};
-const OtfTabsApi kTabs = {TabCreate, TabNavigate, TabShow,   TabHide,    TabClose,
-                          TabReload, TabStop,      TabGoBack, TabGoForward};
+const OtfTabsApi kTabs = {TabCreate, TabNavigate, TabShow,     TabHide,
+                          TabClose,  TabReload,   TabStop,     TabGoBack,
+                          TabGoForward, TabContextAction};
 const OtfBridgeApi kBridge = {BridgeRespond, BridgeEmit};
 const OtfApi kApi = {OTF_API_VERSION, &kLifecycle, &kUi, &kTabs, &kBridge};
 

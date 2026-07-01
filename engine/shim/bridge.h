@@ -71,6 +71,12 @@ typedef struct OtfCallbacks {
   // bounds), not by an explicit ui.popup.hide. Rust clears its open-state so a
   // subsequent toggle re-opens it. `name` is the popup's name.
   void (*on_popup_closed)(void* user_data, const char* name);
+
+  // A context menu was requested on a page (right-click). `params_json` carries
+  // the hit-test context ({ x, y, mediaType, linkUrl, srcUrl, selectionText,
+  // isEditable, hasImage, canCopy/canPaste/…, pageUrl }); Rust shows otf's own
+  // menu overlay against it.
+  void (*on_context_menu)(void* user_data, OtfTabHandle tab, const char* params_json);
 } OtfCallbacks;
 
 // ---------------------------------------------------------------------------
@@ -115,6 +121,12 @@ typedef struct OtfTabsApi {
   OtfStatus (*stop)(OtfTabHandle tab);
   OtfStatus (*go_back)(OtfTabHandle tab);
   OtfStatus (*go_forward)(OtfTabHandle tab);
+
+  // Run a context-menu action on the tab's page: `action` is one of
+  // undo/redo/cut/copy/paste/pasteMatchStyle/delete/selectAll/copyImage/saveImage.
+  // (x, y) are the page-relative hit point, needed for the image actions.
+  OtfStatus (*context_action)(OtfTabHandle tab, const char* action,
+                              int32_t x, int32_t y);
 } OtfTabsApi;
 
 // ---------------------------------------------------------------------------
