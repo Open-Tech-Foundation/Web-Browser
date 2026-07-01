@@ -128,6 +128,18 @@ void OtfTabHost::SetCallbacks(OtfCallbacks callbacks) {
   callbacks_ = callbacks;
 }
 
+void OtfTabHost::Shutdown() {
+  active_ = 0;
+  tabs_.clear();  // destroys observers/delegates then WebContents.
+  tab_workspace_.clear();
+}
+
+OtfStatus OtfTabHost::SetWorkspace(OtfTabHandle id,
+                                   const std::string& workspace_id) {
+  tab_workspace_[id] = workspace_id;
+  return 0;
+}
+
 content::WebContents* OtfTabHost::Find(OtfTabHandle id) {
   auto it = tabs_.find(id);
   return it == tabs_.end() ? nullptr : it->second.contents.get();
@@ -137,10 +149,16 @@ content::WebContents* OtfTabHost::EnsureContents(OtfTabHandle id) {
   if (auto* existing = Find(id)) {
     return existing;
   }
-  // Phase 1: page tabs share the system context (Phase 2 routes them to their
-  // workspace's context for cookie/cache/storage isolation).
+  // Page tabs use their workspace's isolated context (cookies/cache/storage);
+  // fall back to the system context only if no workspace was set.
   OtfBrowserContextManager* manager = OtfBrowserContextManager::Get();
-  content::BrowserContext* context = manager ? manager->System() : nullptr;
+  if (!manager) {
+    return nullptr;
+  }
+  auto ws = tab_workspace_.find(id);
+  content::BrowserContext* context = (ws != tab_workspace_.end() && !ws->second.empty())
+                                         ? manager->ForWorkspace(ws->second)
+                                         : manager->System();
   if (!context) {
     return nullptr;
   }
@@ -241,6 +259,7 @@ OtfStatus OtfTabHost::Close(OtfTabHandle id) {
     }
   }
   tabs_.erase(it);  // destroys observer, then WebContents.
+  tab_workspace_.erase(id);
   if (active_ == id) {
     active_ = 0;
   }

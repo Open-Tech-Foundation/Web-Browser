@@ -115,6 +115,8 @@ impl Backend {
             loading: false,
             workspace,
         });
+        // Bind the tab to its workspace's storage before its WebContents exists.
+        self.platform_set_tab_workspace(id, workspace);
         self.set_active_tab(Some(id));
         id
     }
@@ -599,6 +601,13 @@ impl Backend {
     // WebContents. These are no-ops in the standalone (no-Chromium) build.
 
     #[cfg(feature = "with-content")]
+    fn platform_set_tab_workspace(&self, id: TabId, workspace: WorkspaceId) {
+        // The workspace id is passed as a string so it stays UUID-ready.
+        if let Ok(c) = std::ffi::CString::new(workspace.to_string()) {
+            unsafe { crate::ffi::Api::get().tab_set_workspace(id, c.as_ptr()) };
+        }
+    }
+    #[cfg(feature = "with-content")]
     fn platform_navigate(&self, id: TabId, url: &str) {
         if let Ok(c) = std::ffi::CString::new(url) {
             unsafe { crate::ffi::Api::get().tab_navigate(id, c.as_ptr()) };
@@ -642,6 +651,8 @@ impl Backend {
         }
     }
 
+    #[cfg(not(feature = "with-content"))]
+    fn platform_set_tab_workspace(&self, _id: TabId, _workspace: WorkspaceId) {}
     #[cfg(not(feature = "with-content"))]
     fn platform_navigate(&self, _id: TabId, _url: &str) {}
     #[cfg(not(feature = "with-content"))]

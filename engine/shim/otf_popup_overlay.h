@@ -32,6 +32,9 @@ class OtfPopupOverlay {
   void Show(const std::string& name);
   void Hide(const std::string& name);
 
+  // Destroy all overlay WebContents at shutdown, before their browser context.
+  void Shutdown();
+
  private:
   OtfPopupOverlay();
   ~OtfPopupOverlay();

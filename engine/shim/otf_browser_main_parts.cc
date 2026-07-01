@@ -10,6 +10,8 @@
 #include "otf/shim/otf_browser_context_manager.h"
 #include "otf/shim/otf_devtools.h"
 #include "otf/shim/otf_platform_window.h"
+#include "otf/shim/otf_popup_overlay.h"
+#include "otf/shim/otf_tab_host.h"
 #include "otf/shim/otf_trust.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
@@ -95,6 +97,10 @@ void OtfBrowserMainParts::PostMainMessageLoopRun() {
   // neither the context nor the window incorrectly).
   window_.reset();
   ui_contents_.reset();
+  // Tab + overlay WebContents live in singletons; destroy them before their
+  // browser contexts (a WebContents must not outlive its context).
+  OtfTabHost::Get().Shutdown();
+  OtfPopupOverlay::Get().Shutdown();
 #if BUILDFLAG(IS_LINUX)
   ui::LinuxUi::SetInstance(nullptr);
 #endif

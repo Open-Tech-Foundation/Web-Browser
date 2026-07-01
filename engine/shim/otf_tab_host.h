@@ -37,7 +37,14 @@ class OtfTabHost {
 
   void SetCallbacks(OtfCallbacks callbacks);
 
+  // Destroy all tab WebContents; called at shutdown before the browser contexts
+  // they belong to are torn down (WebContents must not outlive their context).
+  void Shutdown();
+
   // OtfTabsApi ops (caller-assigned ids).
+  // Bind a tab to its workspace before its WebContents is created, so the tab
+  // uses that workspace's isolated storage context.
+  OtfStatus SetWorkspace(OtfTabHandle id, const std::string& workspace_id);
   OtfStatus Create(OtfTabHandle id, const std::string& url);
   OtfStatus Navigate(OtfTabHandle id, const std::string& url);
   OtfStatus Show(OtfTabHandle id);
@@ -83,6 +90,8 @@ class OtfTabHost {
 
   OtfCallbacks callbacks_ = {};
   std::map<OtfTabHandle, TabEntry> tabs_;
+  // Tab -> workspace id, set before the WebContents is created.
+  std::map<OtfTabHandle, std::string> tab_workspace_;
   OtfTabHandle active_ = 0;
 };
 

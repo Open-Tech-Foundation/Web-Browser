@@ -46,6 +46,7 @@ OtfBrowserContextManager::OtfBrowserContextManager()
 }
 
 OtfBrowserContextManager::~OtfBrowserContextManager() {
+  workspaces_.clear();
   system_.reset();
   if (g_instance == this) {
     g_instance = nullptr;
@@ -54,6 +55,21 @@ OtfBrowserContextManager::~OtfBrowserContextManager() {
 
 content::BrowserContext* OtfBrowserContextManager::System() {
   return system_.get();
+}
+
+content::BrowserContext* OtfBrowserContextManager::ForWorkspace(
+    const std::string& id) {
+  auto it = workspaces_.find(id);
+  if (it != workspaces_.end()) {
+    return it->second.get();
+  }
+  base::FilePath path =
+      root_.Append(FILE_PATH_LITERAL("workspaces")).AppendASCII(id);
+  auto context =
+      std::make_unique<OtfBrowserContext>(std::move(path), /*off_the_record=*/false);
+  content::BrowserContext* raw = context.get();
+  workspaces_[id] = std::move(context);
+  return raw;
 }
 
 }  // namespace otf

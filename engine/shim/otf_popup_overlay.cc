@@ -67,6 +67,10 @@ void OtfPopupOverlay::SetCallbacks(OtfCallbacks callbacks) {
   callbacks_ = callbacks;
 }
 
+void OtfPopupOverlay::Shutdown() {
+  popups_.clear();
+}
+
 content::WebContents* OtfPopupOverlay::EnsureContents(const std::string& name) {
   auto it = popups_.find(name);
   if (it != popups_.end()) {

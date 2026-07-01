@@ -89,6 +89,14 @@ mod ffi {
         }
 
         // --- tabs (caller-assigned ids: Rust owns the id space) ---
+        /// # Safety: `workspace_id` must be a valid NUL-terminated C string.
+        pub unsafe fn tab_set_workspace(
+            &self,
+            tab: OtfTabHandle,
+            workspace_id: *const c_char,
+        ) -> OtfStatus {
+            (self.tabs().set_workspace.unwrap())(tab, workspace_id)
+        }
         /// # Safety: `url` must be a valid NUL-terminated C string.
         pub unsafe fn tab_navigate(&self, tab: OtfTabHandle, url: *const c_char) -> OtfStatus {
             (self.tabs().navigate.unwrap())(tab, url)

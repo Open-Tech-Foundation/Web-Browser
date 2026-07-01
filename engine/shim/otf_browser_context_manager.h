@@ -10,7 +10,9 @@
 #ifndef OTF_ENGINE_SHIM_OTF_BROWSER_CONTEXT_MANAGER_H_
 #define OTF_ENGINE_SHIM_OTF_BROWSER_CONTEXT_MANAGER_H_
 
+#include <map>
 #include <memory>
+#include <string>
 
 #include "base/files/file_path.h"
 
@@ -38,6 +40,10 @@ class OtfBrowserContextManager {
   // The persistent context for the UI shell + overlays (browser:// chrome).
   content::BrowserContext* System();
 
+  // The isolated context for a workspace, rooted at `<root>/workspaces/<id>/`.
+  // Lazily created and cached; `id` is the workspace id string (UUID-ready).
+  content::BrowserContext* ForWorkspace(const std::string& id);
+
   // The user-data root (`<root>/system`, `<root>/workspaces/<id>`,
   // `<root>/downloads`). Resolved once at construction.
   const base::FilePath& Root() const { return root_; }
@@ -45,6 +51,7 @@ class OtfBrowserContextManager {
  private:
   base::FilePath root_;
   std::unique_ptr<OtfBrowserContext> system_;
+  std::map<std::string, std::unique_ptr<OtfBrowserContext>> workspaces_;
 };
 
 }  // namespace otf

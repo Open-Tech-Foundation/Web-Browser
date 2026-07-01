@@ -3,7 +3,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/core/simple_dependency_manager.h"
@@ -14,11 +13,9 @@ namespace otf {
 
 OtfBrowserContext::OtfBrowserContext(base::FilePath path, bool off_the_record)
     : off_the_record_(off_the_record), path_(std::move(path)) {
-  // A persistent (on-disk) context needs its directory to exist; off-the-record
-  // storage is in-memory, so its path is nominal only.
-  if (!off_the_record_ && !base::PathExists(path_)) {
-    base::CreateDirectory(path_);
-  }
+  // The directory is created lazily by the storage backends on their own
+  // blocking-allowed sequences — a workspace context may be constructed on the
+  // UI thread (during a navigation), where synchronous file I/O would DCHECK.
   key_ = std::make_unique<SimpleFactoryKey>(path_, off_the_record_);
   SimpleKeyMap::GetInstance()->Associate(this, key_.get());
 

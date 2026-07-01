@@ -13,7 +13,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 
-- Browser data now lives under a stable user-data root instead of a temp dir: `$HOME/.otf-browser` in production, `$HOME/.otf-browser-dev` in dev, or an explicit `--user-data-dir`. This is the first step of per-workspace data isolation: the UI shell and overlays run in a dedicated `system` profile under that root; per-workspace cookie/cache/storage isolation follows.
+- Workspaces now have fully isolated data: each workspace is its own profile-like storage context, so cookies, cache, and site storage never leak between workspaces (a cookie set in one workspace is invisible to the same site in another). Browser data lives under a stable user-data root — `$HOME/.otf-browser` in production, `$HOME/.otf-browser-dev` in dev, or an explicit `--user-data-dir` — with the UI shell in a dedicated `system` profile and each workspace under `workspaces/<id>/`.
 
 ### Fixed
 

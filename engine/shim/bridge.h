@@ -109,6 +109,11 @@ typedef struct OtfUiApi {
 // Interface: Tabs — content::WebContents managed on the browser thread
 // ---------------------------------------------------------------------------
 typedef struct OtfTabsApi {
+  // Bind a tab to a workspace *before* its WebContents is created, so the tab's
+  // cookies/cache/storage come from that workspace's isolated context. `id` is
+  // the workspace id string (UUID-ready). Must be called before create/navigate.
+  OtfStatus (*set_workspace)(OtfTabHandle tab, const char* workspace_id);
+
   // Create a WebContents bound to the caller-assigned `tab` id (no-op if it
   // already exists). `navigate` lazily creates one if needed, so explicit
   // create is optional.
