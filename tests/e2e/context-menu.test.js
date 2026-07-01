@@ -53,11 +53,11 @@ test('right-click shows otf context menu with link + own items',
       await menu.open();
       await menu.send('Runtime.enable');
       const text = await waitFor(menu, `document.body && document.body.innerText || ''`,
-        (t) => /Open link in new tab/i.test(t), 8000);
-      assert.match(text, /Open link in new tab/i, 'link items present');
+        (t) => /Open in new tab/i.test(t), 8000);
+      assert.match(text, /Open in new tab/i, 'link items present');
       assert.match(text, /Copy link address/i);
-      assert.match(text, /Copy page address/i, "otf's own addition present");
-      assert.match(text, /Reload/i);
+      // Policy: no view-source / dev-tools items are ever offered.
+      assert.doesNotMatch(text, /view.?source/i, 'view-source must not appear');
     } finally {
       if (menu) menu.close();
       if (page) page.close();

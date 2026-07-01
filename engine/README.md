@@ -95,13 +95,16 @@ auto-selected; force a backend with `--ozone-platform=x11|wayland`.
 - [ ] **Phase 3:** full tab model, input router + reserved-shortcut table, more
       RPC breadth (most namespaces still resolve `Deferred`) — at parity with the
       bridge map.
-  - [x] **Page context menu** (otf's own): a per-tab `WebContentsDelegate`
+  - [x] **Page context menu** (the browser's own): a per-tab `WebContentsDelegate`
         (`otf_tab_host.cc`) intercepts `HandleContextMenu`, serializes the hit-test
         ({link/src/selection/editable + edit-flags + x,y}), and the backend opens a
         transparent full-window `contextmenu` overlay (`ui/contextmenu/`) that
-        builds the menu — link/image/edit/selection/nav items + otf additions.
-        Page edits/image ops run via `contextMenu.exec` → `OtfTabsApi.context_action`;
-        link/selection copying uses the clipboard (`tests/e2e/context-menu.test.js`).
+        builds link/image/edit/selection/reload items (no view-source — blocked by
+        policy). Page edits/image ops run via `contextMenu.exec` →
+        `OtfTabsApi.context_action`; selection search goes through the backend
+        resolver (configured engine); clipboard copies are UI-side
+        (`tests/e2e/context-menu.test.js`). Preview Image / Preview Document items
+        are still to port (need the imagePreview/docPreview backend modules).
   - [x] **`browser://` internal-page scheme** (`otf_internal_url_loader_factory.{h,cc}`):
         registered as a standard/secure scheme (`OtfContentClient::AddAdditionalSchemes`)
         and served from the UI asset dir (`--otf-ui-dir`, else `<DIR_ASSETS>/ui`)

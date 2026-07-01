@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { isBridgeAvailable, nativeRequest, subscribe } from '../src/shared/nativeRequest';
 
-// otf draws its own page context menu: a full-window transparent overlay whose
-// backdrop closes on click, with a positioned menu built from the hit-test the
-// engine reports (contextMenu.subscribe / .current). Item actions run over the
-// bridge (page edits/images via contextMenu.exec, navigation/new-tab via the
-// existing RPCs) or locally (clipboard for links/selection).
+// otf's page context menu: a full-window transparent overlay whose backdrop
+// closes on click, with a menu built from the engine's hit-test
+// (contextMenu.subscribe / .current). It mirrors the menu the browser has always
+// shown — no view-source / dev-tools items (blocked by policy), and search goes
+// through the backend resolver (the configured engine), never a hardcoded URL.
 const MENU_WIDTH = 240;
 
 const hide = () =>
@@ -34,7 +34,6 @@ export default function ContextMenu() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Clamp the menu inside the viewport once we know its height.
   useLayoutEffect(() => {
     const p = ctx?.params;
     if (!p) return;
@@ -44,34 +43,52 @@ export default function ContextMenu() {
     setPos({ left, top });
   }, [ctx]);
 
-  const run = useCallback((fn) => { try { fn(); } finally { hide(); } }, []);
-
   if (!ctx || !ctx.params) return null;
   const p = ctx.params;
+
+  const run = (fn) => { try { fn(); } finally { hide(); } };
   const exec = (action) =>
     nativeRequest({ method: 'contextMenu.exec', params: { tabId: ctx.tabId, action, x: p.x, y: p.y } }).catch(() => {});
   const rpc = (method, params) => nativeRequest({ method, params }).catch(() => {});
+  const newTab = (url) => url && rpc('navigation.newTab', { url });
   const clip = (text) => { try { navigator.clipboard.writeText(text); } catch (_) { /* ignore */ } };
+  // Search the selection via the backend resolver, which applies the user's
+  // configured search engine (no URL is built in the UI).
+  const searchSelection = (text) =>
+    nativeRequest({ method: 'navigation.resolveInput', params: { input: text } })
+      .then((url) => newTab(url))
+      .catch(() => {});
 
   const isImage = p.mediaType === 'image' || p.hasImage;
-  const hasLink = !!p.linkUrl;
-  const hasSelection = !!(p.selectionText && p.selectionText.trim());
-  const short = (s, n = 24) => (s && s.length > n ? `${s.slice(0, n)}…` : s);
+  const isMailto = (p.linkUrl || '').startsWith('mailto:');
+  const hasLink = !!p.linkUrl && !isMailto;
+  const selection = (p.selectionText || '').trim();
+  const truncate = (s, n = 40) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
   const groups = [];
 
-  if (hasLink) {
+  if (isMailto) {
     groups.push([
-      { label: 'Open link in new tab', onClick: () => rpc('navigation.newTab', { url: p.linkUrl }) },
+      { label: 'Copy Email ID', onClick: () => clip(p.linkUrl.replace(/^mailto:/, '')) },
+    ]);
+  } else if (hasLink) {
+    groups.push([
+      { label: 'Open in new tab', onClick: () => newTab(p.linkUrl) },
       { label: 'Copy link address', onClick: () => clip(p.linkUrl) },
     ]);
   }
 
   if (isImage) {
     groups.push([
-      { label: 'Open image in new tab', onClick: () => rpc('navigation.newTab', { url: p.srcUrl }), disabled: !p.srcUrl },
       { label: 'Copy image', onClick: () => exec('copyImage') },
-      { label: 'Save image as…', onClick: () => exec('saveImage') },
+      { label: 'Save image', onClick: () => exec('saveImage') },
+    ]);
+  }
+
+  if (selection && !p.isEditable) {
+    groups.push([
+      { label: `Search “${truncate(selection)}”`, onClick: () => searchSelection(selection) },
+      { label: 'Copy', onClick: () => clip(selection) },
     ]);
   }
 
@@ -84,26 +101,16 @@ export default function ContextMenu() {
       { label: 'Paste', onClick: () => exec('paste'), disabled: !p.canPaste },
       { label: 'Select all', onClick: () => exec('selectAll'), disabled: !p.canSelectAll },
     ]);
-  } else if (hasSelection) {
+  }
+
+  // Plain page (nothing else applies): a reload affordance, as before.
+  if (!hasLink && !isMailto && !isImage && !selection && !p.isEditable) {
     groups.push([
-      { label: 'Copy', onClick: () => clip(p.selectionText) },
-      { label: `Search web for “${short(p.selectionText)}”`,
-        onClick: () => rpc('navigation.newTab', { url: `https://www.google.com/search?q=${encodeURIComponent(p.selectionText)}` }) },
+      { label: 'Reload', onClick: () => rpc('tabs.reload', { tabId: ctx.tabId }) },
     ]);
   }
 
-  // Page navigation — always available.
-  groups.push([
-    { label: 'Back', onClick: () => rpc('tabs.back', { tabId: ctx.tabId }) },
-    { label: 'Forward', onClick: () => rpc('tabs.forward', { tabId: ctx.tabId }) },
-    { label: 'Reload', onClick: () => rpc('tabs.reload', { tabId: ctx.tabId }) },
-  ]);
-
-  // otf's own additions.
-  groups.push([
-    { label: 'Copy page address', onClick: () => clip(p.pageUrl), otf: true },
-    { label: 'View page source', onClick: () => rpc('navigation.newTab', { url: `view-source:${p.pageUrl}` }), otf: true, disabled: !p.pageUrl },
-  ]);
+  if (groups.length === 0) return null;
 
   return (
     <div
@@ -124,13 +131,12 @@ export default function ContextMenu() {
                 key={ii}
                 disabled={item.disabled}
                 onClick={() => run(item.onClick)}
-                className={`w-full text-left px-3 py-1.5 flex items-center gap-2 transition-colors ${
+                className={`w-full text-left px-3 py-1.5 transition-colors ${
                   item.disabled
                     ? 'opacity-40 cursor-default'
                     : 'hover:bg-orange-50 dark:hover:bg-orange-500/10 hover:text-brand-orange cursor-pointer'
                 }`}
               >
-                {item.otf && <span className="w-1.5 h-1.5 rounded-full bg-brand-orange shrink-0" />}
                 <span className="truncate">{item.label}</span>
               </button>
             ))}
